@@ -1,19 +1,18 @@
 import os
 import time
 import logging
+from datetime import datetime
+from pathlib import Path
+
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
-CHANNEL_ID = os.getenv("CHZZK_CHANNEL_ID", "").strip()
+BASE_DIR = Path("/home/ubuntu/chzzk-bot")
+CHANNELS_FILE = BASE_DIR / "channels.txt"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
-
-API_URL = (
-    "https://api.chzzk.naver.com/service/v3.3/"
-    f"channels/{CHANNEL_ID}/live-detail"
-)
+POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -29,8 +28,25 @@ session = requests.Session()
 session.headers.update(HEADERS)
 
 
-def get_live_info():
-    response = session.get(API_URL, timeout=15)
+def load_channels():
+    """Read one CHZZK channel ID per line; changes apply without restarting."""
+    try:
+        lines = CHANNELS_FILE.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        logging.warning("%s 파일이 없습니다.", CHANNELS_FILE)
+        return []
+
+    channel_ids = []
+    for line in lines:
+        channel_id = line.strip()
+        if channel_id and not channel_id.startswith("#") and channel_id not in channel_ids:
+            channel_ids.append(channel_id)
+    return channel_ids
+
+
+def get_live_info(channel_id):
+    url = f"https://api.chzzk.naver.com/service/v3.3/channels/{channel_id}/live-detail"
+    response = session.get(url, timeout=15)
     response.raise_for_status()
     data = response.json()
 
@@ -38,69 +54,83 @@ def get_live_info():
         raise ValueError("치지직 API 응답에 방송 정보가 없습니다.")
 
     content = data["content"]
+    channel = content.get("channel") or {}
+    live_id = content.get("liveId")
+    thumbnail = content.get("liveImageUrl") or content.get("defaultThumbnailImageUrl") or ""
+    if thumbnail:
+        thumbnail = thumbnail.replace("{type}", "720")
+
     return {
+        "channel_id": channel_id,
+        "name": channel.get("channelName") or content.get("channelName") or channel_id,
+        "avatar": channel.get("channelImageUrl") or "",
         "status": content.get("status", "UNKNOWN"),
         "title": content.get("liveTitle") or "제목 없음",
-        "url": f"https://chzzk.naver.com/live/{content.get('liveId', '')}",
+        "category": content.get("liveCategoryValue") or "카테고리 정보 없음",
+        "thumbnail": thumbnail,
+        "open_date": content.get("openDate") or "",
+        "url": f"https://chzzk.naver.com/live/{live_id}" if live_id else f"https://chzzk.naver.com/{channel_id}",
     }
 
 
 def send_discord_notification(live):
+    embed = {
+        "author": {
+            "name": live["name"],
+            "url": f"https://chzzk.naver.com/{live['channel_id']}",
+        },
+        "title": live["title"],
+        "url": live["url"],
+        "description": f"{live['name']} 님이 방송을 시작했습니다.",
+        "color": 0x00FFA3,
+        "fields": [
+            {
+                "name": "카테고리",
+                "value": live["category"],
+                "inline": False,
+            }
+        ],
+        "footer": {"text": f"chzzk.naver.com • {live['open_date']}".strip(" •")},
+    }
+
+    if live["avatar"]:
+        embed["author"]["icon_url"] = live["avatar"]
+    if live["thumbnail"]:
+        embed["image"] = {"url": live["thumbnail"]}
+
     payload = {
         "username": "치지직 방송 알림",
-        "embeds": [{
-            "title": "🔴 방송이 시작되었습니다!",
-            "description": f"**{live['title']}**",
-            "url": live["url"],
-            "color": 0x00FFA3,
-            "fields": [{
-                "name": "채널",
-                "value": "하나요 히요리",
-                "inline": True,
-            }],
-            "footer": {"text": "CHZZK Live Notification"},
-        }],
+        "embeds": [embed],
         "allowed_mentions": {"parse": []},
     }
 
-    response = requests.post(
-        WEBHOOK_URL,
-        json=payload,
-        timeout=15,
-    )
+    response = requests.post(WEBHOOK_URL, json=payload, timeout=15)
     response.raise_for_status()
-    logging.info("디스코드 알림 전송 성공")
+    logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
 
 def main():
-    if not CHANNEL_ID:
-        raise SystemExit("CHZZK_CHANNEL_ID가 .env에 설정되지 않았습니다.")
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
 
-    previous_status = None
-    logging.info("치지직 방송 알림 봇 시작")
+    previous_status = {}
+    logging.info("치지직 다중 채널 알림 봇 시작")
 
     while True:
-        try:
-            live = get_live_info()
-            status = live["status"]
+        channel_ids = load_channels()
+        for channel_id in channel_ids:
+            try:
+                live = get_live_info(channel_id)
+                status = live["status"]
+                logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
 
-            logging.info(
-                "방송 상태: %s | 제목: %s",
-                status,
-                live["title"],
-            )
-
-            # 첫 확인은 기준 상태로만 사용해 재시작 중 중복 알림을 방지
-            if previous_status is not None:
-                if status == "OPEN" and previous_status != "OPEN":
+                # First observation establishes a baseline and avoids a false alert after restart.
+                if channel_id in previous_status and status == "OPEN" and previous_status[channel_id] != "OPEN":
                     send_discord_notification(live)
 
-            previous_status = status
-
-        except Exception as error:
-            logging.warning("확인 중 오류 발생: %s", error)
+                previous_status[channel_id] = status
+            except Exception as error:
+                logging.warning("%s 확인 중 오류 발생: %s", channel_id, error)
 
         time.sleep(POLL_INTERVAL)
 
