@@ -1,0 +1,36 @@
+name: Deploy CHZZK Bot
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy bot files to Oracle
+        run: |
+          scp -i ~/.ssh/oracle_key \
+            -o IdentitiesOnly=yes \
+            main.py requirements.txt \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:/home/ubuntu/chzzk-bot/"
+
+      - name: Install dependencies and restart bot
+        run: |
+          ssh -i ~/.ssh/oracle_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}" \
+            'cd /home/ubuntu/chzzk-bot && .venv/bin/pip install -r requirements.txt && sudo systemctl restart chzzk-bot && sudo systemctl is-active chzzk-bot'
