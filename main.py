@@ -98,10 +98,12 @@ def send_discord_notification(live):
     if live["thumbnail"]:
         embed["image"] = {"url": live["thumbnail"]}
 
+    role_id = os.getenv("DISCORD_ROLE_ID", "").strip()
     payload = {
         "username": "치지직 방송 알림",
+        "content": f"<@&{role_id}>" if role_id else "",
         "embeds": [embed],
-        "allowed_mentions": {"parse": []},
+        "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
 
     response = requests.post(WEBHOOK_URL, json=payload, timeout=15)
