@@ -14,6 +14,9 @@ BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 CHANNELS_FILE = BASE_DIR / "channels.txt"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
+ROLE_BY_CHANNEL = {
+    "36ddb9bb4f17593b60f1b63cec86611d": "1564279305171640361",
+}
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -99,7 +102,7 @@ def send_discord_notification(live):
     if live["thumbnail"]:
         embed["image"] = {"url": live["thumbnail"]}
 
-    role_id = os.getenv("DISCORD_ROLE_ID", "").strip()
+    role_id = ROLE_BY_CHANNEL.get(live["channel_id"], os.getenv("DISCORD_ROLE_ID", "").strip())
     payload = {
         "username": "치지직 방송 알림",
         "content": f"<@&{role_id}>" if role_id else "",
