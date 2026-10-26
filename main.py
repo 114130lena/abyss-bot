@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from cafe_notifier import check_cafe
 
 load_dotenv()
 
@@ -133,6 +134,11 @@ def main():
                 previous_status[channel_id] = status
             except Exception as error:
                 logging.warning("%s 확인 중 오류 발생: %s", channel_id, error)
+
+        try:
+            check_cafe()
+        except Exception as error:
+            logging.warning("네이버 카페 확인 중 오류 발생: %s", error)
 
         time.sleep(POLL_INTERVAL)
 
