@@ -11,11 +11,22 @@ BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 load_dotenv(BASE_DIR / ".env")
 
 CAFE_ID = os.getenv("CAFE_ID", "29424353")
-MENU_ID = os.getenv("CAFE_MENU_ID", "431")
+DEFAULT_MENU_ID = os.getenv("CAFE_MENU_ID", "431")
 INTERVAL = max(30, int(os.getenv("CAFE_POLL_INTERVAL", "60")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-ROLE_ID = os.getenv("DISCORD_ROLE_ID", "").strip()
-SEEN_FILE = BASE_DIR / "cafe_seen_articles.json"
+
+BOARDS = [
+    {
+        "menu_id": DEFAULT_MENU_ID,
+        "role_id": os.getenv("DISCORD_ROLE_ID", "").strip(),
+        "seen_file": BASE_DIR / "cafe_seen_articles.json",
+    },
+    {
+        "menu_id": "382",
+        "role_id": os.getenv("CAFE_MENU_382_ROLE_ID", "1564279305171640361").strip(),
+        "seen_file": BASE_DIR / "cafe_seen_articles_382.json",
+    },
+]
 
 session = requests.Session()
 session.headers.update({
@@ -26,10 +37,10 @@ session.headers.update({
 last_check = 0.0
 
 
-def get_articles():
+def get_articles(menu_id):
     url = (
         "https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/"
-        f"cafes/{CAFE_ID}/menus/{MENU_ID}/articles"
+        f"cafes/{CAFE_ID}/menus/{menu_id}/articles"
     )
     response = session.get(url, timeout=15)
     response.raise_for_status()
@@ -49,29 +60,29 @@ def get_articles():
             "summary": (item.get("summary") or "").strip(),
             "url": (
                 f"https://cafe.naver.com/f-e/cafes/{CAFE_ID}"
-                f"/articles/{article_id}?menuid={MENU_ID}"
+                f"/articles/{article_id}?menuid={menu_id}"
             ),
         })
     return articles
 
 
-def load_seen():
+def load_seen(path):
     try:
-        data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         return [str(value) for value in data]
     except FileNotFoundError:
         return None
 
 
-def save_seen(ids):
-    SEEN_FILE.write_text(
+def save_seen(path, ids):
+    path.write_text(
         json.dumps(ids[:100], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def notify(article):
-    role_mention = f"<@&{ROLE_ID}>" if ROLE_ID else ""
+def notify(article, role_id, menu_id):
+    role_mention = f"<@&{role_id}>" if role_id else ""
     summary = article["summary"]
     if len(summary) > 1000:
         summary = summary[:997] + "..."
@@ -86,7 +97,7 @@ def notify(article):
             "value": article["author"][:256],
             "inline": True,
         }],
-        "footer": {"text": "네이버 카페 새 게시글"},
+        "footer": {"text": f"네이버 카페 새 게시글 • 게시판 {menu_id}"},
     }
     payload = {
         "username": "네이버 카페 알림",
@@ -94,12 +105,12 @@ def notify(article):
         "embeds": [embed],
         "allowed_mentions": {
             "parse": [],
-            "roles": [ROLE_ID] if ROLE_ID else [],
+            "roles": [role_id] if role_id else [],
         },
     }
     response = requests.post(WEBHOOK_URL, json=payload, timeout=15)
     response.raise_for_status()
-    logging.info("카페 새 글 알림 전송: %s", article["title"])
+    logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
 
 def check_cafe():
@@ -107,30 +118,34 @@ def check_cafe():
     if time.monotonic() - last_check < INTERVAL:
         return
 
-    articles = get_articles()
-    if not articles:
-        last_check = time.monotonic()
-        logging.info("카페 게시글 목록이 비어 있습니다.")
-        return
+    if not WEBHOOK_URL.startswith("https://"):
+        raise ValueError("DISCORD_WEBHOOK_URL이 설정되지 않았습니다.")
 
-    seen = load_seen()
-    current_ids = [article["id"] for article in articles]
-    if seen is None:
-        save_seen(current_ids)
-        last_check = time.monotonic()
-        logging.info("카페 알림 초기 설정 완료: 기존 글 %d개", len(current_ids))
-        return
+    for board in BOARDS:
+        menu_id = board["menu_id"]
+        articles = get_articles(menu_id)
+        if not articles:
+            logging.info("카페 게시판 %s 게시글 목록이 비어 있습니다.", menu_id)
+            continue
 
-    seen_set = set(seen)
-    new_articles = [article for article in articles if article["id"] not in seen_set]
-    new_articles.reverse()
+        seen = load_seen(board["seen_file"])
+        current_ids = [article["id"] for article in articles]
+        if seen is None:
+            save_seen(board["seen_file"], current_ids)
+            logging.info("카페 게시판 %s 초기 설정 완료: 기존 글 %d개", menu_id, len(current_ids))
+            continue
 
-    for article in new_articles:
-        notify(article)
-        seen.insert(0, article["id"])
-        seen = seen[:100]
-        save_seen(seen)
+        seen_set = set(seen)
+        new_articles = [article for article in articles if article["id"] not in seen_set]
+        new_articles.reverse()
+
+        for article in new_articles:
+            notify(article, board["role_id"], menu_id)
+            seen.insert(0, article["id"])
+            seen = seen[:100]
+            save_seen(board["seen_file"], seen)
+
+        if not new_articles:
+            logging.info("카페 게시판 %s 새 게시글 없음", menu_id)
 
     last_check = time.monotonic()
-    if not new_articles:
-        logging.info("카페 새 게시글 없음")
