@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from cafe_notifier import check_cafe
+from twitter_notifier import check_twitter
 
 load_dotenv()
 
@@ -142,6 +143,11 @@ def main():
             check_cafe()
         except Exception as error:
             logging.warning("네이버 카페 확인 중 오류 발생: %s", error)
+
+        try:
+            check_twitter()
+        except Exception as error:
+            logging.warning("X 알림 확인 중 오류 발생: %s", error)
 
         time.sleep(POLL_INTERVAL)
 
