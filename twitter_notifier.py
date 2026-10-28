@@ -45,7 +45,7 @@ def _original_post(item):
     title = (item.findtext("title") or "").strip()
     description = item.findtext("description") or ""
     # Nitter may label reposts/replies in the title. Quotes contain a quoted block.
-    if re.match(r"^(?:RT by|R to|Retweeted by|Replying to)\\b", title, re.I):
+    if re.match(r"^(?:RT by|R to|Retweeted by|Replying to)\b", title, re.I):
         return False
     if "<blockquote" in description.lower():
         return False
