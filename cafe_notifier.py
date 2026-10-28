@@ -12,7 +12,7 @@ load_dotenv(BASE_DIR / ".env")
 
 CAFE_ID = os.getenv("CAFE_ID", "29424353")
 DEFAULT_MENU_ID = os.getenv("CAFE_MENU_ID", "431")
-INTERVAL = max(30, int(os.getenv("CAFE_POLL_INTERVAL", "60")))
+INTERVAL = max(30, int(os.getenv("CAFE_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 
 BOARDS = [
