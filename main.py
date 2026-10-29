@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from cafe_notifier import check_cafe
 from twitter_notifier import check_twitter
 from youtube_notifier import check_youtube
+from youtube_websub import start_websub
 from resilience import load_json, save_json, send_webhook, warn_failure
 
 load_dotenv()
@@ -167,6 +168,7 @@ def run_worker(name, checker, interval):
 def main():
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
+    start_websub()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
         raise SystemExit("live_state.json 형식이 올바르지 않습니다.")
