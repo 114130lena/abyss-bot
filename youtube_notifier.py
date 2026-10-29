@@ -15,7 +15,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
-from discord_v2 import payload as v2_payload
+from discord_v2 import alert as unified_alert
 from creator_groups import youtube_group, role_for
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
@@ -186,13 +186,12 @@ def _notify(video):
     group = youtube_group(channel_id, replay_channel_id)
     role_id = role_for(group) if group else ""
     banner = _youtube_banner(channel_id)
-    payload = v2_payload("youtube", role_id, banner,
-                         "새로운 유튜브 영상이 업로드되었습니다!",
-                         video["channel"], "**영상 제목**\n" + video["title"][:500],
-                         media_url="https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg",
-                         media_description="유튜브 영상 썸네일",
-                         link_url=video["url"], link_label="영상 바로가기",
-                         username="정덕삼")
+    creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야" if group == "sakihane" else video["channel"]
+    payload = unified_alert(
+        "youtube", creator, banner, role_id,
+        title=video["title"], url=video["url"],
+        media_url="https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg",
+        date=video.get("published", ""))
     send_webhook(youtube_thread_webhook_url(), payload)
 
 
