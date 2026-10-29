@@ -6,6 +6,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from html import unescape
+from html.parser import HTMLParser
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -63,6 +64,52 @@ def _original_post(item):
     return True
 
 
+
+class _PostTextParser(HTMLParser):
+    """Extract post text from Nitter RSS HTML while preserving paragraphs."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.hidden += 1
+        elif tag == "br":
+            self.parts.append("\\n")
+        elif tag in ("p", "div", "blockquote") and self.parts:
+            self.parts.append("\\n\\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.hidden = max(0, self.hidden - 1)
+        elif tag in ("p", "div", "blockquote"):
+            self.parts.append("\\n\\n")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+
+def _normalize_post_text(value):
+    value = value.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    value = re.sub(r"[ \\t]+\\n", "\\n", value)
+    value = re.sub(r"\\n[ \\t]+", "\\n", value)
+    return re.sub(r"\\n{4,}", "\\n\\n\\n", value).strip()
+
+
+def _post_body(item):
+    """Prefer RSS description; title fallback if HTML is empty."""
+    description = item.findtext("description") or ""
+    if description.strip():
+        parser = _PostTextParser()
+        parser.feed(description)
+        body = _normalize_post_text("".join(parser.parts))
+        if body:
+            return body
+    return _normalize_post_text(unescape(item.findtext("title") or ""))
+
+
 def _fetch_posts(feed_url=None):
     source = feed_url or FEED_URL
     response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=8)
@@ -81,7 +128,7 @@ def _fetch_posts(feed_url=None):
         post_id = (item.findtext("guid") or "").strip()
         if not post_id.isdigit() or not _original_post(item):
             continue
-        text = unescape((item.findtext("title") or "").strip())
+        text = _post_body(item)
         posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
                       "source": source, "pub_date": item.findtext("pubDate") or ""})
     return sorted(posts, key=lambda p: int(p["id"]))
