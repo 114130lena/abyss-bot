@@ -3,6 +3,7 @@
 Add channel IDs to youtube_channels.txt or YOUTUBE_CHANNEL_IDS in .env to enable.
 """
 import json
+import threading
 import logging
 import os
 import time
@@ -37,6 +38,7 @@ SEEN_FILE = BASE_DIR / "youtube_seen_videos.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
 YT = "{http://www.youtube.com/xml/schemas/2015}"
 last_check = 0.0
+_state_lock = threading.RLock()
 failures = 0
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0"})
@@ -78,12 +80,22 @@ def _fetch_uploads(channel_id):
             "url": "https://www.youtube.com/watch?v=" + video_id,
             "published": entry.findtext(ATOM + "published") or "",
             "channel": channel_name,
+            "channel_id": channel_id,
         })
     return list(reversed(videos))
 
 
+ROLE_BY_CHANNEL = {
+    "UCHAr9pWGS30akL4MQCQT4uQ": os.getenv("YOUTUBE_HANAYO_ROLE_ID", "").strip(),
+    "UC0YQnenKBCu5sGb7H61n6HA": os.getenv("YOUTUBE_SAKIHANE_ROLE_ID", "").strip(),
+}
+
+
 def _notify(video):
+    role_id = ROLE_BY_CHANNEL.get(video.get("channel_id", ""), "")
     payload = {
+        "content": f"<@&{role_id}>" if role_id else "",
+
         "username": "유튜브 업로드 알림",
         "embeds": [{
             "title": video["title"][:256],
@@ -93,7 +105,7 @@ def _notify(video):
             "thumbnail": {"url": "https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg"},
             "footer": {"text": "YouTube · " + video["published"]},
         }],
-        "allowed_mentions": {"parse": []},
+        "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
     send_webhook(WEBHOOK_URL, payload)
 
@@ -111,6 +123,12 @@ def check_youtube():
     if not WEBHOOK_URL.startswith("https://"):
         logging.warning("YouTube: no valid Discord webhook configured")
         return
+    with _state_lock:
+        _check_youtube_channels(channel_ids)
+
+
+def _check_youtube_channels(channel_ids):
+    global last_check, failures
     seen = _load_seen()
     for channel_id in channel_ids:
         try:
@@ -135,3 +153,38 @@ def check_youtube():
             warn_failure("YouTube " + channel_id, failures, exc)
             return
     failures = 0
+
+
+def receive_websub_feed(xml_bytes):
+    """Apply signed WebSub feed updates using the same RSS deduplication ledger."""
+    root = ET.fromstring(xml_bytes)
+    if root.tag != ATOM + "feed":
+        raise ValueError("Unexpected WebSub feed")
+    feed_channel = (root.findtext(YT + "channelId") or "").strip()
+    allowed_channels = set(load_channel_ids())
+    if not feed_channel or feed_channel not in allowed_channels:
+        raise ValueError("WebSub channel is not subscribed")
+    with _state_lock:
+        seen = _load_seen()
+        if feed_channel not in seen:
+            # Do not emit historical pushes before the RSS baseline is established.
+            logging.warning("YouTube WebSub ignored before RSS initialization: %s", feed_channel)
+            return
+        known = set(seen[feed_channel])
+        channel = root.findtext(ATOM + "title") or feed_channel
+        for entry in root.findall(ATOM + "entry"):
+            video_id = (entry.findtext(YT + "videoId") or "").strip()
+            if not video_id or video_id in known:
+                continue
+            video = {
+                "id": video_id, "channel_id": feed_channel,
+                "channel": channel,
+                "title": entry.findtext(ATOM + "title") or "새 영상",
+                "published": entry.findtext(ATOM + "published") or "",
+                "url": "https://www.youtube.com/watch?v=" + video_id,
+            }
+            _notify(video)
+            seen[feed_channel] = (seen[feed_channel] + [video_id])[-100:]
+            known.add(video_id)
+            _save_seen(seen)
+            logging.info("YouTube WebSub notification sent: %s", video["url"])
