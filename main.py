@@ -109,6 +109,9 @@ def send_discord_notification(live):
         embed["image"] = {"url": live["thumbnail"]}
 
     role_id = ROLE_BY_CHANNEL.get(live["channel_id"], os.getenv("DISCORD_ROLE_ID", "").strip())
+    banner_url = (os.getenv("SAKIHANE_BANNER_URL", "").strip()
+                  if role_id == "1564279305171640361"
+                  else os.getenv("HANAYO_BANNER_URL", "").strip())
     payload = {
         "username": "치지직 방송 알림",
         "content": f"<@&{role_id}>" if role_id else "",
@@ -116,6 +119,8 @@ def send_discord_notification(live):
         "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
 
+    if banner_url.startswith("https://"):
+        payload["embeds"].append({"color": 0x00FFA3, "image": {"url": banner_url}})
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
