@@ -99,7 +99,7 @@ def notify(article, role_id, menu_id, group):
                          + "\n**내용**\n" + (summary or "게시글 미리보기가 없습니다.")
                          + "\n**작성자**\n" + article["author"][:100],
                          link_url=article["url"], link_label="카페 게시글 보기",
-                         username="네이버 카페 알림")
+                         username="정덕삼")
     send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
