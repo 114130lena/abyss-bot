@@ -24,6 +24,8 @@ POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
 ROLE_BY_CHANNEL = {
     "36ddb9bb4f17593b60f1b63cec86611d": "1564279305171640361",
 }
+HANAYO_ROLE_ID = "1563499860135772211"
+BAKU_ROLE_ID = "1564279305171640361"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -109,17 +111,15 @@ def send_discord_notification(live):
     if live["thumbnail"]:
         embed["image"] = {"url": live["thumbnail"]}
 
-    role_id = ROLE_BY_CHANNEL.get(live["channel_id"], os.getenv("DISCORD_ROLE_ID", "").strip())
-    banner_url = get_banner("sakihane" if role_id == "1564279305171640361" else "hanayo")
+    role_id = ROLE_BY_CHANNEL.get(live["channel_id"], HANAYO_ROLE_ID)
+    banner_url = get_banner("sakihane" if role_id == BAKU_ROLE_ID else "hanayo")
     payload = {
         "username": "치지직 방송 알림",
         "content": f"<@&{role_id}>" if role_id else "",
-        "embeds": [embed],
+        "embeds": ([{"color": 0x00FFA3, "image": {"url": banner_url}}] if banner_url.startswith("https://") else []) + [embed],
         "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
 
-    if banner_url.startswith("https://"):
-        payload["embeds"].append({"color": 0x00FFA3, "image": {"url": banner_url}})
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
