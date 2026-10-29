@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from cafe_notifier import check_cafe
 from twitter_notifier import check_twitter
+from youtube_notifier import check_youtube
 
 load_dotenv()
 
@@ -148,6 +149,11 @@ def main():
             check_twitter()
         except Exception as error:
             logging.warning("X 알림 확인 중 오류 발생: %s", error)
+
+        try:
+            check_youtube()
+        except Exception as error:
+            logging.warning("유튜브 알림 확인 중 오류 발생: %s", error)
 
         time.sleep(POLL_INTERVAL)
 
