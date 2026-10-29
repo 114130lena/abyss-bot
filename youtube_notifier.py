@@ -11,6 +11,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from resilience import send_webhook, warn_failure
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
@@ -94,8 +95,7 @@ def _notify(video):
         }],
         "allowed_mentions": {"parse": []},
     }
-    response = session.post(WEBHOOK_URL, json=payload, timeout=15)
-    response.raise_for_status()
+    send_webhook(WEBHOOK_URL, payload)
 
 
 def check_youtube():
@@ -132,6 +132,6 @@ def check_youtube():
         except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
             failures += 1
             last_check = time.monotonic() + min(1800, INTERVAL * (2 ** min(failures, 4))) - INTERVAL
-            logging.warning("YouTube %s check failed: %s", channel_id, exc)
+            warn_failure("YouTube " + channel_id, failures, exc)
             return
     failures = 0
