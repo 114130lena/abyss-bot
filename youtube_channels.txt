@@ -2,3 +2,4 @@
 # Ask ChatGPT to add a YouTube channel URL; its channel ID will be recorded here.
 UC0YQnenKBCu5sGb7H61n6HA # @Sakihanechannel
 UCHAr9pWGS30akL4MQCQT4uQ # @HanayoHiyori
+@Hiyorireplay # 하나요 히요리 다시보기 (서버에서 채널 ID 자동 확인)
