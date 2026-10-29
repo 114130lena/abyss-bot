@@ -149,8 +149,8 @@ def _fetch_uploads(channel_id):
 
 
 ROLE_BY_CHANNEL = {
-    "UCHAr9pWGS30akL4MQCQT4uQ": os.getenv("YOUTUBE_HANAYO_ROLE_ID", "1563499860135772211").strip(),
-    "UC0YQnenKBCu5sGb7H61n6HA": os.getenv("YOUTUBE_SAKIHANE_ROLE_ID", "1564279305171640361").strip(),
+    "UCHAr9pWGS30akL4MQCQT4uQ": "1563499860135772211",
+    "UC0YQnenKBCu5sGb7H61n6HA": "1564279305171640361",
 }
 
 
@@ -171,22 +171,22 @@ def _notify(video):
     role_id = (ROLE_BY_CHANNEL["UCHAr9pWGS30akL4MQCQT4uQ"] if channel_id == replay_channel_id and replay_channel_id
                else ROLE_BY_CHANNEL.get(channel_id, ""))
     banner = _youtube_banner(channel_id)
+    banner_embeds = ([{"color": 0xFF0000, "image": {"url": banner}}]
+                     if banner.startswith("https://") else [])
     payload = {
         "content": f"<@&{role_id}>" if role_id else "",
 
         "username": "유튜브 업로드 알림",
-        "embeds": [{
+        "embeds": banner_embeds + [{
             "title": video["title"][:256],
             "url": video["url"],
             "description": video["channel"] + " 채널에 새 영상이 올라왔습니다.",
             "color": 0xFF0000,
-            "thumbnail": {"url": "https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg"},
+            "image": {"url": "https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg"},
             "footer": {"text": "YouTube · " + video["published"]},
         }],
         "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
-    if banner.startswith("https://"):
-        payload["embeds"].append({"color": 0xFF0000, "image": {"url": banner}})
     send_webhook(WEBHOOK_URL, payload)
 
 
