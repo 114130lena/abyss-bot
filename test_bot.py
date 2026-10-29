@@ -16,6 +16,25 @@ import chzzk_replay_notifier as replay
 from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
+    def test_x_rss_description_preserves_paragraphs(self):
+        import xml.etree.ElementTree as ET
+        item = ET.fromstring(
+            "<item><title>collapsed text</title>"
+            "<description><![CDATA[첫 문장<br>둘째 문장<br><br>새 문단"
+            "<p>다음 문단</p><img src='https://example.org/photo.jpg'>]]></description>"
+            "</item>"
+        )
+        body = twitter._post_body(item)
+        self.assertIn("첫 문장\\n둘째 문장\\n\\n새 문단", body)
+        self.assertIn("다음 문단", body)
+        self.assertNotIn("<img", body)
+        self.assertNotIn("\\n\\n\\n\\n", body)
+
+    def test_x_rss_description_falls_back_to_title(self):
+        import xml.etree.ElementTree as ET
+        item = ET.fromstring("<item><title>제목만 있음</title><description></description></item>")
+        self.assertEqual(twitter._post_body(item), "제목만 있음")
+
     def test_premium_x_image_gallery_variants(self):
         from test_alert import make_premium_payload
         for count in (0, 1, 2, 4):
