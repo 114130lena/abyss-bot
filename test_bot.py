@@ -25,10 +25,10 @@ class RoutingTests(unittest.TestCase):
             "</item>"
         )
         body = twitter._post_body(item)
-        self.assertIn("첫 문장\\n둘째 문장\\n\\n새 문단", body)
+        self.assertIn("첫 문장\n둘째 문장\n\n새 문단", body)
         self.assertIn("다음 문단", body)
         self.assertNotIn("<img", body)
-        self.assertNotIn("\\n\\n\\n\\n", body)
+        self.assertNotIn("\n\n\n\n", body)
 
     def test_x_rss_description_falls_back_to_title(self):
         import xml.etree.ElementTree as ET
