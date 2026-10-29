@@ -14,6 +14,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
+from banner_manager import get_banner
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
@@ -156,11 +157,11 @@ ROLE_BY_CHANNEL = {
 def _youtube_banner(channel_id):
     replay_id = _load_handle_cache().get("@Hiyorireplay", "")
     if channel_id == "UCHAr9pWGS30akL4MQCQT4uQ":
-        return os.getenv("HANAYO_BANNER_URL", "").strip()
+        return get_banner("hanayo")
     if channel_id == "UC0YQnenKBCu5sGb7H61n6HA":
-        return os.getenv("SAKIHANE_BANNER_URL", "").strip()
+        return get_banner("sakihane")
     if replay_id and channel_id == replay_id:
-        return os.getenv("HIYORI_REPLAY_BANNER_URL", os.getenv("HANAYO_BANNER_URL", "")).strip()
+        return get_banner("replay") or get_banner("hanayo")
     return ""
 
 
