@@ -16,6 +16,16 @@ import chzzk_replay_notifier as replay
 from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
+    def test_premium_preview_never_mentions_roles(self):
+        from test_alert import make_premium_payload
+        for platform in ("chzzk", "youtube", "x", "cafe", "replay"):
+            with patch("test_alert.get_banner", return_value=""):
+                payload = make_premium_payload("hanayo", platform)
+            self.assertEqual(payload["username"], "정덕삼")
+            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+            self.assertEqual(payload["flags"], 32768)
+            self.assertNotIn("<@&", str(payload))
+
     def test_creator_roles(self):
         self.assertEqual(creator_groups.role_for("hanayo"), "1563499860135772211")
         self.assertEqual(creator_groups.role_for("sakihane"), "1564279305171640361")
