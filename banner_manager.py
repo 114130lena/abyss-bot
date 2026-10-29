@@ -20,12 +20,10 @@ INTERVAL = max(3600, int(os.getenv("YOUTUBE_BANNER_REFRESH_SECONDS", "21600")))
 CHANNELS = {
     "hanayo": "https://www.youtube.com/@HanayoHiyori",
     "sakihane": "https://www.youtube.com/@Sakihanechannel",
-    "replay": "https://www.youtube.com/@Hiyorireplay",
 }
 ENV_OVERRIDES = {
     "hanayo": "HANAYO_BANNER_URL",
     "sakihane": "SAKIHANE_BANNER_URL",
-    "replay": "HIYORI_REPLAY_BANNER_URL",
 }
 _lock = threading.RLock()
 _last_attempt = {}
