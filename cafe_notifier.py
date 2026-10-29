@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from discord_v2 import payload as v2_payload
 from creator_groups import cafe_group, role_for
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
@@ -91,30 +92,14 @@ def notify(article, role_id, menu_id, group):
     if len(summary) > 1000:
         summary = summary[:997] + "..."
 
-    embed = {
-        "title": article["title"][:256],
-        "url": article["url"],
-        "description": summary or "게시글 미리보기가 없습니다.",
-        "color": 0x03C75A,
-        "fields": [{
-            "name": "작성자",
-            "value": article["author"][:256],
-            "inline": True,
-        }],
-        "footer": {"text": f"네이버 카페 새 게시글 • 게시판 {menu_id}"},
-    }
-    banner = get_banner(group)
-    embeds = ([{"color": 0x03C75A, "image": {"url": banner}}] if banner.startswith("https://") else [])
-    embeds.append(embed)
-    payload = {
-        "username": "네이버 카페 알림",
-        "content": role_mention,
-        "embeds": embeds,
-        "allowed_mentions": {
-            "parse": [],
-            "roles": [role_id] if role_id else [],
-        },
-    }
+    payload = v2_payload("cafe", role_id, get_banner(group),
+                         "네이버 카페에 새로운 글이 올라왔습니다!",
+                         "게시판 " + str(menu_id),
+                         "**게시글 제목**\n" + article["title"][:300]
+                         + "\n**내용**\n" + (summary or "게시글 미리보기가 없습니다.")
+                         + "\n**작성자**\n" + article["author"][:100],
+                         link_url=article["url"], link_label="카페 게시글 보기",
+                         username="네이버 카페 알림")
     send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
