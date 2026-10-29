@@ -6,6 +6,9 @@ COLORS = {"chzzk": 0x00FFA3, "youtube": 0xFF4747,
 def text(value):
     return {"type": 10, "content": str(value)[:4000]}
 
+def separator():
+    return {"type": 14, "divider": True, "spacing": 1}
+
 def gallery(url, description=""):
     return {"type": 12, "items": [{"media": {"url": url}, "description": description[:1024]}]}
 
@@ -22,6 +25,7 @@ def payload(platform, role_id, banner, headline, creator, details, media_url="",
     if details:
         parts.append(text(details[:2800]))
     if link_url and link_url.startswith("https://"):
+        parts.append(separator())
         parts.append(text("[🔗 " + link_label + "](" + link_url + ")"))
     # Discord v2 does not allow legacy content or embeds.
     # Place the mention as an independent Text Display above the container.
