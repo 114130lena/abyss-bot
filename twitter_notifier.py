@@ -6,6 +6,8 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from html import unescape
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -19,7 +21,10 @@ BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
 USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
 FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
-BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", "").split(",") if v.strip()]
+BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mie.foundation/{USERNAME}/rss,https://nitter.mizuki.st/{USERNAME}/rss").split(",") if v.strip()]
+ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
+BACKUP_INTERVAL = max(60, int(os.getenv("X_BACKUP_CHECK_INTERVAL", "120")))
+next_backup_check = 0.0
 active_feed = FEED_URL
 INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
@@ -60,8 +65,9 @@ def _original_post(item):
     return True
 
 
-def _fetch_posts():
-    response = session.get(active_feed, timeout=15)
+def _fetch_posts(feed_url=None):
+    source = feed_url or active_feed
+    response = session.get(source, timeout=10)
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -78,7 +84,8 @@ def _fetch_posts():
         if not post_id.isdigit() or not _original_post(item):
             continue
         text = unescape((item.findtext("title") or "").strip())
-        posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}"})
+        posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
+                      "source": source, "pub_date": item.findtext("pubDate") or ""})
     return sorted(posts, key=lambda p: int(p["id"]))
 
 
@@ -92,9 +99,45 @@ def _notify(post):
     send_webhook(WEBHOOK_URL, payload)
 
 
+def _fetch_merged_posts(include_backups):
+    feeds = ALL_FEEDS if include_backups else [FEED_URL]
+    posts_by_id = {}
+    errors = []
+    for source in feeds:
+        try:
+            for post in _fetch_posts(source):
+                posts_by_id.setdefault(post["id"], post)
+        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+            errors.append((source, exc))
+            logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
+    if errors and not include_backups:
+        for source in BACKUP_FEEDS:
+            if source == FEED_URL:
+                continue
+            try:
+                for post in _fetch_posts(source):
+                    posts_by_id.setdefault(post["id"], post)
+            except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+                errors.append((source, exc))
+                logging.warning("X RSS 예비 서버 실패: %s (%s)", source, exc)
+    if errors and not posts_by_id:
+        raise ValueError("X RSS 서버에서 유효한 게시글을 가져오지 못했습니다")
+    return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
+
+
+def _post_latency(post):
+    try:
+        published = parsedate_to_datetime(post["pub_date"])
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        return max(0, int((datetime.now(timezone.utc) - published).total_seconds()))
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return None
+
+
 def check_twitter():
-    """Nonblocking interval/backoff guard; call once per existing bot loop."""
-    global next_check, failures, active_feed
+    """Poll primary RSS every interval and compare independent feeds periodically."""
+    global next_check, next_backup_check, failures
     now = time.monotonic()
     if now < next_check:
         return
@@ -102,15 +145,19 @@ def check_twitter():
     if not WEBHOOK_URL.startswith("https://"):
         logging.warning("X 알림 건너뜀: DISCORD_WEBHOOK_URL 설정 필요")
         return
+    compare_feeds = now >= next_backup_check and len(ALL_FEEDS) > 1
+    if compare_feeds:
+        next_backup_check = now + BACKUP_INTERVAL
     try:
-        posts = _fetch_posts()
+        posts = _fetch_merged_posts(compare_feeds)
         if not posts:
             logging.info("X RSS: 원본 게시글 없음")
+            failures = 0
             return
         seen = _load_seen()
         if seen is None:
-            _save_seen({p["id"] for p in posts})
-            logging.info("X RSS 첫 실행: 기존 글 %d개를 읽음 처리", len(posts))
+            _save_seen({post["id"] for post in posts})
+            logging.info("X RSS 첫 실행: 기존 글 %d개 읽음 처리", len(posts))
             failures = 0
             return
         for post in posts:
@@ -119,17 +166,12 @@ def check_twitter():
             _notify(post)
             seen.add(post["id"])
             _save_seen(seen)
-            logging.info("X 새 게시글 알림 성공: %s", post["url"])
+            logging.info("X 새 게시글 알림 성공: %s | RSS=%s | 작성 후 지연=%s초",
+                         post["url"], post.get("source", "?"), _post_latency(post))
         failures = 0
-        if active_feed != FEED_URL:
-            logging.info("X RSS backup feed operational: %s", active_feed)
     except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
         failures += 1
-        delay = min(1800, INTERVAL * (2 ** min(failures, 6)))
+        delay = min(300, INTERVAL * (2 ** min(failures, 4)))
         next_check = time.monotonic() + delay
-        feeds = [FEED_URL] + BACKUP_FEEDS
-        if failures >= 2 and len(feeds) > 1:
-            active_feed = feeds[(feeds.index(active_feed) + 1) % len(feeds)] if active_feed in feeds else FEED_URL
-            logging.warning("X RSS 예비 서버 전환: %s", active_feed)
         warn_failure("X RSS", failures, exc)
         logging.warning("X RSS %d초 후 재시도", delay)
