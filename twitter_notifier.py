@@ -16,7 +16,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
-from discord_v2 import payload as v2_payload
+from discord_v2 import alert as unified_alert
 from creator_groups import x_group, role_for
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
@@ -136,11 +136,11 @@ def _fetch_posts(feed_url=None):
 
 def _notify(post):
     banner = get_banner(X_GROUP) if X_GROUP else ""
-    payload = v2_payload("x", X_ROLE_ID, banner,
-                         "X에 새로운 게시글이 올라왔습니다!", "@" + USERNAME,
-                         (post["text"] or "새 게시글")[:2500],
-                         link_url=post["url"], link_label="원본 게시글 보기",
-                         username="정덕삼")
+    payload = unified_alert(
+        "x", "하나요 히요리", banner, X_ROLE_ID,
+        body=(post["text"] or "새 게시글")[:2500],
+        url=post["url"], date=post.get("pub_date", ""),
+        images=post.get("images", []))
     send_webhook(WEBHOOK_URL, payload)
 
 
