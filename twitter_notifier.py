@@ -23,9 +23,6 @@ USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
 FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
 BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mie.foundation/{USERNAME}/rss,https://nitter.mizuki.st/{USERNAME}/rss").split(",") if v.strip()]
 ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
-BACKUP_INTERVAL = max(60, int(os.getenv("X_BACKUP_CHECK_INTERVAL", "120")))
-next_backup_check = 0.0
-active_feed = FEED_URL
 INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
@@ -66,7 +63,7 @@ def _original_post(item):
 
 
 def _fetch_posts(feed_url=None):
-    source = feed_url or active_feed
+    source = feed_url or FEED_URL
     response = session.get(source, timeout=10)
     response.raise_for_status()
     root = ET.fromstring(response.content)
@@ -99,29 +96,20 @@ def _notify(post):
     send_webhook(WEBHOOK_URL, payload)
 
 
-def _fetch_merged_posts(include_backups):
-    feeds = ALL_FEEDS if include_backups else [FEED_URL]
+def _fetch_merged_posts(include_backups=True):
+    """Check every configured feed and merge new posts, regardless of source."""
     posts_by_id = {}
-    errors = []
-    for source in feeds:
+    successes = 0
+    for source in ALL_FEEDS:
         try:
-            for post in _fetch_posts(source):
+            items = _fetch_posts(source)
+            successes += 1
+            for post in items:
                 posts_by_id.setdefault(post["id"], post)
         except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            errors.append((source, exc))
             logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
-    if errors and not include_backups:
-        for source in BACKUP_FEEDS:
-            if source == FEED_URL:
-                continue
-            try:
-                for post in _fetch_posts(source):
-                    posts_by_id.setdefault(post["id"], post)
-            except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-                errors.append((source, exc))
-                logging.warning("X RSS 예비 서버 실패: %s (%s)", source, exc)
-    if errors and not posts_by_id:
-        raise ValueError("X RSS 서버에서 유효한 게시글을 가져오지 못했습니다")
+    if not successes:
+        raise ValueError("모든 X RSS 서버 조회 실패")
     return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
 
 
@@ -136,8 +124,8 @@ def _post_latency(post):
 
 
 def check_twitter():
-    """Poll primary RSS every interval and compare independent feeds periodically."""
-    global next_check, next_backup_check, failures
+    """Poll all configured RSS servers every interval; deduplicate by post ID."""
+    global next_check, failures
     now = time.monotonic()
     if now < next_check:
         return
@@ -145,11 +133,8 @@ def check_twitter():
     if not WEBHOOK_URL.startswith("https://"):
         logging.warning("X 알림 건너뜀: DISCORD_WEBHOOK_URL 설정 필요")
         return
-    compare_feeds = now >= next_backup_check and len(ALL_FEEDS) > 1
-    if compare_feeds:
-        next_backup_check = now + BACKUP_INTERVAL
     try:
-        posts = _fetch_merged_posts(compare_feeds)
+        posts = _fetch_merged_posts(True)
         if not posts:
             logging.info("X RSS: 원본 게시글 없음")
             failures = 0
