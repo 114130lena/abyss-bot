@@ -76,15 +76,15 @@ class _PostTextParser(HTMLParser):
         if tag in ("script", "style"):
             self.hidden += 1
         elif tag == "br":
-            self.parts.append("\\n")
+            self.parts.append("\n")
         elif tag in ("p", "div", "blockquote") and self.parts:
-            self.parts.append("\\n\\n")
+            self.parts.append("\n\n")
 
     def handle_endtag(self, tag):
         if tag in ("script", "style"):
             self.hidden = max(0, self.hidden - 1)
         elif tag in ("p", "div", "blockquote"):
-            self.parts.append("\\n\\n")
+            self.parts.append("\n\n")
 
     def handle_data(self, data):
         if not self.hidden:
@@ -92,10 +92,10 @@ class _PostTextParser(HTMLParser):
 
 
 def _normalize_post_text(value):
-    value = value.replace("\\r\\n", "\\n").replace("\\r", "\\n")
-    value = re.sub(r"[ \\t]+\\n", "\\n", value)
-    value = re.sub(r"\\n[ \\t]+", "\\n", value)
-    return re.sub(r"\\n{4,}", "\\n\\n\\n", value).strip()
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    value = re.sub(r"[ \t]+\n", "\n", value)
+    value = re.sub(r"\n[ \t]+", "\n", value)
+    return re.sub(r"\n{4,}", "\n\n\n", value).strip()
 
 
 def _post_body(item):
