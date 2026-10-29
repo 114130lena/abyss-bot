@@ -109,6 +109,18 @@ def load_channel_ids():
 
 INTERVAL = max(60, int(os.getenv("YOUTUBE_POLL_INTERVAL", "60")))
 WEBHOOK_URL = os.getenv("YOUTUBE_DISCORD_WEBHOOK_URL", os.getenv("DISCORD_WEBHOOK_URL", "")).strip()
+YOUTUBE_THREAD_ID = os.getenv("YOUTUBE_THREAD_ID", "1565296193725141064").strip()
+
+
+def youtube_thread_webhook_url():
+    """Route both creators to the shared YouTube thread."""
+    if not WEBHOOK_URL.startswith("https://") or not YOUTUBE_THREAD_ID.isdigit():
+        raise ValueError("Valid YouTube webhook and thread ID required")
+    if "thread_id=" in WEBHOOK_URL:
+        raise ValueError("YouTube webhook already has thread_id; use parent channel webhook")
+    separator = "&" if "?" in WEBHOOK_URL else "?"
+    return WEBHOOK_URL + separator + "thread_id=" + YOUTUBE_THREAD_ID
+
 SEEN_FILE = BASE_DIR / "youtube_seen_videos.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
 YT = "{http://www.youtube.com/xml/schemas/2015}"
@@ -181,7 +193,7 @@ def _notify(video):
                          media_description="유튜브 영상 썸네일",
                          link_url=video["url"], link_label="영상 바로가기",
                          username="유튜브 업로드 알림")
-    send_webhook(WEBHOOK_URL, payload)
+    send_webhook(youtube_thread_webhook_url(), payload)
 
 
 def check_youtube():
