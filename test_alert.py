@@ -18,7 +18,7 @@ def make_payload(group, platform):
                       "[테스트] " + platform.upper() + " 알림", group,
                       "알림 레이아웃·배너·역할 확인용입니다. 실제 방송이나 게시글이 아닙니다.",
                       media_url=media, media_description="테스트용 썸네일",
-                      username="어비스봇 테스트", ping=False)
+                      username="정덕삼", ping=False)
 
 def main():
     parser = argparse.ArgumentParser()
