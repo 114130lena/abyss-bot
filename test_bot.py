@@ -96,7 +96,7 @@ class RoutingTests(unittest.TestCase):
                 payload = unified_alert(
                     platform, "하나요 히요리", "https://example.com/banner.jpg",
                     title="테스트 제목" if platform != "x" else "",
-                    body="첫째\\n\\n둘째" if platform == "x" else "",
+                    body="첫째\n\n둘째" if platform == "x" else "",
                     url="https://example.com/test",
                     images=["https://example.com/image.jpg"] if platform == "x" else [],
                     date="2026-10-29T12:00:00Z", ping=False)
