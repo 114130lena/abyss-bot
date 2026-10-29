@@ -52,9 +52,11 @@ def _valid_url(value):
 
 
 def _safe_markdown(value):
-    """Prevent source titles from breaking clickable Markdown links."""
-    import re
-    return re.sub(r"([\\\\[\\]()*_~`>])", r"\\\\\\1", str(value or ""))
+    """Escape Markdown-sensitive title characters without changing normal text."""
+    result = str(value or "").replace("\\", "\\\\")
+    for char in ("[", "]", "(", ")", "*", "_", "~", "`"):
+        result = result.replace(char, "\\" + char)
+    return result
 
 
 def _korean_datetime(value):
