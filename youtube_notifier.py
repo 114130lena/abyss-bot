@@ -104,6 +104,8 @@ YT = "{http://www.youtube.com/xml/schemas/2015}"
 last_check = 0.0
 _state_lock = threading.RLock()
 failures = 0
+_channel_failures = {}
+_channel_retry_at = {}
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0"})
 
@@ -198,9 +200,11 @@ def check_youtube():
 
 
 def _check_youtube_channels(channel_ids):
-    global last_check, failures
+    """One broken feed must never block other creator notifications."""
     seen = _load_seen()
     for channel_id in channel_ids:
+        if time.monotonic() < _channel_retry_at.get(channel_id, 0):
+            continue
         try:
             videos = _fetch_uploads(channel_id)
             if channel_id not in seen:
@@ -217,12 +221,15 @@ def _check_youtube_channels(channel_ids):
                 ids.add(video["id"])
                 _save_seen(seen)
                 logging.info("YouTube notification sent: %s", video["url"])
+            _channel_failures[channel_id] = 0
+            _channel_retry_at.pop(channel_id, None)
         except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            failures += 1
-            last_check = time.monotonic() + min(1800, INTERVAL * (2 ** min(failures, 4))) - INTERVAL
-            warn_failure("YouTube " + channel_id, failures, exc)
-            return
-    failures = 0
+            count = _channel_failures.get(channel_id, 0) + 1
+            _channel_failures[channel_id] = count
+            delay = min(1800, INTERVAL * (2 ** min(count, 4)))
+            _channel_retry_at[channel_id] = time.monotonic() + delay
+            warn_failure("YouTube " + channel_id, count, exc)
+            continue
 
 
 def receive_websub_feed(xml_bytes):
