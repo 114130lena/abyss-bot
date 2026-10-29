@@ -21,7 +21,7 @@ def make_payload(group, platform):
                       username="정덕삼", ping=False)
 
 
-def make_premium_payload(group, platform):
+def make_premium_payload(group, platform, image_count=2):
     """Isolated premium preview: never used by production notification workers."""
     from discord_v2 import FLAGS, COLORS, text, gallery, separator
     display = "하나요 히요리" if group == HANAYO else "사키하네 후야"
@@ -43,6 +43,37 @@ def make_premium_payload(group, platform):
         parts.append(text("Just Chatting · 2026.10.29 21:30 (테스트 날짜)"))
         return {"username": "정덕삼", "flags": FLAGS,
                 "components": [{"type": 17, "accent_color": COLORS["chzzk"],
+                                "components": parts}],
+                "allowed_mentions": {"parse": []}}
+    if platform == "x":
+        # Preview only: sample text/images, never a real X post.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        parts = []
+        if banner and banner.startswith("https://"):
+            parts.append(gallery(banner, "스트리머 공식 배너"))
+        parts.append(text("𝕏 **X** · " + display + " · **NEW POST**"))
+        parts.append(separator())
+        parts.append(text("오늘 새로운 일러스트가 나왔어요! 💕\\n"
+                          "너무 예쁘게 그려주셔서 감사합니다!\\n"
+                          "여러분도 꼭 봐주세요. (테스트 본문)"))
+        examples = [
+            "https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg",
+            "https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg",
+            "https://i.ytimg.com/vi/aqz-KE-bpKQ/mqdefault.jpg",
+            "https://i.ytimg.com/vi/jNQXAC9IVRw/mqdefault.jpg",
+        ]
+        if image_count:
+            parts.append({"type": 12, "items": [
+                {"media": {"url": url}, "description": "테스트용 첨부 이미지"}
+                for url in examples[:image_count]
+            ]})
+        parts.append(separator())
+        stamp = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+        parts.append(text("게시글 작성 · " + stamp + " (테스트 시간)\\n"
+                          "[원문 보기 (테스트)](https://x.com/HanayoHiyori)"))
+        return {"username": "정덕삼", "flags": FLAGS,
+                "components": [{"type": 17, "accent_color": COLORS["x"],
                                 "components": parts}],
                 "allowed_mentions": {"parse": []}}
     name = display + " · " + ("CHZZK REPLAY" if platform == "replay" else platform.upper())
@@ -87,9 +118,10 @@ def main():
     parser.add_argument("--platform", choices=["chzzk", "youtube", "x", "cafe", "replay"], default="chzzk")
     parser.add_argument("--send", action="store_true", help="Post one clearly labeled test message")
     parser.add_argument("--premium", action="store_true", help="Preview the premium design in test messages only")
+    parser.add_argument("--images", type=int, choices=[0, 1, 2, 4], default=2,\n                        help="Number of sample X attachments in premium preview")
     args = parser.parse_args()
     load_dotenv("/home/ubuntu/chzzk-bot/.env")
-    payload = make_premium_payload(args.group, args.platform) if args.premium else make_payload(args.group, args.platform)
+    payload = make_premium_payload(args.group, args.platform, image_count=args.images) if args.premium else make_payload(args.group, args.platform)
     if args.send:
         target = os.getenv("TEST_DISCORD_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL", "")
         if args.platform == "replay":
