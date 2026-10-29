@@ -11,6 +11,7 @@ from cafe_notifier import check_cafe
 from twitter_notifier import check_twitter
 from youtube_notifier import check_youtube
 from youtube_websub import start_websub
+from banner_manager import get_banner, run_banner_refresh
 from resilience import load_json, save_json, send_webhook, warn_failure
 
 load_dotenv()
@@ -109,9 +110,7 @@ def send_discord_notification(live):
         embed["image"] = {"url": live["thumbnail"]}
 
     role_id = ROLE_BY_CHANNEL.get(live["channel_id"], os.getenv("DISCORD_ROLE_ID", "").strip())
-    banner_url = (os.getenv("SAKIHANE_BANNER_URL", "").strip()
-                  if role_id == "1564279305171640361"
-                  else os.getenv("HANAYO_BANNER_URL", "").strip())
+    banner_url = get_banner("sakihane" if role_id == "1564279305171640361" else "hanayo")
     payload = {
         "username": "치지직 방송 알림",
         "content": f"<@&{role_id}>" if role_id else "",
@@ -173,6 +172,7 @@ def run_worker(name, checker, interval):
 def main():
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
+    threading.Thread(target=run_banner_refresh, name="youtube-banners", daemon=True).start()
     start_websub()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
