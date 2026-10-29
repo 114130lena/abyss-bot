@@ -94,15 +94,15 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     pieces.append(text("**" + tag + " · " + creator + " · " + status + "**"))
     pieces.append(separator())
     if title:
-        display = _safe_markdown(str(title).replace("\\n", " ").strip()[:500])
+        display = _safe_markdown(str(title).replace("\n", " ").strip()[:500])
         if _valid_url(url):
             pieces.append(text("## [" + display + "](" + url + ")"))
         else:
             pieces.append(text("## " + display))
     if body:
         import re
-        content = str(body).replace("\\r\\n", "\\n").replace("\\r", "\\n")
-        content = re.sub(r"\\n{4,}", "\\n\\n\\n", content).strip()
+        content = str(body).replace("\r\n", "\n").replace("\r", "\n")
+        content = re.sub(r"\n{4,}", "\n\n\n", content).strip()
         if content:
             pieces.append(text(content[:2500]))
     media = []
