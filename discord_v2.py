@@ -24,15 +24,15 @@ def payload(platform, role_id, banner, headline, creator, details, media_url="",
         parts.append(gallery(media_url, media_description))
     if details:
         if platform in ("chzzk", "youtube"):
-            for label in ("**방송 제목**\\n", "**영상 제목**\\n", "**다시보기 제목**\\n"):
+            for label in ("**방송 제목**\n", "**영상 제목**\n", "**다시보기 제목**\n"):
                 details = details.replace(label, "")
-            if "**카테고리**\\n" in details:
-                title, category = details.split("**카테고리**\\n", 1)
-                details = "**" + title.strip() + "**\\n" + category.strip()
+            if "**카테고리**\n" in details:
+                title, category = details.split("**카테고리**\n", 1)
+                details = "**" + title.strip() + "**\n" + category.strip()
             elif not details.startswith("**"):
                 details = "**" + details.strip() + "**"
         elif platform == "x":
-            details = "\\n".join("> " + line if line.strip() else ">" for line in details.splitlines())
+            details = "\n".join("> " + line if line.strip() else ">" for line in details.splitlines())
         parts.append(text(details[:2800]))
     if link_url and link_url.startswith("https://"):
         parts.append(separator())
