@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_groups import cafe_group, role_for
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 load_dotenv(BASE_DIR / ".env")
@@ -20,14 +21,12 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 BOARDS = [
     {
         "menu_id": DEFAULT_MENU_ID,
-        "role_id": "1563499860135772211",
-        "group": "hanayo",
+        "group": cafe_group(DEFAULT_MENU_ID),
         "seen_file": BASE_DIR / "cafe_seen_articles.json",
     },
     {
         "menu_id": "382",
-        "role_id": "1564279305171640361",
-        "group": "sakihane",
+        "group": cafe_group("382"),
         "seen_file": BASE_DIR / "cafe_seen_articles_382.json",
     },
 ]
@@ -86,7 +85,8 @@ def save_seen(path, ids):
 
 
 def notify(article, role_id, menu_id, group):
-    role_mention = f"<@&{role_id}>" if role_id else ""
+    role_id = role_for(group)
+    role_mention = f"<@&{role_id}>"
     summary = article["summary"]
     if len(summary) > 1000:
         summary = summary[:997] + "..."
@@ -146,7 +146,7 @@ def check_cafe():
         new_articles.reverse()
 
         for article in new_articles:
-            notify(article, board["role_id"], menu_id, board["group"])
+            notify(article, None, menu_id, board["group"])
             seen.insert(0, article["id"])
             seen = seen[:100]
             save_seen(board["seen_file"], seen)
