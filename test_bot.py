@@ -112,6 +112,7 @@ class RoutingTests(unittest.TestCase):
                 "thumbnail": "https://example.com/thumbnail.jpg",
                 "url": "https://chzzk.naver.com/video/12345"}
         with patch.object(replay, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
+             patch.object(replay, "thread_webhook_url", return_value="https://discord.com/api/webhooks/test/token?thread_id=1565293200225206342"), \
              patch.object(replay, "send_webhook") as sent:
             replay.notify(item)
         url, message = sent.call_args.args
