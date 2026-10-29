@@ -72,6 +72,22 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(payload["flags"], 32768)
             self.assertNotIn("<@&", str(payload))
 
+    def test_unified_title_link_escapes_markdown(self):
+        payload = unified_alert(
+            "youtube", "하나요 히요리",
+            title="제목 [특별편] (1화)", url="https://www.youtube.com/watch?v=test",
+            ping=False)
+        parts = payload["components"][0]["components"]
+        link = next(p["content"] for p in parts if p.get("content", "").startswith("## ["))
+        self.assertIn("제목 \\[특별편\\] \\(1화\\)", link)
+        self.assertIn("](https://www.youtube.com/watch?v=test)", link)
+
+    def test_x_unified_body_preserves_blank_paragraph(self):
+        payload = unified_alert("x", "하나요 히요리", body="첫 문단\\n\\n둘째 문단",
+                                ping=False)
+        parts = payload["components"][0]["components"]
+        self.assertTrue(any(p.get("content") == "첫 문단\\n\\n둘째 문단" for p in parts))
+
     def test_unified_alert_formats(self):
         cases = [("chzzk", "LIVE"), ("youtube", "NEW VIDEO"),
                  ("x", "NEW POST"), ("cafe", "NEW POST")]
