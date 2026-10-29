@@ -67,7 +67,7 @@ def notify(replay):
                          "하나요 히요리", "**다시보기 제목**\n" + replay["title"][:600],
                          media_url=replay["thumbnail"], media_description="치지직 다시보기 썸네일",
                          link_url=replay["url"], link_label="다시보기 바로가기",
-                         username="치지직 다시보기 알림", ping=False)
+                         username="정덕삼", ping=False)
     message["allowed_mentions"] = {"parse": []}
     send_webhook(thread_webhook_url(), message)
 
