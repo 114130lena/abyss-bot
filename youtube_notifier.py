@@ -133,7 +133,7 @@ def _fetch_uploads(channel_id):
     if root.tag != ATOM + "feed":
         raise ValueError("Unexpected YouTube feed format")
     actual_id = (root.findtext(YT + "channelId") or "").strip()
-    if actual_id and actual_id != channel_id:
+    if actual_id and actual_id != channel_id and "UC" + actual_id != channel_id:
         raise ValueError(f"YouTube feed channel mismatch: requested={channel_id}, returned={actual_id}")
     channel_name = root.findtext(ATOM + "title") or channel_id
     videos = []
