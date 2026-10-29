@@ -7,7 +7,7 @@ import requests
 from dotenv import load_dotenv
 from banner_manager import get_banner
 from creator_groups import chzzk_group
-from discord_v2 import payload as v2_payload
+from discord_v2 import alert as unified_alert
 from resilience import load_json, save_json, send_webhook, warn_failure
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
@@ -50,7 +50,8 @@ def fetch_replays(channel_id):
             continue
         thumb = (item.get("thumbnailImageUrl") or "").replace("{type}", "720")
         replays.append({"id": str(video_no), "title": item.get("videoTitle") or "제목 없음",
-                        "thumbnail": thumb, "url": "https://chzzk.naver.com/video/" + str(video_no)})
+                        "thumbnail": thumb, "url": "https://chzzk.naver.com/video/" + str(video_no),
+                        "date": item.get("publishDate") or item.get("createdDate") or ""})
     return list(reversed(replays))
 
 def thread_webhook_url():
@@ -62,12 +63,11 @@ def thread_webhook_url():
     return WEBHOOK + sep + "thread_id=" + THREAD_ID
 
 def notify(replay):
-    message = v2_payload("chzzk", "", get_banner("hanayo"),
-                         "치지직에 새로운 다시보기가 올라왔습니다!",
-                         "하나요 히요리", "**다시보기 제목**\n" + replay["title"][:600],
-                         media_url=replay["thumbnail"], media_description="치지직 다시보기 썸네일",
-                         link_url=replay["url"], link_label="다시보기 바로가기",
-                         username="정덕삼", ping=False)
+    message = unified_alert(
+        "chzzk", "하나요 히요리", get_banner("hanayo"),
+        title=replay["title"], url=replay["url"],
+        media_url=replay.get("thumbnail", ""), date=replay.get("date", ""),
+        replay=True, ping=False)
     message["allowed_mentions"] = {"parse": []}
     send_webhook(thread_webhook_url(), message)
 
