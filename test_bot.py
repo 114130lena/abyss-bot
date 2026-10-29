@@ -16,6 +16,20 @@ import chzzk_replay_notifier as replay
 from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
+    def test_premium_x_image_gallery_variants(self):
+        from test_alert import make_premium_payload
+        for count in (0, 1, 2, 4):
+            with self.subTest(image_count=count), patch("test_alert.get_banner", return_value=""):
+                payload = make_premium_payload("hanayo", "x", image_count=count)
+            components = payload["components"][0]["components"]
+            galleries = [part for part in components if part["type"] == 12]
+            self.assertEqual(len(galleries), 1 if count else 0)
+            if count:
+                self.assertEqual(len(galleries[0]["items"]), count)
+            self.assertIn("𝕏 **X** · 하나요 히요리 · **NEW POST**", str(components))
+            self.assertIn("원문 보기 (테스트)", str(components))
+            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+
     def test_premium_chzzk_live_card_layout(self):
         from test_alert import make_premium_payload
         with patch("test_alert.get_banner", return_value="https://yt3.googleusercontent.com/banner"):
