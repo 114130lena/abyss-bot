@@ -160,7 +160,8 @@ def receive_websub_feed(xml_bytes):
     root = ET.fromstring(xml_bytes)
     if root.tag != ATOM + "feed":
         raise ValueError("Unexpected WebSub feed")
-    feed_channel = (root.findtext(YT + "channelId") or "").strip()
+    entries = root.findall(ATOM + "entry")
+    feed_channel = (root.findtext(YT + "channelId") or (entries[0].findtext(YT + "channelId") if entries else "") or "").strip()
     allowed_channels = set(load_channel_ids())
     if not feed_channel or feed_channel not in allowed_channels:
         raise ValueError("WebSub channel is not subscribed")
@@ -172,7 +173,9 @@ def receive_websub_feed(xml_bytes):
             return
         known = set(seen[feed_channel])
         channel = root.findtext(ATOM + "title") or feed_channel
-        for entry in root.findall(ATOM + "entry"):
+        for entry in entries:
+            if (entry.findtext(YT + "channelId") or "").strip() != feed_channel:
+                continue
             video_id = (entry.findtext(YT + "videoId") or "").strip()
             if not video_id or video_id in known:
                 continue
