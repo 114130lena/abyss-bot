@@ -65,7 +65,7 @@ jobs:
           .venv/bin/pip install -r .deploy-staging/requirements.txt
 
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
-          cp main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
+          cp main.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
           if [ -f chzzk_replay_notifier.py ]; then cp chzzk_replay_notifier.py "$backup_dir/"; fi
           if [ -f youtube_notifier.py ]; then cp youtube_notifier.py "$backup_dir/"; fi
           if [ -f youtube_channels.txt ]; then cp youtube_channels.txt "$backup_dir/"; fi
