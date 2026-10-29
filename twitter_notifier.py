@@ -21,6 +21,8 @@ active_feed = FEED_URL
 INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
+X_ROLE_ID = os.getenv("X_DISCORD_ROLE_ID", "1563499860135772211").strip()
+X_BANNER_URL = os.getenv("HANAYO_BANNER_URL", "").strip()
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0 (RSS polling)"})
 next_check = 0.0
@@ -78,16 +80,20 @@ def _fetch_posts():
 
 
 def _notify(post):
+    embed = {
+        "title": f"@{USERNAME} 새 게시글",
+        "description": (post["text"] or "새 게시글")[:4000],
+        "url": post["url"],
+        "color": 0x1DA1F2,
+        "footer": {"text": "X · 공개 RSS 피드"},
+    }
+    if X_BANNER_URL.startswith("https://"):
+        embed["image"] = {"url": X_BANNER_URL}
     payload = {
         "username": "X 새 게시글 알림",
-        "embeds": [{
-            "title": f"@{USERNAME} 새 게시글",
-            "description": (post["text"] or "새 게시글")[:4000],
-            "url": post["url"],
-            "color": 0x1DA1F2,
-            "footer": {"text": "X · 공개 RSS 피드"},
-        }],
-        "allowed_mentions": {"parse": []},
+        "content": f"<@&{X_ROLE_ID}>" if X_ROLE_ID else "",
+        "embeds": [embed],
+        "allowed_mentions": {"parse": [], "roles": [X_ROLE_ID] if X_ROLE_ID else []},
     }
     send_webhook(WEBHOOK_URL, payload)
 
