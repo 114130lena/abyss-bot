@@ -9,6 +9,7 @@ from html import unescape
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from dotenv import load_dotenv
@@ -64,7 +65,7 @@ def _original_post(item):
 
 def _fetch_posts(feed_url=None):
     source = feed_url or FEED_URL
-    response = session.get(source, timeout=10)
+    response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=8)
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -97,21 +98,26 @@ def _notify(post):
 
 
 def _fetch_merged_posts(include_backups=True):
-    """Check every configured feed and merge new posts, regardless of source."""
+    """Poll all configured RSS sources concurrently and deduplicate post IDs."""
     posts_by_id = {}
     successes = 0
-    for source in ALL_FEEDS:
-        try:
-            items = _fetch_posts(source)
-            successes += 1
-            for post in items:
-                posts_by_id.setdefault(post["id"], post)
-        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
+    feeds = list(ALL_FEEDS)
+    if not feeds:
+        raise ValueError("X RSS 서버가 설정되지 않았습니다")
+    with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
+        futures = {pool.submit(_fetch_posts, source): source for source in feeds}
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                items = future.result()
+                successes += 1
+                for post in items:
+                    posts_by_id.setdefault(post["id"], post)
+            except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+                logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
     return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
-
 
 def _post_latency(post):
     try:
