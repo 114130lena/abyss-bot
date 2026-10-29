@@ -10,11 +10,14 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from resilience import send_webhook, warn_failure
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
 USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
-FEED_URL = os.getenv("X_RSS_URL", f"http://nitter.meowing.monster/{USERNAME}/rss")
+FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
+BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", "").split(",") if v.strip()]
+active_feed = FEED_URL
 INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
@@ -53,7 +56,7 @@ def _original_post(item):
 
 
 def _fetch_posts():
-    response = session.get(FEED_URL, timeout=15)
+    response = session.get(active_feed, timeout=15)
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -86,13 +89,12 @@ def _notify(post):
         }],
         "allowed_mentions": {"parse": []},
     }
-    response = session.post(WEBHOOK_URL, json=payload, timeout=15)
-    response.raise_for_status()
+    send_webhook(WEBHOOK_URL, payload)
 
 
 def check_twitter():
     """Nonblocking interval/backoff guard; call once per existing bot loop."""
-    global next_check, failures
+    global next_check, failures, active_feed
     now = time.monotonic()
     if now < next_check:
         return
@@ -119,8 +121,15 @@ def check_twitter():
             _save_seen(seen)
             logging.info("X 새 게시글 알림 성공: %s", post["url"])
         failures = 0
+        if active_feed != FEED_URL:
+            logging.info("X RSS backup feed operational: %s", active_feed)
     except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
         failures += 1
         delay = min(1800, INTERVAL * (2 ** min(failures, 6)))
         next_check = time.monotonic() + delay
-        logging.warning("X RSS 실패 (%d회), %d초 후 재시도: %s", failures, delay, exc)
+        feeds = [FEED_URL] + BACKUP_FEEDS
+        if failures >= 2 and len(feeds) > 1:
+            active_feed = feeds[(feeds.index(active_feed) + 1) % len(feeds)] if active_feed in feeds else FEED_URL
+            logging.warning("X RSS 예비 서버 전환: %s", active_feed)
+        warn_failure("X RSS", failures, exc)
+        logging.warning("X RSS %d초 후 재시도", delay)
