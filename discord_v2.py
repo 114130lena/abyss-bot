@@ -65,7 +65,11 @@ def _korean_datetime(value):
     from zoneinfo import ZoneInfo
     try:
         raw = str(value).strip()
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            from email.utils import parsedate_to_datetime
+            parsed = parsedate_to_datetime(raw)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Seoul"))
         return parsed.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
