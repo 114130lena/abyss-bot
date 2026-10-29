@@ -64,7 +64,7 @@ def thread_webhook_url():
 def notify(replay):
     message = v2_payload("chzzk", "", get_banner("hanayo"),
                          "치지직에 새로운 다시보기가 올라왔습니다!",
-                         "하나요 히요리", "**다시보기 제목**\\n" + replay["title"][:600],
+                         "하나요 히요리", "**다시보기 제목**\n" + replay["title"][:600],
                          media_url=replay["thumbnail"], media_description="치지직 다시보기 썸네일",
                          link_url=replay["url"], link_label="다시보기 바로가기",
                          username="치지직 다시보기 알림", ping=False)
