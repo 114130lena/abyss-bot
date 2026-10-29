@@ -28,6 +28,9 @@ def send_webhook(url, payload, attempts=3):
     """Retry transient HTTP/network failures, respecting Discord retry_after."""
     if not url.startswith("https://"):
         raise ValueError("Invalid Discord webhook URL")
+    if payload.get("flags", 0) & 32768:
+        separator = "&" if "?" in url else "?"
+        url = url + separator + "with_components=true"
     for attempt in range(attempts):
         try:
             response = requests.post(url, json=payload, timeout=12)
