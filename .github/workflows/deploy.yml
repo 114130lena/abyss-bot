@@ -96,3 +96,20 @@ jobs:
           trap - ERR
           echo "Deployment complete."
           REMOTE
+
+      - name: Send one approved YouTube preview (no role mentions)
+        if: ${{ github.event_name == 'push' && github.event.head_commit.message == 'Send single YouTube preview for approved unified design' }}
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -eu
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv-test/bin/python ]; then
+            .venv-test/bin/python test_alert.py --group hanayo --platform youtube --premium --send
+          else
+            .venv/bin/python test_alert.py --group hanayo --platform youtube --premium --send
+          fi
+          REMOTE
