@@ -32,7 +32,7 @@ def load_channel_ids():
             ids.append(channel_id)
     return ids
 
-INTERVAL = max(60, int(os.getenv("YOUTUBE_POLL_INTERVAL", "300")))
+INTERVAL = max(60, int(os.getenv("YOUTUBE_POLL_INTERVAL", "60")))
 WEBHOOK_URL = os.getenv("YOUTUBE_DISCORD_WEBHOOK_URL", os.getenv("DISCORD_WEBHOOK_URL", "")).strip()
 SEEN_FILE = BASE_DIR / "youtube_seen_videos.json"
 ATOM = "{http://www.w3.org/2005/Atom}"
