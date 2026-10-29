@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
+from banner_manager import get_banner
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
@@ -22,7 +23,6 @@ INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
 X_ROLE_ID = os.getenv("X_DISCORD_ROLE_ID", "1563499860135772211").strip()
-X_BANNER_URL = os.getenv("HANAYO_BANNER_URL", "").strip()
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0 (RSS polling)"})
 next_check = 0.0
@@ -87,8 +87,9 @@ def _notify(post):
         "color": 0x1DA1F2,
         "footer": {"text": "X · 공개 RSS 피드"},
     }
-    if X_BANNER_URL.startswith("https://"):
-        embed["image"] = {"url": X_BANNER_URL}
+    banner = get_banner("hanayo")
+    if banner.startswith("https://"):
+        embed["image"] = {"url": banner}
     payload = {
         "username": "X 새 게시글 알림",
         "content": f"<@&{X_ROLE_ID}>" if X_ROLE_ID else "",
