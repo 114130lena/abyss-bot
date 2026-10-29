@@ -26,6 +26,25 @@ def make_premium_payload(group, platform):
     from discord_v2 import FLAGS, COLORS, text, gallery, separator
     display = "하나요 히요리" if group == HANAYO else "사키하네 후야"
     banner = get_banner(group)
+    if platform == "chzzk":
+        # Test-only design. No actual broadcast is announced and mentions are disabled.
+        creator = display
+        title = "바츠가게 령? 방송"
+        test_url = "https://chzzk.naver.com/"
+        parts = []
+        if banner and banner.startswith("https://"):
+            parts.append(gallery(banner, "스트리머 공식 배너"))
+        parts.append(text("🟢 **CHZZK** · " + creator + " · **LIVE**"))
+        parts.append(separator())
+        parts.append(text("## [" + title + "](" + test_url + ")"))
+        parts.append(gallery("https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg",
+                             "테스트용 방송 썸네일"))
+        parts.append(separator())
+        parts.append(text("Just Chatting · 2026.10.29 21:30 (테스트 날짜)"))
+        return {"username": "정덕삼", "flags": FLAGS,
+                "components": [{"type": 17, "accent_color": COLORS["chzzk"],
+                                "components": parts}],
+                "allowed_mentions": {"parse": []}}
     name = display + " · " + ("CHZZK REPLAY" if platform == "replay" else platform.upper())
     configs = {
         "chzzk": ("🔴 LIVE  ·  CHZZK", "방송이 시작됐어요!", "오늘도 함께 즐기는 방송 👻",
