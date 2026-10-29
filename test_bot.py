@@ -12,6 +12,7 @@ import youtube_notifier as yt
 import cafe_notifier as cafe
 import twitter_notifier as twitter
 import banner_manager as banners
+import chzzk_replay_notifier as replay
 from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
@@ -105,6 +106,31 @@ class RoutingTests(unittest.TestCase):
         with patch.object(yt.session, "get", return_value=response):
             with self.assertRaisesRegex(ValueError, "channel mismatch"):
                 yt._fetch_uploads("UC0YQnenKBCu5sGb7H61n6HA")
+
+    def test_replay_posts_to_thread_without_mention(self):
+        item = {"id": "12345", "title": "새 다시보기",
+                "thumbnail": "https://example.com/thumbnail.jpg",
+                "url": "https://chzzk.naver.com/video/12345"}
+        with patch.object(replay, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
+             patch.object(replay, "send_webhook") as sent:
+            replay.notify(item)
+        url, message = sent.call_args.args
+        self.assertIn("thread_id=1565293200225206342", url)
+        self.assertEqual(message["flags"], 32768)
+        self.assertEqual(message["allowed_mentions"], {"parse": []})
+        self.assertNotIn("1563499860135772211", str(message))
+        self.assertIn("12345", str(message))
+
+    def test_replay_only_accepts_replay_type(self):
+        from unittest.mock import Mock
+        response = Mock()
+        response.json.return_value = {"code": 200, "content": {"data": [
+            {"videoNo": 123, "videoType": "CLIP", "videoTitle": "클립"},
+            {"videoNo": 456, "videoType": "REPLAY", "videoTitle": "다시보기"}
+        ]}}
+        with patch.object(replay._SESSION, "get", return_value=response):
+            items = replay.fetch_replays("test-channel")
+        self.assertEqual([v["id"] for v in items], ["456"])
 
     def test_banner_url_validation(self):
         self.assertTrue(banners._valid("https://yt3.googleusercontent.com/image"))
