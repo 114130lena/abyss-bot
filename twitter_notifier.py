@@ -92,7 +92,7 @@ def _notify(post):
                          "X에 새로운 게시글이 올라왔습니다!", "@" + USERNAME,
                          (post["text"] or "새 게시글")[:2500],
                          link_url=post["url"], link_label="원본 게시글 보기",
-                         username="X 새 게시글 알림")
+                         username="정덕삼")
     send_webhook(WEBHOOK_URL, payload)
 
 
