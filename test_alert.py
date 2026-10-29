@@ -33,10 +33,10 @@ def make_premium_payload(group, platform):
         "youtube": ("▶ NEW VIDEO  ·  YOUTUBE", "새 영상이 공개됐어요!", "하이라이트 영상이 올라왔습니다.",
                     "", "영상 보러 가기"),
         "x": ("✦ NEW POST  ·  X", "새로운 소식이 도착했어요.",
-              "오늘도 즐거운 하루 보내세요! 👻\\n이따 방송에서 만나요!", "",
+              "오늘도 즐거운 하루 보내세요! 👻\n이따 방송에서 만나요!", "",
               "게시글 확인하기"),
         "cafe": ("✎ NEW ARTICLE  ·  NAVER CAFE", "방송 일정 안내",
-                 "오늘 방송은 저녁에 진행됩니다.\\n자세한 내용은 카페에서 확인해 주세요.", display,
+                 "오늘 방송은 저녁에 진행됩니다.\n자세한 내용은 카페에서 확인해 주세요.", display,
                  "게시글 보기"),
         "replay": ("▸ NEW VOD  ·  CHZZK", "놓친 방송을 다시 만나보세요!",
                    "오늘의 방송 다시보기", "", "다시보기 시청하기"),
@@ -46,14 +46,14 @@ def make_premium_payload(group, platform):
     parts = []
     if banner and banner.startswith("https://"):
         parts.append(gallery(banner, "스트리머 공식 배너"))
-    parts.append(text("**" + label + "**\\n" + display))
+    parts.append(text("**" + label + "**\n" + display))
     parts.append(separator())
     parts.append(text("**" + heading + "**"))
     if platform in ("chzzk", "youtube", "replay"):
         parts.append(gallery("https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg", "테스트용 썸네일"))
-        parts.append(text("**" + description + "**" + ("\\n" + extra if extra else "")))
+        parts.append(text("**" + description + "**" + ("\n" + extra if extra else "")))
     else:
-        parts.append(text("\\n".join("> " + line for line in description.splitlines())))
+        parts.append(text("\n".join("> " + line for line in description.splitlines())))
         if extra:
             parts.append(text("작성자 · " + extra))
     parts.append(separator())
