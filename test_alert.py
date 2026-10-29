@@ -54,7 +54,7 @@ def make_premium_payload(group, platform, image_count=2):
             parts.append(gallery(banner, "스트리머 공식 배너"))
         parts.append(text("𝕏 **X** · " + display + " · **NEW POST**"))
         parts.append(separator())
-        parts.append(text("오늘 새로운 일러스트가 나왔어요! 💕\n"
+        parts.append(text("오늘 새로운 일러스트가 나왔어요! 💕\n\n"
                           "너무 예쁘게 그려주셔서 감사합니다!\n"
                           "여러분도 꼭 봐주세요. (테스트 본문)"))
         examples = [
