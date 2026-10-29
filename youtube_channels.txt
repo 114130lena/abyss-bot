@@ -1,0 +1,2 @@
+# YouTube channel IDs to monitor (one UC... ID per line).
+# Ask ChatGPT to add a YouTube channel URL; its channel ID will be recorded here.
