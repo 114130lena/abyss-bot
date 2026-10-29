@@ -66,6 +66,30 @@ class RoutingTests(unittest.TestCase):
             twitter._notify({"text": "테스트", "url": "https://x.com/a/status/1"})
         self.assertIn("1563499860135772211", sent.call_args.args[1]["components"][0]["content"])
 
+    def test_x_rss_merges_backup_posts_without_duplicates(self):
+        newest = {"id": "200", "text": "new", "url": "https://x.com/HanayoHiyori/status/200",
+                  "source": "backup", "pub_date": ""}
+        previous = {"id": "100", "text": "old", "url": "https://x.com/HanayoHiyori/status/100",
+                    "source": "primary", "pub_date": ""}
+        def fake_fetch(url):
+            return [previous] if url == twitter.FEED_URL else [newest, previous]
+        with patch.object(twitter, "ALL_FEEDS", [twitter.FEED_URL, "https://backup.example/rss"]), \
+             patch.object(twitter, "_fetch_posts", side_effect=fake_fetch):
+            posts = twitter._fetch_merged_posts(True)
+        self.assertEqual([p["id"] for p in posts], ["100", "200"])
+        self.assertEqual(posts[-1]["source"], "backup")
+
+    def test_x_rss_primary_failure_tries_backup_immediately(self):
+        def fake_fetch(url):
+            if url == twitter.FEED_URL:
+                raise ValueError("primary unavailable")
+            return [{"id": "300", "text": "new", "url": "https://x.com/HanayoHiyori/status/300",
+                     "source": url, "pub_date": ""}]
+        with patch.object(twitter, "BACKUP_FEEDS", ["https://backup.example/rss"]), \
+             patch.object(twitter, "_fetch_posts", side_effect=fake_fetch):
+            posts = twitter._fetch_merged_posts(False)
+        self.assertEqual([p["id"] for p in posts], ["300"])
+
     def test_youtube_failure_does_not_block_other_channel(self):
         channels = ["bad", "good"]
         def fake_fetch(ch):
