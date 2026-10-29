@@ -6,6 +6,7 @@ import json
 import threading
 import logging
 import os
+import re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -17,20 +18,81 @@ from resilience import send_webhook, warn_failure
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
 CHANNELS_FILE = BASE_DIR / "youtube_channels.txt"
+HANDLE_CACHE_FILE = BASE_DIR / "youtube_handle_ids.json"
+_handle_retry_at = {}
+_CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+_CHANNEL_ID_EXTRACT = re.compile(r'(?:\\\"channelId\\\"|\\"channelId\"|\\\"externalId\\\"|\\"externalId\")\\s*:\\s*\\\"(UC[A-Za-z0-9_-]{22})\\\"')
+
+
+def _resolve_handle(handle):
+    """Resolve and cache a YouTube @handle; never invent a channel ID."""
+    cache = _load_handle_cache()
+    if handle in cache and _CHANNEL_ID_PATTERN.fullmatch(cache[handle]):
+        return cache[handle]
+    now = time.monotonic()
+    if now < _handle_retry_at.get(handle, 0):
+        return None
+    _handle_retry_at[handle] = now + 3600
+    try:
+        response = requests.get("https://www.youtube.com/" + handle, timeout=12,
+                                headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        if "/@" not in response.url:
+            raise ValueError("YouTube did not return a channel handle page")
+        candidates = _CHANNEL_ID_EXTRACT.findall(response.text)
+        if not candidates:
+            raise ValueError("channelId metadata missing in channel page")
+        channel_id = candidates[0]
+        feed = requests.get("https://www.youtube.com/feeds/videos.xml",
+                            params={"channel_id": channel_id}, timeout=12)
+        feed.raise_for_status()
+        root = ET.fromstring(feed.content)
+        if root.tag != "{http://www.w3.org/2005/Atom}feed":
+            raise ValueError("Resolved channel feed format invalid")
+        # The feed check prevents caching nonexistent IDs.
+        cache[handle] = channel_id
+        _save_handle_cache(cache)
+        logging.info("YouTube handle resolved: %s => %s", handle, channel_id)
+        return channel_id
+    except (requests.RequestException, ValueError, ET.ParseError) as exc:
+        logging.warning("YouTube handle resolution pending: %s: %s", handle, exc)
+        return None
+
+
+def _load_handle_cache():
+    try:
+        value = json.loads(HANDLE_CACHE_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def _save_handle_cache(value):
+    HANDLE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = HANDLE_CACHE_FILE.with_suffix(".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(HANDLE_CACHE_FILE)
 
 
 def load_channel_ids():
-    """Merge the existing environment setting and managed channel list."""
-    ids = [v.strip() for v in os.getenv("YOUTUBE_CHANNEL_IDS", "").split(",") if v.strip()]
+    """Merge environment IDs and channel file; resolve @handles safely."""
+    candidates = [v.strip() for v in os.getenv("YOUTUBE_CHANNEL_IDS", "").split(",") if v.strip()]
     try:
-        lines = CHANNELS_FILE.read_text(encoding="utf-8").splitlines()
+        candidates.extend(line.split("#", 1)[0].strip() for line in CHANNELS_FILE.read_text(encoding="utf-8").splitlines())
     except FileNotFoundError:
-        lines = []
-    for line in lines:
-        channel_id = line.split("#", 1)[0].strip()
-        if channel_id and channel_id not in ids:
-            ids.append(channel_id)
-    return ids
+        pass
+    result = []
+    for value in candidates:
+        if _CHANNEL_ID_PATTERN.fullmatch(value):
+            channel_id = value
+        elif re.fullmatch(r"@[A-Za-z0-9_.-]{3,40}", value):
+            channel_id = _resolve_handle(value)
+        else:
+            continue
+        if channel_id and channel_id not in result:
+            result.append(channel_id)
+    return result
+
 
 INTERVAL = max(60, int(os.getenv("YOUTUBE_POLL_INTERVAL", "60")))
 WEBHOOK_URL = os.getenv("YOUTUBE_DISCORD_WEBHOOK_URL", os.getenv("DISCORD_WEBHOOK_URL", "")).strip()
