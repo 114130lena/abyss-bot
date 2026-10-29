@@ -154,7 +154,10 @@ ROLE_BY_CHANNEL = {
 
 
 def _notify(video):
-    role_id = ROLE_BY_CHANNEL.get(video.get("channel_id", ""), "")
+    channel_id = video.get("channel_id", "")
+    replay_channel_id = _load_handle_cache().get("@Hiyorireplay", "")
+    role_id = (ROLE_BY_CHANNEL["UCHAr9pWGS30akL4MQCQT4uQ"] if channel_id == replay_channel_id and replay_channel_id
+               else ROLE_BY_CHANNEL.get(channel_id, ""))
     payload = {
         "content": f"<@&{role_id}>" if role_id else "",
 
