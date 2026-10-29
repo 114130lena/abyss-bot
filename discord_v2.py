@@ -23,6 +23,8 @@ def payload(platform, role_id, banner, headline, creator, details, media_url="",
     if media_url and media_url.startswith("https://"):
         parts.append(gallery(media_url, media_description))
     if details:
+        if platform in ("chzzk", "youtube"):
+            details = details.replace("**방송 제목**\\n", "").replace("**영상 제목**\\n", "").replace("**다시보기 제목**\\n", "")
         parts.append(text(details[:2800]))
     if link_url and link_url.startswith("https://"):
         parts.append(separator())
