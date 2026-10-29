@@ -63,8 +63,8 @@ def _extract(page):
     # This is not a guaranteed stable interface; reject other thumbnails/avatars.
     anchors = [m.start() for m in re.finditer(r'"(?:imageBannerViewModel|banner)"\s*:', page)]
     for anchor in anchors:
-        snippet = page[anchor:anchor + 14000].replace("\\\\/", "/")
-        matches = re.findall(r'https://[^"\\s<>]+', snippet)
+        snippet = page[anchor:anchor + 14000].replace(chr(92) + "/", "/")
+        matches = re.findall(r'https://[^\s"<>]+', snippet)
         for match in matches:
             url = match.replace("\\/", "/").replace("\\u0026", "&")
             if _valid(url):
