@@ -56,7 +56,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -eu
           cd /home/ubuntu/chzzk-bot
-          .venv/bin/python -m py_compile .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/resilience.py
+          .venv/bin/python -m py_compile .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/resilience.py
           .venv/bin/pip install -r .deploy-staging/requirements.txt
 
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
@@ -74,7 +74,7 @@ jobs:
             sudo systemctl restart chzzk-bot
           }
           trap restore ERR
-          cp .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/resilience.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
+          cp .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/resilience.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
