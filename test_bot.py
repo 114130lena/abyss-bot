@@ -79,6 +79,33 @@ class RoutingTests(unittest.TestCase):
             yt._check_youtube_channels(channels)
         self.assertEqual(sent.call_count, 1)
 
+    def test_youtube_rss_accepts_id_without_uc_prefix(self):
+        xml = (b'<feed xmlns="http://www.w3.org/2005/Atom" '
+               b'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+               b'<title>Test Channel</title>'
+               b'<yt:channelId>0YQnenKBCu5sGb7H61n6HA</yt:channelId>'
+               b'</feed>')
+        from unittest.mock import Mock
+        response = Mock()
+        response.content = xml
+        response.raise_for_status.return_value = None
+        with patch.object(yt.session, "get", return_value=response):
+            result = yt._fetch_uploads("UC0YQnenKBCu5sGb7H61n6HA")
+        self.assertEqual(result, [])
+
+    def test_youtube_rss_rejects_unrelated_channel(self):
+        xml = (b'<feed xmlns="http://www.w3.org/2005/Atom" '
+               b'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+               b'<yt:channelId>some-other-channel</yt:channelId>'
+               b'</feed>')
+        from unittest.mock import Mock
+        response = Mock()
+        response.content = xml
+        response.raise_for_status.return_value = None
+        with patch.object(yt.session, "get", return_value=response):
+            with self.assertRaisesRegex(ValueError, "channel mismatch"):
+                yt._fetch_uploads("UC0YQnenKBCu5sGb7H61n6HA")
+
     def test_banner_url_validation(self):
         self.assertTrue(banners._valid("https://yt3.googleusercontent.com/image"))
         self.assertFalse(banners._valid("https://evil.example.com/image"))
