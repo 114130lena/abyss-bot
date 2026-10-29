@@ -85,8 +85,21 @@ class RoutingTests(unittest.TestCase):
         with patch.object(twitter, "ALL_FEEDS", urls), \
              patch.object(twitter, "_fetch_posts", return_value=[]) as fetched:
             self.assertEqual(twitter._fetch_merged_posts(), [])
-        self.assertEqual([c.args[0] for c in fetched.call_args_list], urls)
+        self.assertCountEqual([c.args[0] for c in fetched.call_args_list], urls)
 
+    def test_x_rss_runs_sources_concurrently(self):
+        from threading import Barrier
+        barrier = Barrier(3)
+        urls = ["https://first.example/rss", "https://second.example/rss",
+                "https://third.example/rss"]
+        def synchronized_fetch(source):
+            barrier.wait(timeout=2)
+            return [{"id": str(urls.index(source) + 100), "text": "test",
+                     "source": source, "url": "https://x.com/test/status/100", "pub_date": ""}]
+        with patch.object(twitter, "ALL_FEEDS", urls), \
+             patch.object(twitter, "_fetch_posts", side_effect=synchronized_fetch):
+            posts = twitter._fetch_merged_posts()
+        self.assertEqual(len(posts), 3)
     def test_x_rss_primary_failure_tries_backup_immediately(self):
         def fake_fetch(url):
             if url == twitter.FEED_URL:
