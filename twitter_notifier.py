@@ -12,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_groups import x_group, role_for
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
@@ -22,7 +23,8 @@ active_feed = FEED_URL
 INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
-X_ROLE_ID = "1563499860135772211"
+X_GROUP = x_group(USERNAME)
+X_ROLE_ID = role_for(X_GROUP) if X_GROUP else ""
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0 (RSS polling)"})
 next_check = 0.0
@@ -87,7 +89,7 @@ def _notify(post):
         "color": 0x1DA1F2,
         "footer": {"text": "X · 공개 RSS 피드"},
     }
-    banner = get_banner("hanayo")
+    banner = get_banner(X_GROUP) if X_GROUP else ""
     banner_embeds = ([{"color": 0x1DA1F2, "image": {"url": banner}}]
                      if banner.startswith("https://") else [])
     payload = {
