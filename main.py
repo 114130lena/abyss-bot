@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -9,11 +10,13 @@ from dotenv import load_dotenv
 from cafe_notifier import check_cafe
 from twitter_notifier import check_twitter
 from youtube_notifier import check_youtube
+from resilience import load_json, save_json, send_webhook, warn_failure
 
 load_dotenv()
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 CHANNELS_FILE = BASE_DIR / "channels.txt"
+LIVE_STATE_FILE = BASE_DIR / "live_state.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
 ROLE_BY_CHANNEL = {
@@ -112,50 +115,78 @@ def send_discord_notification(live):
         "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
 
-    response = requests.post(WEBHOOK_URL, json=payload, timeout=15)
-    response.raise_for_status()
+    send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
+
+
+def check_chzzk_once(state):
+    """Record each observed live session so restarts do not repeat or lose alerts."""
+    for channel_id in load_channels():
+        try:
+            live = get_live_info(channel_id)
+            status = live["status"]
+            previous = state.get(channel_id, {})
+            if not isinstance(previous, dict):
+                previous = {}
+            # A completed stream may keep an old liveId. Only use it for OPEN sessions.
+            live_id = live["url"].rsplit("/", 1)[-1] if "/live/" in live["url"] else ""
+            previously_open = previous.get("status") == "OPEN"
+            previous_id = previous.get("live_id", "")
+            should_notify = (
+                status == "OPEN"
+                and bool(previous)
+                and (not previously_open or (bool(live_id) and bool(previous_id) and live_id != previous_id))
+            )
+            if should_notify:
+                send_discord_notification(live)
+            state[channel_id] = {"status": status, "live_id": live_id if status == "OPEN" else ""}
+            save_json(LIVE_STATE_FILE, state)
+            logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
+        except Exception as exc:
+            logging.warning("치지직 %s 확인 중 오류: %s", channel_id, exc)
+
+
+def run_worker(name, checker, interval):
+    failures = 0
+    while True:
+        started = time.monotonic()
+        try:
+            checker()
+            failures = 0
+        except Exception as exc:
+            failures += 1
+            warn_failure(name, failures, exc)
+        time.sleep(max(1, interval - (time.monotonic() - started)))
 
 
 def main():
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
-
-    previous_status = {}
-    logging.info("치지직 다중 채널 알림 봇 시작")
-
+    state = load_json(LIVE_STATE_FILE, {})
+    if not isinstance(state, dict):
+        raise SystemExit("live_state.json 형식이 올바르지 않습니다.")
+    # Each checker retains its own internal polling interval.
+    workers = [
+        ("네이버 카페", check_cafe),
+        ("X RSS", check_twitter),
+        ("유튜브", check_youtube),
+    ]
+    for name, checker in workers:
+        thread = threading.Thread(
+            target=run_worker, args=(name, checker, 5), name=name, daemon=True
+        )
+        thread.start()
+    logging.info("어비스봇 시작: 독립 알림 작업 3개 실행")
+    failures = 0
     while True:
-        channel_ids = load_channels()
-        for channel_id in channel_ids:
-            try:
-                live = get_live_info(channel_id)
-                status = live["status"]
-                logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
-
-                # First observation establishes a baseline and avoids a false alert after restart.
-                if channel_id in previous_status and status == "OPEN" and previous_status[channel_id] != "OPEN":
-                    send_discord_notification(live)
-
-                previous_status[channel_id] = status
-            except Exception as error:
-                logging.warning("%s 확인 중 오류 발생: %s", channel_id, error)
-
+        started = time.monotonic()
         try:
-            check_cafe()
-        except Exception as error:
-            logging.warning("네이버 카페 확인 중 오류 발생: %s", error)
-
-        try:
-            check_twitter()
-        except Exception as error:
-            logging.warning("X 알림 확인 중 오류 발생: %s", error)
-
-        try:
-            check_youtube()
-        except Exception as error:
-            logging.warning("유튜브 알림 확인 중 오류 발생: %s", error)
-
-        time.sleep(POLL_INTERVAL)
+            check_chzzk_once(state)
+            failures = 0
+        except Exception as exc:
+            failures += 1
+            warn_failure("치지직", failures, exc)
+        time.sleep(max(1, POLL_INTERVAL - (time.monotonic() - started)))
 
 
 if __name__ == "__main__":
