@@ -21,7 +21,7 @@ CHANNELS_FILE = BASE_DIR / "youtube_channels.txt"
 HANDLE_CACHE_FILE = BASE_DIR / "youtube_handle_ids.json"
 _handle_retry_at = {}
 _CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
-_CHANNEL_ID_EXTRACT = re.compile(r'(?:\\\"channelId\\\"|\\"channelId\"|\\\"externalId\\\"|\\"externalId\")\\s*:\\s*\\\"(UC[A-Za-z0-9_-]{22})\\\"')
+_CHANNEL_ID_EXTRACT = re.compile(r'"(?:channelId|externalId)"\s*:\s*"(UC[A-Za-z0-9_-]{22})"')
 
 
 def _resolve_handle(handle):
