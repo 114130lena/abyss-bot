@@ -67,7 +67,8 @@ class RoutingTests(unittest.TestCase):
             with patch("test_alert.get_banner", return_value=""):
                 payload = make_premium_payload("hanayo", platform)
             self.assertEqual(payload["username"], "정덕삼")
-            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+            self.assertEqual(payload["allowed_mentions"].get("parse"), [])
+            self.assertEqual(payload["allowed_mentions"].get("roles", []), [])
             self.assertEqual(payload["flags"], 32768)
             self.assertNotIn("<@&", str(payload))
 
