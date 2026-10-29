@@ -93,7 +93,7 @@ def send_discord_notification(live):
                          details, media_url=live["thumbnail"],
                          media_description="실시간 치지직 방송 썸네일",
                          link_url=live["url"], link_label="방송 바로가기",
-                         username="치지직 방송 알림")
+                         username="정덕삼")
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
