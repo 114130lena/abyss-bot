@@ -64,7 +64,7 @@ def _extract(page):
     anchors = [m.start() for m in re.finditer(r'"(?:imageBannerViewModel|banner)"\s*:', page)]
     for anchor in anchors:
         snippet = page[anchor:anchor + 14000]
-        matches = re.findall(r'https:(?:\\/\\/|//)(?:yt3\\.googleusercontent\\.com|yt3\\.ggpht\\.com)[^"\\\s<>]*', snippet)
+        matches = re.findall(r'https?:(?:\\/\\/|//)[^"\\s<>]+', snippet)
         for match in matches:
             url = match.replace("\\/", "/").replace("\\u0026", "&")
             if _valid(url):
