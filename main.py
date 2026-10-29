@@ -119,6 +119,9 @@ def send_discord_notification(live):
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
 
+_chzzk_failures = {}
+
+
 def check_chzzk_once(state):
     """Record each observed live session so restarts do not repeat or lose alerts."""
     for channel_id in load_channels():
@@ -141,9 +144,11 @@ def check_chzzk_once(state):
                 send_discord_notification(live)
             state[channel_id] = {"status": status, "live_id": live_id if status == "OPEN" else ""}
             save_json(LIVE_STATE_FILE, state)
+            _chzzk_failures[channel_id] = 0
             logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
         except Exception as exc:
-            logging.warning("치지직 %s 확인 중 오류: %s", channel_id, exc)
+            _chzzk_failures[channel_id] = _chzzk_failures.get(channel_id, 0) + 1
+            warn_failure("치지직 " + channel_id, _chzzk_failures[channel_id], exc)
 
 
 def run_worker(name, checker, interval):
