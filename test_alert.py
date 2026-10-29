@@ -20,14 +20,57 @@ def make_payload(group, platform):
                       media_url=media, media_description="테스트용 썸네일",
                       username="정덕삼", ping=False)
 
+
+def make_premium_payload(group, platform):
+    """Isolated premium preview: never used by production notification workers."""
+    from discord_v2 import FLAGS, COLORS, text, gallery, separator
+    display = "하나요 히요리" if group == HANAYO else "사키하네 후야"
+    banner = get_banner(group)
+    name = display + " · " + ("CHZZK REPLAY" if platform == "replay" else platform.upper())
+    configs = {
+        "chzzk": ("🔴 LIVE  ·  CHZZK", "방송이 시작됐어요!", "오늘도 함께 즐기는 방송 👻",
+                  "Just Chatting", "방송 시청하기"),
+        "youtube": ("▶ NEW VIDEO  ·  YOUTUBE", "새 영상이 공개됐어요!", "하이라이트 영상이 올라왔습니다.",
+                    "", "영상 보러 가기"),
+        "x": ("✦ NEW POST  ·  X", "새로운 소식이 도착했어요.",
+              "오늘도 즐거운 하루 보내세요! 👻\\n이따 방송에서 만나요!", "",
+              "게시글 확인하기"),
+        "cafe": ("✎ NEW ARTICLE  ·  NAVER CAFE", "방송 일정 안내",
+                 "오늘 방송은 저녁에 진행됩니다.\\n자세한 내용은 카페에서 확인해 주세요.", display,
+                 "게시글 보기"),
+        "replay": ("▸ NEW VOD  ·  CHZZK", "놓친 방송을 다시 만나보세요!",
+                   "오늘의 방송 다시보기", "", "다시보기 시청하기"),
+    }
+    label, heading, description, extra, action = configs[platform]
+    color_platform = "chzzk" if platform == "replay" else platform
+    parts = []
+    if banner and banner.startswith("https://"):
+        parts.append(gallery(banner, "스트리머 공식 배너"))
+    parts.append(text("**" + label + "**\\n" + display))
+    parts.append(separator())
+    parts.append(text("**" + heading + "**"))
+    if platform in ("chzzk", "youtube", "replay"):
+        parts.append(gallery("https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg", "테스트용 썸네일"))
+        parts.append(text("**" + description + "**" + ("\\n" + extra if extra else "")))
+    else:
+        parts.append(text("\\n".join("> " + line for line in description.splitlines())))
+        if extra:
+            parts.append(text("작성자 · " + extra))
+    parts.append(separator())
+    parts.append(text("🔗 " + action + "  ·  테스트 알림"))
+    return {"username": "정덕삼", "flags": FLAGS,
+            "components": [{"type": 17, "accent_color": COLORS[color_platform], "components": parts}],
+            "allowed_mentions": {"parse": []}}
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--group", choices=[HANAYO, SAKIHANE], default=HANAYO)
     parser.add_argument("--platform", choices=["chzzk", "youtube", "x", "cafe", "replay"], default="chzzk")
     parser.add_argument("--send", action="store_true", help="Post one clearly labeled test message")
+    parser.add_argument("--premium", action="store_true", help="Preview the premium design in test messages only")
     args = parser.parse_args()
     load_dotenv("/home/ubuntu/chzzk-bot/.env")
-    payload = make_payload(args.group, args.platform)
+    payload = make_premium_payload(args.group, args.platform) if args.premium else make_payload(args.group, args.platform)
     if args.send:
         target = os.getenv("TEST_DISCORD_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL", "")
         if args.platform == "replay":
