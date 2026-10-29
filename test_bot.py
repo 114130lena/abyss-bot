@@ -13,7 +13,7 @@ import cafe_notifier as cafe
 import twitter_notifier as twitter
 import banner_manager as banners
 import chzzk_replay_notifier as replay
-from discord_v2 import COLORS
+from discord_v2 import COLORS, alert as unified_alert
 
 class RoutingTests(unittest.TestCase):
     def test_x_rss_description_preserves_paragraphs(self):
@@ -71,6 +71,35 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(payload["flags"], 32768)
             self.assertNotIn("<@&", str(payload))
 
+    def test_unified_alert_formats(self):
+        cases = [("chzzk", "LIVE"), ("youtube", "NEW VIDEO"),
+                 ("x", "NEW POST"), ("cafe", "NEW POST")]
+        for platform, status in cases:
+            with self.subTest(platform=platform):
+                payload = unified_alert(
+                    platform, "하나요 히요리", "https://example.com/banner.jpg",
+                    title="테스트 제목" if platform != "x" else "",
+                    body="첫째\\n\\n둘째" if platform == "x" else "",
+                    url="https://example.com/test",
+                    images=["https://example.com/image.jpg"] if platform == "x" else [],
+                    date="2026-10-29T12:00:00Z", ping=False)
+                parts = payload["components"][-1]["components"]
+                self.assertIn(status, parts[1]["content"])
+                self.assertTrue(any(p.get("type") == 14 for p in parts))
+                self.assertTrue(any(p.get("type") == 12 for p in parts))
+                self.assertIn("2026.10.29 21:00", str(parts))
+                self.assertEqual(payload["allowed_mentions"]["roles"], [])
+
+    def test_unified_youtube_manual_preview(self):
+        from test_alert import make_premium_payload
+        with patch("test_alert.get_banner", return_value=""):
+            p = make_premium_payload("hanayo", "youtube")
+        components = p["components"][0]["components"]
+        self.assertIn("YOUTUBE", components[0]["content"])
+        self.assertTrue(any("## [" in item.get("content", "") for item in components))
+        self.assertTrue(any("hqdefault.jpg" in str(item) for item in components))
+        self.assertEqual(p["allowed_mentions"], {"parse": [], "roles": []})
+
     def test_creator_roles(self):
         self.assertEqual(creator_groups.role_for("hanayo"), "1563499860135772211")
         self.assertEqual(creator_groups.role_for("sakihane"), "1564279305171640361")
@@ -93,7 +122,8 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("1563499860135772211", payload["components"][0]["content"])
         parts = payload["components"][1]["components"]
         self.assertIn("test", parts[0]["items"][0]["media"]["url"])
-        self.assertIn("hqdefault.jpg", parts[2]["items"][0]["media"]["url"])
+        self.assertTrue(any("hqdefault.jpg" in str(part) for part in parts))
+        self.assertTrue(any("## [" in part.get("content", "") for part in parts))
 
     def test_chzzk_alert_has_top_banner_thumbnail_role(self):
         live = {"name": "사키하네 후야", "channel_id": "36ddb9bb4f17593b60f1b63cec86611d",
@@ -107,7 +137,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(payload["flags"], 32768)
         self.assertIn("1564279305171640361", payload["components"][0]["content"])
         self.assertEqual(payload["components"][1]["accent_color"], COLORS["chzzk"])
-        self.assertEqual(payload["components"][1]["components"][2]["items"][0]["media"]["url"], live["thumbnail"])
+        self.assertTrue(any(live["thumbnail"] in str(part) for part in payload["components"][1]["components"]))
 
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
