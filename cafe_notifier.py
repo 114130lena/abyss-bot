@@ -8,7 +8,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
-from discord_v2 import payload as v2_payload
+from discord_v2 import alert as unified_alert
 from creator_groups import cafe_group, role_for
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
@@ -62,6 +62,7 @@ def get_articles(menu_id):
             "title": item.get("subject") or "제목 없음",
             "author": (item.get("writerInfo") or {}).get("nickName") or "작성자 미상",
             "summary": (item.get("summary") or "").strip(),
+            "date": item.get("writeDate") or item.get("createdAt") or "",
             "url": (
                 f"https://cafe.naver.com/f-e/cafes/{CAFE_ID}"
                 f"/articles/{article_id}?menuid={menu_id}"
@@ -87,22 +88,17 @@ def save_seen(path, ids):
 
 def notify(article, role_id, menu_id, group):
     role_id = role_for(group)
+    creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     title = " ".join(article["title"].split())[:300]
-    summary = article["summary"].strip()
+    summary = article.get("summary", "").strip()
     if len(summary) > 550:
         summary = summary[:547].rstrip() + "..."
-    preview = "\n".join("> " + line for line in summary.splitlines()[:6])
-    if len(summary.splitlines()) > 6:
-        preview += "\n> ..."
-    if not preview:
-        preview = "> 게시글 미리보기가 없습니다."
-    details = preview + "\n\n작성자 · " + article["author"][:100]
-
-    payload = v2_payload("cafe", role_id, get_banner(group),
-                         "네이버 카페에 새로운 글이 올라왔습니다!",
-                         "**" + title + "**", details,
-                         link_url=article["url"], link_label="카페 게시글 보기",
-                         username="정덕삼")
+    payload = unified_alert(
+        "cafe", creator, get_banner(group), role_id,
+        title=title, body=summary,
+        url=article["url"], author=article.get("author", ""),
+        board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
+        date=article.get("date", ""), images=article.get("images", []))
     send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
