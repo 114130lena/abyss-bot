@@ -24,14 +24,20 @@ CHANNELS_FILE = BASE_DIR / "youtube_channels.txt"
 HANDLE_CACHE_FILE = BASE_DIR / "youtube_handle_ids.json"
 _handle_retry_at = {}
 _CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
-_CHANNEL_ID_EXTRACT = re.compile(r'"(?:channelId|externalId)"\s*:\s*"(UC[A-Za-z0-9_-]{22})"')
+_CHANNEL_ID_EXTRACT = re.compile(r'"externalId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"')
 
+_MAIN_CHANNEL_IDS = {"UCHAr9pWGS30akL4MQCQT4uQ", "UC0YQnenKBCu5sGb7H61n6HA"}
 
 def _resolve_handle(handle):
     """Resolve and cache a YouTube @handle; never invent a channel ID."""
     cache = _load_handle_cache()
-    if handle in cache and _CHANNEL_ID_PATTERN.fullmatch(cache[handle]):
-        return cache[handle]
+    cached_id = cache.get(handle, "")
+    if handle.casefold() == "@hiyorireplay" and cached_id in _MAIN_CHANNEL_IDS:
+        logging.warning("Replay cached ID belongs to a main channel, resetting: %s", cached_id)
+        cache.pop(handle, None)
+        _save_handle_cache(cache)
+    elif _CHANNEL_ID_PATTERN.fullmatch(cached_id):
+        return cached_id
     now = time.monotonic()
     if now < _handle_retry_at.get(handle, 0):
         return None
@@ -42,10 +48,14 @@ def _resolve_handle(handle):
         response.raise_for_status()
         if "/@" not in response.url:
             raise ValueError("YouTube did not return a channel handle page")
+        if handle.casefold() not in response.url.casefold():
+            raise ValueError("YouTube redirected away from requested handle")
         candidates = _CHANNEL_ID_EXTRACT.findall(response.text)
         if not candidates:
             raise ValueError("channelId metadata missing in channel page")
         channel_id = candidates[0]
+        if handle.casefold() == "@hiyorireplay" and channel_id in _MAIN_CHANNEL_IDS:
+            raise ValueError("Replay handle resolved to main creator channel; refusing incorrect ID")
         feed = requests.get("https://www.youtube.com/feeds/videos.xml",
                             params={"channel_id": channel_id}, timeout=12)
         feed.raise_for_status()
