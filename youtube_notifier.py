@@ -15,6 +15,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_groups import youtube_group, role_for
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
@@ -148,28 +149,17 @@ def _fetch_uploads(channel_id):
     return list(reversed(videos))
 
 
-ROLE_BY_CHANNEL = {
-    "UCHAr9pWGS30akL4MQCQT4uQ": "1563499860135772211",
-    "UC0YQnenKBCu5sGb7H61n6HA": "1564279305171640361",
-}
-
-
 def _youtube_banner(channel_id):
     replay_id = _load_handle_cache().get("@Hiyorireplay", "")
-    if channel_id == "UCHAr9pWGS30akL4MQCQT4uQ":
-        return get_banner("hanayo")
-    if channel_id == "UC0YQnenKBCu5sGb7H61n6HA":
-        return get_banner("sakihane")
-    if replay_id and channel_id == replay_id:
-        return get_banner("hanayo")
-    return ""
+    group = youtube_group(channel_id, replay_id)
+    return get_banner(group) if group else ""
 
 
 def _notify(video):
     channel_id = video.get("channel_id", "")
     replay_channel_id = _load_handle_cache().get("@Hiyorireplay", "")
-    role_id = (ROLE_BY_CHANNEL["UCHAr9pWGS30akL4MQCQT4uQ"] if channel_id == replay_channel_id and replay_channel_id
-               else ROLE_BY_CHANNEL.get(channel_id, ""))
+    group = youtube_group(channel_id, replay_channel_id)
+    role_id = role_for(group) if group else ""
     banner = _youtube_banner(channel_id)
     banner_embeds = ([{"color": 0xFF0000, "image": {"url": banner}}]
                      if banner.startswith("https://") else [])
