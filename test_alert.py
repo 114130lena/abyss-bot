@@ -45,6 +45,16 @@ def make_premium_payload(group, platform, image_count=2):
                 "components": [{"type": 17, "accent_color": COLORS["chzzk"],
                                 "components": parts}],
                 "allowed_mentions": {"parse": []}}
+    if platform == "youtube":
+        from discord_v2 import alert as unified_alert
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        stamp = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+        return unified_alert(
+            "youtube", display, banner, title="[테스트] 새 영상이 업로드됐어요!",
+            url="https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            media_url="https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg",
+            date=stamp, ping=False)
     if platform == "x":
         # Preview only: sample text/images, never a real X post.
         from datetime import datetime
