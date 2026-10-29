@@ -12,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from discord_v2 import payload as v2_payload
 from creator_groups import x_group, role_for
 
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
@@ -82,22 +83,12 @@ def _fetch_posts():
 
 
 def _notify(post):
-    embed = {
-        "title": f"@{USERNAME} 새 게시글",
-        "description": (post["text"] or "새 게시글")[:4000],
-        "url": post["url"],
-        "color": 0x1DA1F2,
-        "footer": {"text": "X · 공개 RSS 피드"},
-    }
     banner = get_banner(X_GROUP) if X_GROUP else ""
-    banner_embeds = ([{"color": 0x1DA1F2, "image": {"url": banner}}]
-                     if banner.startswith("https://") else [])
-    payload = {
-        "username": "X 새 게시글 알림",
-        "content": f"<@&{X_ROLE_ID}>" if X_ROLE_ID else "",
-        "embeds": banner_embeds + [embed],
-        "allowed_mentions": {"parse": [], "roles": [X_ROLE_ID] if X_ROLE_ID else []},
-    }
+    payload = v2_payload("x", X_ROLE_ID, banner,
+                         "X에 새로운 게시글이 올라왔습니다!", "@" + USERNAME,
+                         (post["text"] or "새 게시글")[:2500],
+                         link_url=post["url"], link_label="원본 게시글 보기",
+                         username="X 새 게시글 알림")
     send_webhook(WEBHOOK_URL, payload)
 
 
