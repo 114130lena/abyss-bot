@@ -8,6 +8,7 @@ from creator_groups import role_for, HANAYO, SAKIHANE
 from resilience import send_webhook
 from discord_v2 import payload as v2_payload
 from chzzk_replay_notifier import thread_webhook_url
+from youtube_notifier import youtube_thread_webhook_url
 
 def make_payload(group, platform):
     role = "" if platform == "replay" else role_for(group)
@@ -31,6 +32,8 @@ def main():
         target = os.getenv("TEST_DISCORD_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL", "")
         if args.platform == "replay":
             target = thread_webhook_url()
+        elif args.platform == "youtube":
+            target = youtube_thread_webhook_url()
         send_webhook(target, payload)
         print("Test message posted. Role mentions are disabled.")
     else:
