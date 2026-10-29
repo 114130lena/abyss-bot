@@ -20,7 +20,7 @@ jobs:
 
       - name: Validate bot Python files
         run: |
-          python -m py_compile main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py
+          python -m py_compile main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_notifier.py
 
       - name: Set up SSH
         env:
@@ -56,13 +56,15 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -eu
           cd /home/ubuntu/chzzk-bot
-          .venv/bin/python -m py_compile .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py
+          .venv/bin/python -m py_compile .deploy-staging/main.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py
           .venv/bin/pip install -r .deploy-staging/requirements.txt
 
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
-          cp main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py requirements.txt "$backup_dir/"
+          cp main.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
+          if [ -f youtube_notifier.py ]; then cp youtube_notifier.py "$backup_dir/"; fi
           restore() {
-            cp "$backup_dir/main.py" "$backup_dir/cafe_notifier.py" "$backup_dir/twitter_notifier.py" "$backup_dir/youtube_notifier.py" "$backup_dir/requirements.txt" .
+            cp "$backup_dir/main.py" "$backup_dir/cafe_notifier.py" "$backup_dir/twitter_notifier.py" "$backup_dir/requirements.txt" .
+            if [ -f "$backup_dir/youtube_notifier.py" ]; then cp "$backup_dir/youtube_notifier.py" .; else rm -f youtube_notifier.py; fi
             sudo systemctl restart chzzk-bot
           }
           trap restore ERR
