@@ -161,7 +161,7 @@ def _youtube_banner(channel_id):
     if channel_id == "UC0YQnenKBCu5sGb7H61n6HA":
         return get_banner("sakihane")
     if replay_id and channel_id == replay_id:
-        return get_banner("replay") or get_banner("hanayo")
+        return get_banner("hanayo")
     return ""
 
 
