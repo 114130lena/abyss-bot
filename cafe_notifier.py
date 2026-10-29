@@ -87,17 +87,20 @@ def save_seen(path, ids):
 
 def notify(article, role_id, menu_id, group):
     role_id = role_for(group)
-    role_mention = f"<@&{role_id}>"
-    summary = article["summary"]
-    if len(summary) > 1000:
-        summary = summary[:997] + "..."
+    title = " ".join(article["title"].split())[:300]
+    summary = article["summary"].strip()
+    if len(summary) > 550:
+        summary = summary[:547].rstrip() + "..."
+    preview = "\n".join("> " + line for line in summary.splitlines()[:6])
+    if len(summary.splitlines()) > 6:
+        preview += "\n> ..."
+    if not preview:
+        preview = "> 게시글 미리보기가 없습니다."
+    details = preview + "\n\n작성자 · " + article["author"][:100]
 
     payload = v2_payload("cafe", role_id, get_banner(group),
                          "네이버 카페에 새로운 글이 올라왔습니다!",
-                         "게시판 " + str(menu_id),
-                         "**게시글 제목**\n" + article["title"][:300]
-                         + "\n**내용**\n" + (summary or "게시글 미리보기가 없습니다.")
-                         + "\n**작성자**\n" + article["author"][:100],
+                         "**" + title + "**", details,
                          link_url=article["url"], link_label="카페 게시글 보기",
                          username="정덕삼")
     send_webhook(WEBHOOK_URL, payload)
