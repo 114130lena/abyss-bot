@@ -6,25 +6,17 @@ from dotenv import load_dotenv
 from banner_manager import get_banner
 from creator_groups import role_for, HANAYO, SAKIHANE
 from resilience import send_webhook
+from discord_v2 import payload as v2_payload
 
 def make_payload(group, platform, ping=False):
     role = role_for(group)
-    color = {"chzzk": 0x00FFA3, "youtube": 0xFF0000,
-             "x": 0x1DA1F2, "cafe": 0x03C75A}[platform]
-    embeds = []
     banner = get_banner(group)
-    if banner.startswith("https://"):
-        embeds.append({"color": color, "image": {"url": banner}})
-    body = {"title": "[테스트] " + platform.upper() + " 알림",
-            "description": "어비스봇 알림 디자인·그룹·배너 확인용 테스트입니다. 실제 방송/게시글이 아닙니다.",
-            "color": color, "footer": {"text": "ABYSS BOT · TEST ONLY"}}
-    if platform in ("chzzk", "youtube"):
-        body["image"] = {"url": "https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg"}
-    embeds.append(body)
-    return {"username": "어비스봇 테스트",
-            "content": f"<@&{role}>" if ping else f"[테스트] {group} / 역할 ID: {role} (멘션 비활성화)",
-            "embeds": embeds,
-            "allowed_mentions": {"parse": [], "roles": [role] if ping else []}}
+    media = "https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg" if platform in ("chzzk", "youtube") else ""
+    return v2_payload(platform, role, banner,
+                      "[테스트] " + platform.upper() + " 알림", group,
+                      "알림 레이아웃·배너·역할 확인용입니다. 실제 방송이나 게시글이 아닙니다.",
+                      media_url=media, media_description="테스트용 썸네일",
+                      username="어비스봇 테스트", ping=ping)
 
 def main():
     parser = argparse.ArgumentParser()
