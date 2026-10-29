@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from resilience import send_webhook, warn_failure
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 load_dotenv(BASE_DIR / ".env")
@@ -108,8 +109,7 @@ def notify(article, role_id, menu_id):
             "roles": [role_id] if role_id else [],
         },
     }
-    response = requests.post(WEBHOOK_URL, json=payload, timeout=15)
-    response.raise_for_status()
+    send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
 
