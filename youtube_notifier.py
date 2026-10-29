@@ -134,7 +134,7 @@ def _fetch_uploads(channel_id):
         raise ValueError("Unexpected YouTube feed format")
     actual_id = (root.findtext(YT + "channelId") or "").strip()
     if actual_id and actual_id != channel_id:
-        raise ValueError("YouTube feed channel mismatch")
+        raise ValueError(f"YouTube feed channel mismatch: requested={channel_id}, returned={actual_id}")
     channel_name = root.findtext(ATOM + "title") or channel_id
     videos = []
     for entry in root.findall(ATOM + "entry"):
