@@ -66,6 +66,20 @@ class RoutingTests(unittest.TestCase):
             twitter._notify({"text": "테스트", "url": "https://x.com/a/status/1"})
         self.assertIn("1563499860135772211", sent.call_args.args[1]["components"][0]["content"])
 
+    def test_x_failed_delivery_keeps_post_unread(self):
+        post = {"id": "900", "text": "new", "url": "https://x.com/test/status/900",
+                "source": "test", "pub_date": ""}
+        with TemporaryDirectory() as directory:
+            state_file = Path(directory) / "seen.json"
+            state_file.write_text("[]", encoding="utf-8")
+            with patch.object(twitter, "SEEN_FILE", state_file), \
+                 patch.object(twitter, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
+                 patch.object(twitter, "_fetch_merged_posts", return_value=[post]), \
+                 patch.object(twitter, "_notify", side_effect=ValueError("send failed")), \
+                 patch.object(twitter, "warn_failure"), \
+                 patch.object(twitter, "next_check", 0):
+                twitter.check_twitter()
+            self.assertEqual(state_file.read_text(encoding="utf-8"), "[]")
     def test_x_rss_merges_backup_posts_without_duplicates(self):
         newest = {"id": "200", "text": "new", "url": "https://x.com/HanayoHiyori/status/200",
                   "source": "backup", "pub_date": ""}
