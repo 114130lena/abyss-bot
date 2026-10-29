@@ -61,8 +61,19 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -eu
           cd /home/ubuntu/chzzk-bot
-          .venv/bin/python -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py
-          .venv/bin/pip install -r .deploy-staging/requirements.txt
+          # Prefer the production environment, but support servers using the
+          # separately-created test venv rather than failing with ENOENT.
+          if [ -x .venv/bin/python ]; then
+            BOT_PY=.venv/bin/python
+          elif [ -x .venv-test/bin/python ]; then
+            BOT_PY=.venv-test/bin/python
+          else
+            echo "::error::No Python virtualenv found (.venv or .venv-test)."
+            exit 1
+          fi
+          echo "Using Python: $BOT_PY"
+          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py
+          "$BOT_PY" -m pip install -r .deploy-staging/requirements.txt
 
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
           cp main.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
