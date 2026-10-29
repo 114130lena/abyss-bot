@@ -89,6 +89,15 @@ def refresh_one(name, force=False):
         url = _extract(response.text)
         if not url:
             raise ValueError("YouTube banner metadata unavailable")
+        # Confirm the discovered URL serves an actual image before replacing cache.
+        image_response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                                      stream=True, timeout=12)
+        try:
+            image_response.raise_for_status()
+            if not image_response.headers.get("Content-Type", "").lower().startswith("image/"):
+                raise ValueError("YouTube banner URL did not return an image")
+        finally:
+            image_response.close()
         with _lock:
             value = _read()
             if value.get(name) != url:
