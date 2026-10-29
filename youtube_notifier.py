@@ -192,7 +192,7 @@ def _notify(video):
                          media_url="https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg",
                          media_description="유튜브 영상 썸네일",
                          link_url=video["url"], link_label="영상 바로가기",
-                         username="유튜브 업로드 알림")
+                         username="정덕삼")
     send_webhook(youtube_thread_webhook_url(), payload)
 
 
