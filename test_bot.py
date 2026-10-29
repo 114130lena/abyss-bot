@@ -16,6 +16,18 @@ import chzzk_replay_notifier as replay
 from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
+    def test_premium_chzzk_live_card_layout(self):
+        from test_alert import make_premium_payload
+        with patch("test_alert.get_banner", return_value="https://yt3.googleusercontent.com/banner"):
+            payload = make_premium_payload("hanayo", "chzzk")
+        parts = payload["components"][0]["components"]
+        self.assertIn("🟢 **CHZZK** · 하나요 히요리 · **LIVE**", parts[1]["content"])
+        self.assertTrue(parts[3]["content"].startswith("## ["))
+        self.assertIn("https://chzzk.naver.com/", parts[3]["content"])
+        self.assertIn("Just Chatting · 2026.10.29 21:30", parts[-1]["content"])
+        self.assertNotIn("방송 시청하기", str(payload))
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+
     def test_premium_preview_never_mentions_roles(self):
         from test_alert import make_premium_payload
         for platform in ("chzzk", "youtube", "x", "cafe", "replay"):
