@@ -30,6 +30,7 @@ class RoutingTests(unittest.TestCase):
         video = {"id": "abc123", "title": "테스트 영상", "url": "https://youtube.com/watch?v=abc123",
                  "channel": "하나요", "channel_id": "UCHAr9pWGS30akL4MQCQT4uQ", "published": ""}
         with patch.object(yt, "get_banner", return_value="https://yt3.googleusercontent.com/test"), \
+             patch.object(yt, "youtube_thread_webhook_url", return_value="https://discord.com/api/webhooks/mock/token?thread_id=1565296193725141064"), \
              patch.object(yt, "send_webhook") as sent:
             yt._notify(video)
         payload = sent.call_args.args[1]
