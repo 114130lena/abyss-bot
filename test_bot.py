@@ -12,6 +12,7 @@ import youtube_notifier as yt
 import cafe_notifier as cafe
 import twitter_notifier as twitter
 import banner_manager as banners
+from discord_v2 import COLORS
 
 class RoutingTests(unittest.TestCase):
     def test_creator_roles(self):
@@ -31,9 +32,11 @@ class RoutingTests(unittest.TestCase):
              patch.object(yt, "send_webhook") as sent:
             yt._notify(video)
         payload = sent.call_args.args[1]
-        self.assertEqual(payload["content"], "<@&1563499860135772211>")
-        self.assertIn("test", payload["embeds"][0]["image"]["url"])
-        self.assertIn("hqdefault.jpg", payload["embeds"][1]["image"]["url"])
+        self.assertEqual(payload["flags"], 32768)
+        self.assertIn("1563499860135772211", payload["components"][0]["content"])
+        parts = payload["components"][1]["components"]
+        self.assertIn("test", parts[0]["items"][0]["media"]["url"])
+        self.assertIn("hqdefault.jpg", parts[2]["items"][0]["media"]["url"])
 
     def test_chzzk_alert_has_top_banner_thumbnail_role(self):
         live = {"name": "사키하네 후야", "channel_id": "36ddb9bb4f17593b60f1b63cec86611d",
@@ -44,9 +47,10 @@ class RoutingTests(unittest.TestCase):
              patch.object(main, "send_webhook") as sent:
             main.send_discord_notification(live)
         payload = sent.call_args.args[1]
-        self.assertEqual(payload["content"], "<@&1564279305171640361>")
-        self.assertEqual(len(payload["embeds"]), 2)
-        self.assertEqual(payload["embeds"][1]["image"]["url"], live["thumbnail"])
+        self.assertEqual(payload["flags"], 32768)
+        self.assertIn("1564279305171640361", payload["components"][0]["content"])
+        self.assertEqual(payload["components"][1]["accent_color"], COLORS["chzzk"])
+        self.assertEqual(payload["components"][1]["components"][2]["items"][0]["media"]["url"], live["thumbnail"])
 
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
@@ -54,11 +58,11 @@ class RoutingTests(unittest.TestCase):
         with patch.object(cafe, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
              patch.object(cafe, "send_webhook") as sent:
             cafe.notify(post, None, "382", "sakihane")
-        self.assertEqual(sent.call_args.args[1]["content"], "<@&1564279305171640361>")
+        self.assertIn("1564279305171640361", sent.call_args.args[1]["components"][0]["content"])
         with patch.object(twitter, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
              patch.object(twitter, "send_webhook") as sent:
             twitter._notify({"text": "테스트", "url": "https://x.com/a/status/1"})
-        self.assertEqual(sent.call_args.args[1]["content"], "<@&1563499860135772211>")
+        self.assertIn("1563499860135772211", sent.call_args.args[1]["components"][0]["content"])
 
     def test_youtube_failure_does_not_block_other_channel(self):
         channels = ["bad", "good"]
