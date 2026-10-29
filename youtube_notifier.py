@@ -153,11 +153,23 @@ ROLE_BY_CHANNEL = {
 }
 
 
+def _youtube_banner(channel_id):
+    replay_id = _load_handle_cache().get("@Hiyorireplay", "")
+    if channel_id == "UCHAr9pWGS30akL4MQCQT4uQ":
+        return os.getenv("HANAYO_BANNER_URL", "").strip()
+    if channel_id == "UC0YQnenKBCu5sGb7H61n6HA":
+        return os.getenv("SAKIHANE_BANNER_URL", "").strip()
+    if replay_id and channel_id == replay_id:
+        return os.getenv("HIYORI_REPLAY_BANNER_URL", os.getenv("HANAYO_BANNER_URL", "")).strip()
+    return ""
+
+
 def _notify(video):
     channel_id = video.get("channel_id", "")
     replay_channel_id = _load_handle_cache().get("@Hiyorireplay", "")
     role_id = (ROLE_BY_CHANNEL["UCHAr9pWGS30akL4MQCQT4uQ"] if channel_id == replay_channel_id and replay_channel_id
                else ROLE_BY_CHANNEL.get(channel_id, ""))
+    banner = _youtube_banner(channel_id)
     payload = {
         "content": f"<@&{role_id}>" if role_id else "",
 
@@ -172,6 +184,8 @@ def _notify(video):
         }],
         "allowed_mentions": {"parse": [], "roles": [role_id] if role_id else []},
     }
+    if banner.startswith("https://"):
+        payload["embeds"].append({"color": 0xFF0000, "image": {"url": banner}})
     send_webhook(WEBHOOK_URL, payload)
 
 
