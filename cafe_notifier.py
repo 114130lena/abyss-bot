@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
+from banner_manager import get_banner
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 load_dotenv(BASE_DIR / ".env")
@@ -19,12 +20,14 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 BOARDS = [
     {
         "menu_id": DEFAULT_MENU_ID,
-        "role_id": os.getenv("DISCORD_ROLE_ID", "").strip(),
+        "role_id": "1563499860135772211",
+        "group": "hanayo",
         "seen_file": BASE_DIR / "cafe_seen_articles.json",
     },
     {
         "menu_id": "382",
-        "role_id": os.getenv("CAFE_MENU_382_ROLE_ID", "1564279305171640361").strip(),
+        "role_id": "1564279305171640361",
+        "group": "sakihane",
         "seen_file": BASE_DIR / "cafe_seen_articles_382.json",
     },
 ]
@@ -82,7 +85,7 @@ def save_seen(path, ids):
     )
 
 
-def notify(article, role_id, menu_id):
+def notify(article, role_id, menu_id, group):
     role_mention = f"<@&{role_id}>" if role_id else ""
     summary = article["summary"]
     if len(summary) > 1000:
@@ -100,10 +103,13 @@ def notify(article, role_id, menu_id):
         }],
         "footer": {"text": f"네이버 카페 새 게시글 • 게시판 {menu_id}"},
     }
+    banner = get_banner(group)
+    embeds = ([{"color": 0x03C75A, "image": {"url": banner}}] if banner.startswith("https://") else [])
+    embeds.append(embed)
     payload = {
         "username": "네이버 카페 알림",
         "content": role_mention,
-        "embeds": [embed],
+        "embeds": embeds,
         "allowed_mentions": {
             "parse": [],
             "roles": [role_id] if role_id else [],
@@ -140,7 +146,7 @@ def check_cafe():
         new_articles.reverse()
 
         for article in new_articles:
-            notify(article, board["role_id"], menu_id)
+            notify(article, board["role_id"], menu_id, board["group"])
             seen.insert(0, article["id"])
             seen = seen[:100]
             save_seen(board["seen_file"], seen)
