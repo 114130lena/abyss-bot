@@ -86,8 +86,8 @@ def _fetch_uploads(channel_id):
 
 
 ROLE_BY_CHANNEL = {
-    "UCHAr9pWGS30akL4MQCQT4uQ": os.getenv("YOUTUBE_HANAYO_ROLE_ID", "").strip(),
-    "UC0YQnenKBCu5sGb7H61n6HA": os.getenv("YOUTUBE_SAKIHANE_ROLE_ID", "").strip(),
+    "UCHAr9pWGS30akL4MQCQT4uQ": os.getenv("YOUTUBE_HANAYO_ROLE_ID", "1563499860135772211").strip(),
+    "UC0YQnenKBCu5sGb7H61n6HA": os.getenv("YOUTUBE_SAKIHANE_ROLE_ID", "1564279305171640361").strip(),
 }
 
 
