@@ -20,7 +20,7 @@ jobs:
 
       - name: Validate bot Python files
         run: |
-          python -m py_compile main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py resilience.py
+          python -m py_compile main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py resilience.py
 
       - name: Set up SSH
         env:
@@ -45,7 +45,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
             'mkdir -p /home/ubuntu/chzzk-bot/.deploy-staging'
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
-            main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py resilience.py requirements.txt youtube_channels.txt \
+            main.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py resilience.py requirements.txt youtube_channels.txt \
             "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/"
 
       - name: Validate and deploy, then restart
@@ -64,11 +64,13 @@ jobs:
           if [ -f youtube_notifier.py ]; then cp youtube_notifier.py "$backup_dir/"; fi
           if [ -f youtube_channels.txt ]; then cp youtube_channels.txt "$backup_dir/"; fi
           if [ -f resilience.py ]; then cp resilience.py "$backup_dir/"; fi
+          if [ -f youtube_websub.py ]; then cp youtube_websub.py "$backup_dir/"; fi
           restore() {
             cp "$backup_dir/main.py" "$backup_dir/cafe_notifier.py" "$backup_dir/twitter_notifier.py" "$backup_dir/requirements.txt" .
             if [ -f "$backup_dir/youtube_notifier.py" ]; then cp "$backup_dir/youtube_notifier.py" .; else rm -f youtube_notifier.py; fi
             if [ -f "$backup_dir/youtube_channels.txt" ]; then cp "$backup_dir/youtube_channels.txt" .; else rm -f youtube_channels.txt; fi
             if [ -f "$backup_dir/resilience.py" ]; then cp "$backup_dir/resilience.py" .; else rm -f resilience.py; fi
+            if [ -f "$backup_dir/youtube_websub.py" ]; then cp "$backup_dir/youtube_websub.py" .; else rm -f youtube_websub.py; fi
             sudo systemctl restart chzzk-bot
           }
           trap restore ERR
