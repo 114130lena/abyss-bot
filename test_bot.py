@@ -79,6 +79,14 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual([p["id"] for p in posts], ["100", "200"])
         self.assertEqual(posts[-1]["source"], "backup")
 
+    def test_x_rss_every_source_checked_each_cycle(self):
+        urls = ["https://first.example/rss", "https://second.example/rss",
+                "https://third.example/rss"]
+        with patch.object(twitter, "ALL_FEEDS", urls), \
+             patch.object(twitter, "_fetch_posts", return_value=[]) as fetched:
+            self.assertEqual(twitter._fetch_merged_posts(), [])
+        self.assertEqual([c.args[0] for c in fetched.call_args_list], urls)
+
     def test_x_rss_primary_failure_tries_backup_immediately(self):
         def fake_fetch(url):
             if url == twitter.FEED_URL:
