@@ -54,8 +54,8 @@ def make_premium_payload(group, platform, image_count=2):
             parts.append(gallery(banner, "스트리머 공식 배너"))
         parts.append(text("𝕏 **X** · " + display + " · **NEW POST**"))
         parts.append(separator())
-        parts.append(text("오늘 새로운 일러스트가 나왔어요! 💕\\n"
-                          "너무 예쁘게 그려주셔서 감사합니다!\\n"
+        parts.append(text("오늘 새로운 일러스트가 나왔어요! 💕\n"
+                          "너무 예쁘게 그려주셔서 감사합니다!\n"
                           "여러분도 꼭 봐주세요. (테스트 본문)"))
         examples = [
             "https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg",
@@ -70,7 +70,7 @@ def make_premium_payload(group, platform, image_count=2):
             ]})
         parts.append(separator())
         stamp = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
-        parts.append(text("게시글 작성 · " + stamp + " (테스트 시간)\\n"
+        parts.append(text("게시글 작성 · " + stamp + " (테스트 시간)\n"
                           "[원문 보기 (테스트)](https://x.com/HanayoHiyori)"))
         return {"username": "정덕삼", "flags": FLAGS,
                 "components": [{"type": 17, "accent_color": COLORS["x"],
