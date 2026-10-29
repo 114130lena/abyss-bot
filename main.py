@@ -12,6 +12,7 @@ from twitter_notifier import check_twitter
 from youtube_notifier import check_youtube
 from youtube_websub import start_websub
 from banner_manager import get_banner, run_banner_refresh
+from creator_groups import chzzk_group, role_for
 from resilience import load_json, save_json, send_webhook, warn_failure
 
 load_dotenv()
@@ -21,11 +22,6 @@ CHANNELS_FILE = BASE_DIR / "channels.txt"
 LIVE_STATE_FILE = BASE_DIR / "live_state.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
-ROLE_BY_CHANNEL = {
-    "36ddb9bb4f17593b60f1b63cec86611d": "1564279305171640361",
-}
-HANAYO_ROLE_ID = "1563499860135772211"
-BAKU_ROLE_ID = "1564279305171640361"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -111,8 +107,9 @@ def send_discord_notification(live):
     if live["thumbnail"]:
         embed["image"] = {"url": live["thumbnail"]}
 
-    role_id = ROLE_BY_CHANNEL.get(live["channel_id"], HANAYO_ROLE_ID)
-    banner_url = get_banner("sakihane" if role_id == BAKU_ROLE_ID else "hanayo")
+    group = chzzk_group(live["channel_id"])
+    role_id = role_for(group)
+    banner_url = get_banner(group)
     payload = {
         "username": "치지직 방송 알림",
         "content": f"<@&{role_id}>" if role_id else "",
@@ -140,14 +137,17 @@ def check_chzzk_once(state):
             live_id = live["url"].rsplit("/", 1)[-1] if "/live/" in live["url"] else ""
             previously_open = previous.get("status") == "OPEN"
             previous_id = previous.get("live_id", "")
-            should_notify = (
-                status == "OPEN"
-                and bool(previous)
-                and (not previously_open or (bool(live_id) and bool(previous_id) and live_id != previous_id))
-            )
+            opened_at = live.get("open_date") or ""
+            previous_opened_at = previous.get("open_date", "")
+            # A new live session can be detected even across a restart.
+            changed_session = ((bool(live_id) and bool(previous_id) and live_id != previous_id)
+                               or (bool(opened_at) and bool(previous_opened_at) and opened_at != previous_opened_at))
+            should_notify = (status == "OPEN" and bool(previous)
+                             and (not previously_open or changed_session))
             if should_notify:
                 send_discord_notification(live)
-            state[channel_id] = {"status": status, "live_id": live_id if status == "OPEN" else ""}
+            state[channel_id] = {"status": status, "live_id": live_id if status == "OPEN" else "",
+                                 "open_date": opened_at if status == "OPEN" else ""}
             save_json(LIVE_STATE_FILE, state)
             _chzzk_failures[channel_id] = 0
             logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
