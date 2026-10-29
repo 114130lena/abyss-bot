@@ -110,6 +110,27 @@ def _post_body(item):
     return _normalize_post_text(unescape(item.findtext("title") or ""))
 
 
+
+def _post_images(item):
+    """Pick up to four public HTTPS image URLs exposed by the RSS description."""
+    from urllib.parse import urlparse
+    description = item.findtext("description") or ""
+    class Finder(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.urls = []
+        def handle_starttag(self, tag, attrs):
+            if tag != "img":
+                return
+            attributes = dict(attrs)
+            url = attributes.get("src") or attributes.get("data-src") or ""
+            if url.startswith("https://") and urlparse(url).hostname and url not in self.urls:
+                self.urls.append(url)
+    parser = Finder()
+    parser.feed(description)
+    return parser.urls[:4]
+
+
 def _fetch_posts(feed_url=None):
     source = feed_url or FEED_URL
     response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=8)
@@ -130,7 +151,8 @@ def _fetch_posts(feed_url=None):
             continue
         text = _post_body(item)
         posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
-                      "source": source, "pub_date": item.findtext("pubDate") or ""})
+                      "source": source, "pub_date": item.findtext("pubDate") or "",
+                      "images": _post_images(item)})
     return sorted(posts, key=lambda p: int(p["id"]))
 
 
