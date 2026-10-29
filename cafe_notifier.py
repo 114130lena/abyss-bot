@@ -57,12 +57,22 @@ def get_articles(menu_id):
         article_id = item.get("articleId")
         if article_id is None or item.get("blindArticle"):
             continue
+        # The board-list API may supply a preview image; no extra authenticated scraping.
+        image_candidates = [
+            item.get("thumbnailImageUrl"), item.get("representImageUrl"),
+            item.get("imageUrl"), item.get("thumbnailUrl"),
+        ]
+        images = []
+        for candidate in image_candidates:
+            if isinstance(candidate, str) and candidate.startswith("https://") and candidate not in images:
+                images.append(candidate)
         articles.append({
             "id": str(article_id),
             "title": item.get("subject") or "제목 없음",
             "author": (item.get("writerInfo") or {}).get("nickName") or "작성자 미상",
             "summary": (item.get("summary") or "").strip(),
             "date": item.get("writeDate") or item.get("createdAt") or "",
+            "images": images[:4],
             "url": (
                 f"https://cafe.naver.com/f-e/cafes/{CAFE_ID}"
                 f"/articles/{article_id}?menuid={menu_id}"
