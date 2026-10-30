@@ -6,6 +6,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from banner_manager import get_banner
+from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from creator_groups import chzzk_group
 from discord_v2 import alert as unified_alert
 from resilience import load_json, save_json, send_webhook, warn_failure
@@ -67,7 +68,8 @@ def notify(replay):
         "chzzk", "하나요 히요리", get_banner("hanayo"),
         title=replay["title"], url=replay["url"],
         media_url=replay.get("thumbnail", ""), date=replay.get("date", ""),
-        replay=True, ping=False)
+        replay=True, ping=False,
+        handle=creator_handle("hanayo"), avatar=creator_avatar("hanayo"))
     message["allowed_mentions"] = {"parse": []}
     send_webhook(thread_webhook_url(), message)
 
