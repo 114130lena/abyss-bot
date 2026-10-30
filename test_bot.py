@@ -78,7 +78,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_x_unified_body_preserves_blank_paragraph(self):
         payload = unified_alert("x", "하나요 히요리",
-            body="첫 문단\\n\\n둘째 문단", url="https://x.com/test/status/1", ping=False)
+            body="첫 문단\n\n둘째 문단", url="https://x.com/test/status/1", ping=False)
         parts = payload["components"][0]["components"]
         self.assertTrue(any("## [첫 문단]" in p.get("content", "") for p in parts))
         self.assertTrue(any(p.get("content") == "둘째 문단" for p in parts))
@@ -90,7 +90,7 @@ class RoutingTests(unittest.TestCase):
                 payload = unified_alert(platform, "하나요 히요리",
                     "https://example.com/banner.jpg",
                     title="테스트 제목" if platform != "x" else "",
-                    body="첫째\\n\\n둘째" if platform == "x" else "",
+                    body="첫째\n\n둘째" if platform == "x" else "",
                     url="https://example.com/test",
                     images=["https://example.com/image.jpg"] if platform == "x" else [],
                     date="2026-10-29T12:00:00Z", ping=False,
