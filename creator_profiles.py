@@ -42,13 +42,13 @@ def avatar(group):
 
 def _extract_avatar(page):
     # Prefer avatar-specific metadata, not the first thumbnail on the page.
-    page = page.replace(chr(92) + "/", "/").replace("\\u0026", "&")
+    page = page.replace(chr(92) + "/", "/").replace("\u0026", "&")
     for marker in ('"avatarViewModel"', '"avatar"', '"channelAvatar"'):
         pos = page.find(marker)
         if pos < 0:
             continue
         snippet = page[pos:pos + 5500]
-        urls = re.findall(r'https://(?:yt3\\.googleusercontent\\.com|yt3\\.ggpht\\.com)/[^"\\s<>]+', snippet)
+        urls = re.findall(r'https://(?:yt3\.googleusercontent\.com|yt3\.ggpht\.com)/[^"\s<>]+', snippet)
         if urls:
             return urls[0].replace("&amp;", "&")
     return ""
