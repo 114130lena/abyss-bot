@@ -104,7 +104,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
-    identity = "**" + _safe_markdown(creator) + "**"
+    identity = "## " + _safe_markdown(creator)
     if handle:
         identity += "\n" + _safe_markdown(handle)
     if _valid_url(avatar):
