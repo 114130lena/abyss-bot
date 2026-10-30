@@ -266,7 +266,7 @@ class RoutingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "channel mismatch"):
                 yt._fetch_uploads("UC0YQnenKBCu5sGb7H61n6HA")
 
-    def test_replay_posts_to_thread_without_mention(self):
+    def test_replay_posts_to_thread_with_hanayo_role(self):
         item = {"id": "12345", "title": "새 다시보기",
                 "thumbnail": "https://example.com/thumbnail.jpg",
                 "url": "https://chzzk.naver.com/video/12345"}
@@ -277,8 +277,8 @@ class RoutingTests(unittest.TestCase):
         url, message = sent.call_args.args
         self.assertIn("thread_id=1565293200225206342", url)
         self.assertEqual(message["flags"], 32768)
-        self.assertEqual(message["allowed_mentions"], {"parse": []})
-        self.assertNotIn("1563499860135772211", str(message))
+        self.assertEqual(message["allowed_mentions"], {"parse": [], "roles": ["1563499860135772211"]})
+        self.assertIn("<@&1563499860135772211>", str(message))
         self.assertIn("12345", str(message))
 
     def test_replay_only_accepts_replay_type(self):
