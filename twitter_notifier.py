@@ -16,6 +16,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import x_group, role_for
 
@@ -162,7 +163,8 @@ def _notify(post):
         "x", "하나요 히요리", banner, X_ROLE_ID,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
-        images=post.get("images", []))
+        images=post.get("images", []),
+        handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
     send_webhook(WEBHOOK_URL, payload)
 
 
