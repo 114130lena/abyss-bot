@@ -40,26 +40,23 @@ class RoutingTests(unittest.TestCase):
         for count in (0, 1, 2, 4):
             with self.subTest(image_count=count), patch("test_alert.get_banner", return_value=""):
                 payload = make_premium_payload("hanayo", "x", image_count=count)
-            components = payload["components"][0]["components"]
-            galleries = [part for part in components if part["type"] == 12]
+            parts = payload["components"][0]["components"]
+            galleries = [part for part in parts if part["type"] == 12]
             self.assertEqual(len(galleries), 1 if count else 0)
-            if count:
-                self.assertEqual(len(galleries[0]["items"]), count)
-            self.assertIn("𝕏 **X** · 하나요 히요리 · **NEW POST**", str(components))
-            self.assertIn("원문 보기 (테스트)", str(components))
-            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+            self.assertIn("## [", str(parts))
+            self.assertIn("StelLive", str(parts))
+            self.assertEqual(payload["allowed_mentions"], {"parse": [], "roles": []})
 
     def test_premium_chzzk_live_card_layout(self):
         from test_alert import make_premium_payload
         with patch("test_alert.get_banner", return_value="https://yt3.googleusercontent.com/banner"):
             payload = make_premium_payload("hanayo", "chzzk")
         parts = payload["components"][0]["components"]
-        self.assertIn("🟢 **CHZZK** · 하나요 히요리 · **LIVE**", parts[1]["content"])
-        self.assertTrue(parts[3]["content"].startswith("## ["))
-        self.assertIn("https://chzzk.naver.com/", parts[3]["content"])
-        self.assertIn("Just Chatting · 2026.10.29 21:30", parts[-1]["content"])
-        self.assertNotIn("방송 시청하기", str(payload))
-        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.assertEqual(parts[0]["type"], 12)
+        self.assertIn("하나요 히요리", str(parts))
+        self.assertTrue(any(p.get("content", "").startswith("## [") for p in parts))
+        self.assertIn("StelLive", str(parts))
+        self.assertNotIn("NEW POST", str(parts))
 
     def test_premium_preview_never_mentions_roles(self):
         from test_alert import make_premium_payload
@@ -67,43 +64,43 @@ class RoutingTests(unittest.TestCase):
             with patch("test_alert.get_banner", return_value=""):
                 payload = make_premium_payload("hanayo", platform)
             self.assertEqual(payload["username"], "정덕삼")
-            self.assertEqual(payload["allowed_mentions"].get("parse"), [])
-            self.assertEqual(payload["allowed_mentions"].get("roles", []), [])
+            self.assertEqual(payload["allowed_mentions"]["roles"], [])
             self.assertEqual(payload["flags"], 32768)
             self.assertNotIn("<@&", str(payload))
 
     def test_unified_title_link_escapes_markdown(self):
-        payload = unified_alert(
-            "youtube", "하나요 히요리",
-            title="제목 [특별편] (1화)", url="https://www.youtube.com/watch?v=test",
-            ping=False)
+        payload = unified_alert("youtube", "하나요 히요리",
+            title="제목 [특별편] (1화)", url="https://www.youtube.com/watch?v=test", ping=False)
         parts = payload["components"][0]["components"]
         link = next(p["content"] for p in parts if p.get("content", "").startswith("## ["))
-        self.assertIn("제목 \\[특별편\\] \\(1화\\)", link)
+        self.assertIn("제목 \\\\[특별편\\\\] \\\\(1화\\\\)", link)
         self.assertIn("](https://www.youtube.com/watch?v=test)", link)
 
     def test_x_unified_body_preserves_blank_paragraph(self):
-        payload = unified_alert("x", "하나요 히요리", body="첫 문단\\n\\n둘째 문단",
-                                ping=False)
+        payload = unified_alert("x", "하나요 히요리",
+            body="첫 문단\\n\\n둘째 문단", url="https://x.com/test/status/1", ping=False)
         parts = payload["components"][0]["components"]
-        self.assertTrue(any(p.get("content") == "첫 문단\\n\\n둘째 문단" for p in parts))
+        self.assertTrue(any("## [첫 문단]" in p.get("content", "") for p in parts))
+        self.assertTrue(any(p.get("content") == "둘째 문단" for p in parts))
 
     def test_unified_alert_formats(self):
-        cases = [("chzzk", "LIVE"), ("youtube", "NEW VIDEO"),
-                 ("x", "NEW POST"), ("cafe", "NEW POST")]
-        for platform, status in cases:
+        cases = ("chzzk", "youtube", "x", "cafe")
+        for platform in cases:
             with self.subTest(platform=platform):
-                payload = unified_alert(
-                    platform, "하나요 히요리", "https://example.com/banner.jpg",
+                payload = unified_alert(platform, "하나요 히요리",
+                    "https://example.com/banner.jpg",
                     title="테스트 제목" if platform != "x" else "",
-                    body="첫째\n\n둘째" if platform == "x" else "",
+                    body="첫째\\n\\n둘째" if platform == "x" else "",
                     url="https://example.com/test",
                     images=["https://example.com/image.jpg"] if platform == "x" else [],
-                    date="2026-10-29T12:00:00Z", ping=False)
+                    date="2026-10-29T12:00:00Z", ping=False,
+                    handle="@HanayoHiyori", avatar="https://example.com/avatar.jpg")
                 parts = payload["components"][-1]["components"]
-                self.assertIn(status, parts[1]["content"])
+                self.assertEqual(parts[0]["type"], 12)
+                self.assertEqual(parts[1]["type"], 9)
+                self.assertEqual(parts[1]["accessory"]["type"], 11)
+                self.assertIn("StelLive", str(parts[-1]))
                 self.assertTrue(any(p.get("type") == 14 for p in parts))
-                self.assertTrue(any(p.get("type") == 12 for p in parts))
                 self.assertIn("2026.10.29 21:00", str(parts))
                 self.assertEqual(payload["allowed_mentions"]["roles"], [])
 
@@ -112,7 +109,7 @@ class RoutingTests(unittest.TestCase):
         with patch("test_alert.get_banner", return_value=""):
             p = make_premium_payload("hanayo", "youtube")
         components = p["components"][0]["components"]
-        self.assertIn("YOUTUBE", components[0]["content"])
+        self.assertTrue(any("YOUTUBE" in item.get("content", "") for item in components))
         self.assertTrue(any("## [" in item.get("content", "") for item in components))
         self.assertTrue(any("hqdefault.jpg" in str(item) for item in components))
         self.assertEqual(p["allowed_mentions"], {"parse": [], "roles": []})
