@@ -13,6 +13,7 @@ from twitter_notifier import check_twitter
 from youtube_notifier import check_youtube
 from youtube_websub import start_websub
 from banner_manager import get_banner, run_banner_refresh
+from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import chzzk_group, role_for
 from resilience import load_json, save_json, send_webhook, warn_failure
@@ -91,7 +92,8 @@ def send_discord_notification(live):
         "chzzk", live["name"], get_banner(group), role_id,
         title=live["title"], url=live["url"],
         media_url=live.get("thumbnail", ""),
-        category=live.get("category", ""), date=live.get("open_date", ""))
+        category=live.get("category", ""), date=live.get("open_date", ""),
+        handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group))
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
