@@ -95,7 +95,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
           author="", board="", replay=False, ping=True, username="정덕삼",
           handle="", avatar=""):
-    """Unified V2 card: banner, creator identity, platform, direct-link title, footer."""
+    """Unified V2 card: creator, platform, title/media, date, final banner."""
     creator = str(creator or "알 수 없음")
     tag = {
         "chzzk": "🟢 CHZZK · 다시보기" if replay else "🟢 CHZZK",
@@ -104,8 +104,6 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
-    if _valid_url(banner):
-        pieces.append(gallery(banner, "스트리머 공식 배너"))
     identity = "**" + _safe_markdown(creator) + "**"
     if handle:
         identity += "\n" + _safe_markdown(handle)
@@ -152,10 +150,12 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         label = ("방송 시작" if platform == "chzzk" and not replay else
                  "등록" if replay else "업로드" if platform == "youtube" else "작성")
         footer.append(label + " · " + _korean_datetime(date) + " KST")
-    # The final brand signature is shared by all creators and platforms.
-    footer.append("StelLive")
-    pieces.append(separator())
-    pieces.append(text(" · ".join(footer)))
+    if footer:
+        pieces.append(separator())
+        pieces.append(text(" · ".join(footer)))
+    if _valid_url(banner):
+        pieces.append(separator())
+        pieces.append(gallery(banner, "스트리머 공식 배너"))
     outer = []
     if role_id:
         outer.append(text("<@&" + role_id + ">" if ping else "[테스트] 멘션 비활성화"))
