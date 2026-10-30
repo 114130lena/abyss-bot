@@ -102,7 +102,7 @@ jobs:
             sudo systemctl restart chzzk-bot
           }
           trap restore ERR
-          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
+          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
