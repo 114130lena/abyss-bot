@@ -22,7 +22,7 @@ def make_payload(group, platform):
 
 
 def make_premium_payload(group, platform, image_count=2):
-    """One-time check of the approved bottom-banner card with no role pings."""
+    """One-time preview of the approved bottom-banner layout without pings."""
     from discord_v2 import alert as unified_alert
     from creator_profiles import handle, avatar
     from datetime import datetime
