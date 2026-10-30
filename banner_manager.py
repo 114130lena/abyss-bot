@@ -116,9 +116,12 @@ def get_banner(name):
     return _read().get(name, "")
 
 def run_banner_refresh():
+    from creator_profiles import refresh_all
+    refresh_all()
     for name in CHANNELS:
         refresh_one(name)
     while True:
         time.sleep(INTERVAL)
         for name in CHANNELS:
             refresh_one(name, force=True)
+        refresh_all()
