@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import cafe_group, role_for
 
@@ -108,7 +109,8 @@ def notify(article, role_id, menu_id, group):
         title=title, body=summary,
         url=article["url"], author=article.get("author", ""),
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
-        date=article.get("date", ""), images=article.get("images", []))
+        date=article.get("date", ""), images=[],
+        handle=creator_handle(group), avatar=creator_avatar(group))
     send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
