@@ -73,7 +73,7 @@ class RoutingTests(unittest.TestCase):
             title="제목 [특별편] (1화)", url="https://www.youtube.com/watch?v=test", ping=False)
         parts = payload["components"][0]["components"]
         link = next(p["content"] for p in parts if p.get("content", "").startswith("## ["))
-        self.assertIn("제목 \\\\[특별편\\\\] \\\\(1화\\\\)", link)
+        self.assertIn("제목 " + chr(92) + "[특별편" + chr(92) + "] " + chr(92) + "(1화" + chr(92) + ")", link)
         self.assertIn("](https://www.youtube.com/watch?v=test)", link)
 
     def test_x_unified_body_preserves_blank_paragraph(self):
