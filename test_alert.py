@@ -46,7 +46,7 @@ def make_premium_payload(group, platform, image_count=2):
     return unified_alert(
         kind, display, get_banner(group),
         title="" if kind == "x" else "[테스트] " + ("다시보기" if platform == "replay" else "방송 일정 안내"),
-        body="오늘 새로운 일러스트가 나왔어요! 💕\\n\\n너무 예쁘게 그려주셔서 감사합니다!" if kind == "x" else
+        body="오늘 새로운 일러스트가 나왔어요! 💕\n\n너무 예쁘게 그려주셔서 감사합니다!" if kind == "x" else
              "테스트 공지입니다." if kind == "cafe" else "",
         url=urls[kind], media_url=sample_image if kind in ("chzzk", "youtube") else "",
         images=images, category="Just Chatting" if kind == "chzzk" and platform != "replay" else "",
