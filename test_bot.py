@@ -44,7 +44,7 @@ class RoutingTests(unittest.TestCase):
             galleries = [part for part in parts if part["type"] == 12]
             self.assertEqual(len(galleries), 1 if count else 0)
             self.assertIn("## [", str(parts))
-            self.assertIn("StelLive", str(parts))
+            self.assertNotIn("StelLive", str(parts))
             self.assertEqual(payload["allowed_mentions"], {"parse": [], "roles": []})
 
     def test_premium_chzzk_live_card_layout(self):
@@ -52,10 +52,10 @@ class RoutingTests(unittest.TestCase):
         with patch("test_alert.get_banner", return_value="https://yt3.googleusercontent.com/banner"):
             payload = make_premium_payload("hanayo", "chzzk")
         parts = payload["components"][0]["components"]
-        self.assertEqual(parts[0]["type"], 12)
+        self.assertEqual(parts[-1]["type"], 12)
         self.assertIn("하나요 히요리", str(parts))
         self.assertTrue(any(p.get("content", "").startswith("## [") for p in parts))
-        self.assertIn("StelLive", str(parts))
+        self.assertNotIn("StelLive", str(parts))
         self.assertNotIn("NEW POST", str(parts))
 
     def test_premium_preview_never_mentions_roles(self):
@@ -97,9 +97,9 @@ class RoutingTests(unittest.TestCase):
                     handle="@HanayoHiyori", avatar="https://example.com/avatar.jpg")
                 parts = payload["components"][-1]["components"]
                 self.assertEqual(parts[0]["type"], 12)
-                self.assertEqual(parts[1]["type"], 9)
-                self.assertEqual(parts[1]["accessory"]["type"], 11)
-                self.assertIn("StelLive", str(parts[-1]))
+                self.assertEqual(parts[0]["type"], 9)
+                self.assertEqual(parts[0]["accessory"]["type"], 11)
+                self.assertNotIn("StelLive", str(parts))
                 self.assertTrue(any(p.get("type") == 14 for p in parts))
                 self.assertIn("2026.10.29 21:00", str(parts))
                 self.assertEqual(payload["allowed_mentions"]["roles"], [])
@@ -135,7 +135,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(payload["flags"], 32768)
         self.assertIn("1563499860135772211", payload["components"][0]["content"])
         parts = payload["components"][1]["components"]
-        self.assertIn("test", parts[0]["items"][0]["media"]["url"])
+        self.assertIn("test", parts[-1]["items"][0]["media"]["url"])
         self.assertTrue(any("hqdefault.jpg" in str(part) for part in parts))
         self.assertTrue(any("## [" in part.get("content", "") for part in parts))
 
