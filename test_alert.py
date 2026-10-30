@@ -58,7 +58,7 @@ def main():
     parser.add_argument("--group", choices=[HANAYO, SAKIHANE], default=HANAYO)
     parser.add_argument("--platform", choices=["chzzk", "youtube", "x", "cafe", "replay"], default="chzzk")
     parser.add_argument("--send", action="store_true", help="Post one clearly labeled test message")
-    parser.add_argument("--premium", action="store_true", help="Preview the premium design in test messages only")
+    parser.add_argument("--premium", action="store_true", help="Preview the current unified production layout without role mentions")
     parser.add_argument("--images", type=int, choices=[0, 1, 2, 4], default=2,
                         help="Number of sample X attachments in premium preview")
     args = parser.parse_args()
