@@ -20,7 +20,7 @@ jobs:
 
       - name: Validate bot Python files
         run: |
-          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_groups.py discord_v2.py resilience.py test_alert.py test_bot.py
+          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py test_bot.py
 
       - name: Install test dependencies and run regression tests
         run: |
@@ -50,7 +50,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
             'mkdir -p /home/ubuntu/chzzk-bot/.deploy-staging'
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
-            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_groups.py discord_v2.py resilience.py test_alert.py requirements.txt youtube_channels.txt \
+            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py requirements.txt youtube_channels.txt \
             "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/"
 
       - name: Validate and deploy, then restart
@@ -84,6 +84,7 @@ jobs:
           if [ -f youtube_websub.py ]; then cp youtube_websub.py "$backup_dir/"; fi
           if [ -f banner_manager.py ]; then cp banner_manager.py "$backup_dir/"; fi
           if [ -f creator_groups.py ]; then cp creator_groups.py "$backup_dir/"; fi
+          if [ -f creator_profiles.py ]; then cp creator_profiles.py "$backup_dir/"; fi
           if [ -f discord_v2.py ]; then cp discord_v2.py "$backup_dir/"; fi
           if [ -f test_alert.py ]; then cp test_alert.py "$backup_dir/"; fi
           restore() {
@@ -95,6 +96,7 @@ jobs:
             if [ -f "$backup_dir/youtube_websub.py" ]; then cp "$backup_dir/youtube_websub.py" .; else rm -f youtube_websub.py; fi
             if [ -f "$backup_dir/banner_manager.py" ]; then cp "$backup_dir/banner_manager.py" .; else rm -f banner_manager.py; fi
             if [ -f "$backup_dir/creator_groups.py" ]; then cp "$backup_dir/creator_groups.py" .; else rm -f creator_groups.py; fi
+            if [ -f "$backup_dir/creator_profiles.py" ]; then cp "$backup_dir/creator_profiles.py" .; else rm -f creator_profiles.py; fi
             if [ -f "$backup_dir/discord_v2.py" ]; then cp "$backup_dir/discord_v2.py" .; else rm -f discord_v2.py; fi
             if [ -f "$backup_dir/test_alert.py" ]; then cp "$backup_dir/test_alert.py" .; else rm -f test_alert.py; fi
             sudo systemctl restart chzzk-bot
