@@ -79,22 +79,46 @@ def _korean_datetime(value):
         return str(value)[:40]
 
 
+def _x_headline(body):
+    """Turn the first nonempty post line into a direct link title."""
+    import re
+    lines = str(body or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for i, line in enumerate(lines):
+        if line.strip():
+            headline = line.strip()[:220]
+            remaining = "\n".join(lines[i + 1:]).strip()
+            return headline, remaining
+    return "X 게시글", ""
+
+
 def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
-          author="", board="", replay=False, ping=True, username="정덕삼"):
-    """Unified Discord V2 presentation across all notification workers."""
+          author="", board="", replay=False, ping=True, username="정덕삼",
+          handle="", avatar=""):
+    """Unified V2 card: banner, creator identity, platform, direct-link title, footer."""
     creator = str(creator or "알 수 없음")
-    tag, status = {
-        "chzzk": ("🟢 CHZZK", "REPLAY" if replay else "LIVE"),
-        "youtube": ("🔴 YOUTUBE", "NEW VIDEO"),
-        "x": ("𝕏 X", "NEW POST"),
-        "cafe": ("🟢 NAVER CAFE", "NEW POST"),
+    tag = {
+        "chzzk": "🟢 CHZZK · 다시보기" if replay else "🟢 CHZZK",
+        "youtube": "🔴 YOUTUBE",
+        "x": "𝕏 X",
+        "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
     if _valid_url(banner):
         pieces.append(gallery(banner, "스트리머 공식 배너"))
-    pieces.append(text("**" + tag + " · " + creator + " · " + status + "**"))
+    identity = "**" + _safe_markdown(creator) + "**"
+    if handle:
+        identity += "\n" + _safe_markdown(handle)
+    if _valid_url(avatar):
+        pieces.append({"type": 9, "components": [text(identity)],
+                       "accessory": {"type": 11, "media": {"url": avatar},
+                                     "description": creator + " 프로필 사진"}})
+    else:
+        pieces.append(text(identity))
     pieces.append(separator())
+    pieces.append(text("**" + tag + "**"))
+    if platform == "x" and not title:
+        title, body = _x_headline(body)
     if title:
         display = _safe_markdown(str(title).replace("\n", " ").strip()[:500])
         if _valid_url(url):
@@ -117,32 +141,21 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             break
     if media:
         pieces.append({"type": 12, "items": [
-            {"media": {"url": value}, "description": "첨부 이미지" if platform in ("x", "cafe") else "썸네일"}
+            {"media": {"url": value}, "description":
+             "첨부 이미지" if platform in ("x", "cafe") else "썸네일"}
             for value in media[:4]
         ]})
     footer = []
     if category:
         footer.append(str(category)[:100])
-    elif board:
-        footer.append(str(board)[:100])
-    elif replay:
-        footer.append("다시보기")
-    elif platform == "youtube":
-        footer.append("영상 업로드")
-    elif platform == "x":
-        footer.append("게시글 작성")
-    elif platform == "cafe":
-        footer.append("카페 게시글")
     if date:
-        footer.append(_korean_datetime(date))
-    if author and platform == "cafe":
-        footer.append("작성자 " + str(author)[:80])
-    if footer or (platform == "x" and _valid_url(url)):
-        pieces.append(separator())
-        if footer:
-            pieces.append(text(" · ".join(footer)))
-        if platform == "x" and _valid_url(url):
-            pieces.append(text("[원문 보기](" + url + ")"))
+        label = ("방송 시작" if platform == "chzzk" and not replay else
+                 "등록" if replay else "업로드" if platform == "youtube" else "작성")
+        footer.append(label + " · " + _korean_datetime(date) + " KST")
+    # The final brand signature is shared by all creators and platforms.
+    footer.append("StelLive")
+    pieces.append(separator())
+    pieces.append(text(" · ".join(footer)))
     outer = []
     if role_id:
         outer.append(text("<@&" + role_id + ">" if ping else "[테스트] 멘션 비활성화"))
