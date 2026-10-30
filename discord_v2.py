@@ -154,7 +154,6 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         pieces.append(separator())
         pieces.append(text(" · ".join(footer)))
     if _valid_url(banner):
-        pieces.append(separator())
         pieces.append(gallery(banner, "스트리머 공식 배너"))
     outer = []
     if role_id:
