@@ -15,6 +15,7 @@ import requests
 from dotenv import load_dotenv
 from resilience import send_webhook, warn_failure
 from banner_manager import get_banner
+from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import youtube_group, role_for
 
@@ -191,7 +192,8 @@ def _notify(video):
         "youtube", creator, banner, role_id,
         title=video["title"], url=video["url"],
         media_url="https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg",
-        date=video.get("published", ""))
+        date=video.get("published", ""),
+        handle=creator_handle(group), avatar=creator_avatar(group))
     send_webhook(youtube_thread_webhook_url(), payload)
 
 
