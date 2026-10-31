@@ -61,7 +61,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -Eeuo pipefail
           diagnose_deploy_failure() {
-            rc=$?
+            rc=${1:-$?}
             echo "::error::Remote deployment failed at line ${BASH_LINENO[0]:-unknown} (exit $rc)"
             echo "Service state (metadata only; no environment or webhook values):"
             sudo systemctl show chzzk-bot --no-pager \
