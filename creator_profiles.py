@@ -47,7 +47,7 @@ def _high_res_avatar(url):
     if parsed.hostname not in ("yt3.googleusercontent.com", "yt3.ggpht.com"):
         return url
     # YouTube serves resized avatars using an =sNNN image-size suffix.
-    path = re.sub(r"=s\\d+(?=-|$)", "=s512", parsed.path, count=1)
+    path = re.sub(r"=s\d+(?=-|$)", "=s512", parsed.path, count=1)
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
 
 
