@@ -166,6 +166,8 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         label = ("방송 시작" if platform == "chzzk" and not replay else
                  "등록" if replay else "업로드" if platform == "youtube" else "작성")
         footer.append(label + " · " + _korean_datetime(date) + " KST")
+    if platform == "cafe" and not date:
+        footer.append("작성 시간 정보 없음")
     if footer:
         pieces.append(separator())
         pieces.append(text(" · ".join(footer)))
