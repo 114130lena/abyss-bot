@@ -153,6 +153,33 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(payload["components"][1]["accent_color"], COLORS["chzzk"])
         self.assertTrue(any(live["thumbnail"] in str(part) for part in payload["components"][1]["components"]))
 
+    def test_cafe_detail_extracts_body_and_images(self):
+        from unittest.mock import Mock
+        html = "<div>후하요~<br>오늘 방송 안내</div><p>두 번째 문단</p><img src='https://example.com/post.jpg'>"
+        response = Mock()
+        response.json.return_value = {"message": {"result": {"article": {"contentHtml": html}}}}
+        with patch.object(cafe.session, "get", return_value=response):
+            body, images = cafe.article_detail({"id": "123", "summary": "짧은 미리보기", "images": []})
+        self.assertIn("후하요~\n오늘 방송 안내", body)
+        self.assertIn("두 번째 문단", body)
+        self.assertEqual(images, ["https://example.com/post.jpg"])
+
+    def test_cafe_detail_failure_falls_back_to_preview(self):
+        with patch.object(cafe.session, "get", side_effect=cafe.requests.Timeout):
+            body, images = cafe.article_detail({"id": "123", "summary": "미리보기", "images": ["https://example.com/thumb.jpg"]})
+        self.assertEqual(body, "미리보기")
+        self.assertEqual(images, ["https://example.com/thumb.jpg"])
+
+    def test_cafe_long_post_shows_more_and_original_link(self):
+        url = "https://cafe.naver.com/f-e/cafes/29424353/articles/123"
+        payload = unified_alert("cafe", "사키하네 후야", title="방송 공지",
+                                body="공지" * 1400, url=url,
+                                images=["https://example.com/post.jpg"], ping=False)
+        parts = payload["components"][0]["components"]
+        self.assertTrue(any("전체 글 보기" in p.get("content", "") for p in parts))
+        self.assertTrue(any(p.get("type") == 12 and
+                            "post.jpg" in str(p) for p in parts))
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
