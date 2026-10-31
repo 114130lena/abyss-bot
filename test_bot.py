@@ -180,6 +180,18 @@ class RoutingTests(unittest.TestCase):
         self.assertTrue(any(p.get("type") == 12 and
                             "post.jpg" in str(p) for p in parts))
 
+    def test_long_cafe_content_keeps_metadata_separator(self):
+        post = "공지 내용입니다.\\n" * 240
+        result = unified_alert("cafe", "사키하네 후야",
+                               body=post, date="2026-10-31T08:00:00Z",
+                               banner="https://example.com/banner.jpg", ping=False)
+        parts = result["components"][0]["components"]
+        footer_index = next(i for i, part in enumerate(parts)
+                            if "작성 · " in part.get("content", ""))
+        self.assertEqual(parts[footer_index - 1]["type"], 14)
+        self.assertEqual(parts[-1]["type"], 12)
+        self.assertGreater(sum(p.get("type") == 10 for p in parts), 4)
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
