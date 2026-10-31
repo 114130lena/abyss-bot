@@ -37,7 +37,7 @@ def _read():
 
 def avatar(group):
     with _lock:
-        return _high_res_avatar(str(_read().get(group, "") or ""))
+        return str(_read().get(group, "") or "")
 
 
 def _high_res_avatar(url):
