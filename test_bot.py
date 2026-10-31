@@ -173,7 +173,7 @@ class RoutingTests(unittest.TestCase):
     def test_cafe_long_post_shows_more_and_original_link(self):
         url = "https://cafe.naver.com/f-e/cafes/29424353/articles/123"
         payload = unified_alert("cafe", "사키하네 후야", title="방송 공지",
-                                body="공지" * 1400, url=url,
+                                body="공지" * 1800, url=url,
                                 images=["https://example.com/post.jpg"], ping=False)
         parts = payload["components"][0]["components"]
         self.assertTrue(any("전체 글 보기" in p.get("content", "") for p in parts))
