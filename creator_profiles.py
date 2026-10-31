@@ -61,8 +61,25 @@ def _extract_avatar(page):
         snippet = page[pos:pos + 5500]
         urls = re.findall(r'https://(?:yt3\.googleusercontent\.com|yt3\.ggpht\.com)/[^"\s<>]+', snippet)
         if urls:
-            return _high_res_avatar(urls[0].replace("&amp;", "&"))
+            return urls[0].replace("&amp;", "&")
     return ""
+
+
+def _verified_avatar_url(url):
+    """Use the larger rendition only when the image endpoint confirms it exists."""
+    improved = _high_res_avatar(url)
+    if improved == url:
+        return url
+    try:
+        response = requests.head(improved, timeout=8, allow_redirects=True,
+                                 headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        if not response.headers.get("Content-Type", "").lower().startswith("image/"):
+            raise ValueError("High-resolution avatar URL is not an image")
+        return improved
+    except (requests.RequestException, ValueError) as exc:
+        logging.warning("High-resolution avatar unavailable; using original URL: %s", type(exc).__name__)
+        return url
 
 
 def refresh(group, force=False):
@@ -80,6 +97,7 @@ def refresh(group, force=False):
         image_url = _extract_avatar(response.text)
         if not image_url:
             raise ValueError("Official channel avatar metadata unavailable")
+        image_url = _verified_avatar_url(image_url)
         with _lock:
             cached = _read()
             if cached.get(group) != image_url:
