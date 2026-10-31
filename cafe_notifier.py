@@ -1,4 +1,6 @@
 import json
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 import logging
 import os
 import time
@@ -82,6 +84,85 @@ def get_articles(menu_id):
     return articles
 
 
+
+class _CafeHtmlParser(HTMLParser):
+    """Extract readable paragraphs and image URLs from public Cafe article HTML."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.lines = []
+        self.images = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ("script", "style"):
+            self.skip += 1
+        if self.skip:
+            return
+        if tag in ("br", "p", "div", "li"):
+            self.lines.append("\\n")
+        if tag == "img":
+            for key in ("data-src", "data-original", "src"):
+                value = attrs.get(key, "")
+                if value:
+                    url = urljoin("https://cafe.naver.com/", value)
+                    if urlsplit(url).scheme == "https" and urlsplit(url).hostname:
+                        if url not in self.images:
+                            self.images.append(url)
+                    break
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.skip = max(0, self.skip - 1)
+        elif tag in ("p", "div", "li") and not self.skip:
+            self.lines.append("\\n")
+
+    def handle_data(self, value):
+        if not self.skip:
+            self.lines.append(value)
+
+    def get_text(self):
+        import re
+        result = "".join(self.lines).replace("\\xa0", " ")
+        result = re.sub(r" *\\n *", "\\n", result)
+        return re.sub(r"\\n{3,}", "\\n\\n", result).strip()
+
+
+def _article_html(data):
+    """Find article content HTML in different Cafe API response envelopes."""
+    if isinstance(data, dict):
+        for key in ("contentHtml", "contentHTML", "articleContentHtml"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        for key in ("article", "result", "message", "content", "data"):
+            if key in data:
+                found = _article_html(data[key])
+                if found:
+                    return found
+    return ""
+
+
+def article_detail(article):
+    """Try the public article detail API; fall back to the board preview on failure."""
+    fallback_text = article.get("summary", "").strip()
+    fallback_images = list(article.get("images") or [])[:4]
+    try:
+        url = f"https://apis.naver.com/cafe-web/cafe-articleapi/v3/cafes/{CAFE_ID}/articles/{article['id']}"
+        response = session.get(url, timeout=12)
+        response.raise_for_status()
+        html = _article_html(response.json())
+        if not html:
+            raise ValueError("Public article HTML not available")
+        parser = _CafeHtmlParser()
+        parser.feed(html)
+        return parser.get_text() or fallback_text, (parser.images or fallback_images)[:4]
+    except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+        logging.info("카페 %s 상세 본문 접근 불가; 목록 미리보기 사용: %s",
+                     article.get("id"), type(exc).__name__)
+        return fallback_text, fallback_images
+
+
 def load_seen(path):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -101,15 +182,13 @@ def notify(article, role_id, menu_id, group):
     role_id = role_for(group)
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     title = " ".join(article["title"].split())[:300]
-    summary = article.get("summary", "").strip()
-    if len(summary) > 550:
-        summary = summary[:547].rstrip() + "..."
+    summary, images = article_detail(article)
     payload = unified_alert(
         "cafe", creator, get_banner(group), role_id,
         title=title, body=summary,
         url=article["url"], author=article.get("author", ""),
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
-        date=article.get("date", ""), images=[],
+        date=article.get("date", ""), images=images,
         handle=creator_handle(group), avatar=creator_avatar(group))
     send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
