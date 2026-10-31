@@ -67,6 +67,9 @@ def _korean_datetime(value):
     from zoneinfo import ZoneInfo
     try:
         raw = str(value).strip()
+        if raw.isdigit() and len(raw) in (10, 13):
+            epoch = int(raw) / (1000 if len(raw) == 13 else 1)
+            return datetime.fromtimestamp(epoch, tz=ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
         try:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
