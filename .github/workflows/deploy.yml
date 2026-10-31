@@ -59,8 +59,18 @@ jobs:
           SSH_USER: ${{ secrets.ORACLE_USER }}
         run: |
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
-          set -eu
+          set -Eeuo pipefail
+          diagnose_deploy_failure() {
+            rc=$?
+            echo "::error::Remote deployment failed at line ${BASH_LINENO[0]:-unknown} (exit $rc)"
+            echo "Service state (metadata only; no environment or webhook values):"
+            sudo systemctl show chzzk-bot --no-pager \
+              --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,Restart,MainPID || true
+            exit "$rc"
+          }
+          trap diagnose_deploy_failure ERR
           cd /home/ubuntu/chzzk-bot
+          echo "::group::Validate staged Python and dependencies"
           # Prefer the production environment, but support servers using the
           # separately-created test venv rather than failing with ENOENT.
           if [ -x .venv/bin/python ]; then
@@ -75,6 +85,8 @@ jobs:
           "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py
           "$BOT_PY" -m pip install -r .deploy-staging/requirements.txt
 
+          echo "::endgroup::"
+          echo "::group::Backup and activate bot version"
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
           cp main.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
           if [ -f chzzk_replay_notifier.py ]; then cp chzzk_replay_notifier.py "$backup_dir/"; fi
@@ -101,12 +113,19 @@ jobs:
             if [ -f "$backup_dir/test_alert.py" ]; then cp "$backup_dir/test_alert.py" .; else rm -f test_alert.py; fi
             sudo systemctl restart chzzk-bot
           }
-          trap restore ERR
+          rollback_on_error() {
+            rc=$?
+            echo "::warning::Deployment failed; restoring previous version"
+            restore || true
+            diagnose_deploy_failure "$rc"
+          }
+          trap rollback_on_error ERR
           cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
           trap - ERR
+          echo "::endgroup::"
           echo "Deployment complete."
           REMOTE
 
