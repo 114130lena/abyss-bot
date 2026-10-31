@@ -74,7 +74,9 @@ def get_articles(menu_id):
             "title": item.get("subject") or "제목 없음",
             "author": (item.get("writerInfo") or {}).get("nickName") or "작성자 미상",
             "summary": (item.get("summary") or "").strip(),
-            "date": item.get("writeDate") or item.get("createdAt") or "",
+            "date": (item.get("writeDate") or item.get("createdAt") or
+                     item.get("writeDateTimestamp") or item.get("createdDate") or
+                     item.get("regDate") or ""),
             "images": images[:4],
             "url": (
                 f"https://cafe.naver.com/f-e/cafes/{CAFE_ID}"
