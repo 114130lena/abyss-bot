@@ -292,6 +292,22 @@ class RoutingTests(unittest.TestCase):
             items = replay.fetch_replays("test-channel")
         self.assertEqual([v["id"] for v in items], ["456"])
 
+    def test_avatar_high_resolution_validation(self):
+        from unittest.mock import Mock
+        import creator_profiles as profiles
+        original = "https://yt3.googleusercontent.com/avatar=s88-c"
+        high = "https://yt3.googleusercontent.com/avatar=s512-c"
+        self.assertEqual(profiles._high_res_avatar(original), high)
+        ok = Mock()
+        ok.headers = {"Content-Type": "image/jpeg"}
+        with patch.object(profiles.requests, "head", return_value=ok) as head:
+            self.assertEqual(profiles._verified_avatar_url(original), high)
+            head.assert_called_once()
+        failure = Mock()
+        failure.raise_for_status.side_effect = profiles.requests.HTTPError("404")
+        with patch.object(profiles.requests, "head", return_value=failure):
+            self.assertEqual(profiles._verified_avatar_url(original), original)
+
     def test_banner_url_validation(self):
         self.assertTrue(banners._valid("https://yt3.googleusercontent.com/image"))
         self.assertFalse(banners._valid("https://evil.example.com/image"))
