@@ -100,7 +100,7 @@ class _CafeHtmlParser(HTMLParser):
         if self.skip:
             return
         if tag in ("br", "p", "div", "li"):
-            self.lines.append("\\n")
+            self.lines.append("\n")
         if tag == "img":
             for key in ("data-src", "data-original", "src"):
                 value = attrs.get(key, "")
@@ -115,7 +115,7 @@ class _CafeHtmlParser(HTMLParser):
         if tag in ("script", "style"):
             self.skip = max(0, self.skip - 1)
         elif tag in ("p", "div", "li") and not self.skip:
-            self.lines.append("\\n")
+            self.lines.append("\n")
 
     def handle_data(self, value):
         if not self.skip:
@@ -123,9 +123,9 @@ class _CafeHtmlParser(HTMLParser):
 
     def get_text(self):
         import re
-        result = "".join(self.lines).replace("\\xa0", " ")
-        result = re.sub(r" *\\n *", "\\n", result)
-        return re.sub(r"\\n{3,}", "\\n\\n", result).strip()
+        result = "".join(self.lines).replace("\xa0", " ")
+        result = re.sub(r" *\n *", "\n", result)
+        return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
 def _article_html(data):
