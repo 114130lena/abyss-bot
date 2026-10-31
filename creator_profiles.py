@@ -37,7 +37,18 @@ def _read():
 
 def avatar(group):
     with _lock:
-        return str(_read().get(group, "") or "")
+        return _high_res_avatar(str(_read().get(group, "") or ""))
+
+
+def _high_res_avatar(url):
+    """Request a sharper YouTube avatar while preserving the existing crop flags."""
+    from urllib.parse import urlsplit, urlunsplit
+    parsed = urlsplit(url)
+    if parsed.hostname not in ("yt3.googleusercontent.com", "yt3.ggpht.com"):
+        return url
+    # YouTube serves resized avatars using an =sNNN image-size suffix.
+    path = re.sub(r"=s\\d+(?=-|$)", "=s512", parsed.path, count=1)
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
 
 
 def _extract_avatar(page):
@@ -50,7 +61,7 @@ def _extract_avatar(page):
         snippet = page[pos:pos + 5500]
         urls = re.findall(r'https://(?:yt3\.googleusercontent\.com|yt3\.ggpht\.com)/[^"\s<>]+', snippet)
         if urls:
-            return urls[0].replace("&amp;", "&")
+            return _high_res_avatar(urls[0].replace("&amp;", "&"))
     return ""
 
 
