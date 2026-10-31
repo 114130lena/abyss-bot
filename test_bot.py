@@ -192,6 +192,18 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(parts[-1]["type"], 12)
         self.assertGreater(sum(p.get("type") == 10 for p in parts), 4)
 
+    def test_cafe_footer_visible_without_timestamp(self):
+        result = unified_alert("cafe", "사키하네 후야", body="긴 공지 " * 600, ping=False)
+        parts = result["components"][0]["components"]
+        position = next(i for i, part in enumerate(parts)
+                        if part.get("content") == "작성 시간 정보 없음")
+        self.assertEqual(parts[position - 1]["type"], 14)
+
+    def test_cafe_unix_timestamp_formatting(self):
+        from discord_v2 import _korean_datetime
+        self.assertEqual(_korean_datetime(1761897600000),
+                         _korean_datetime(1761897600))
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
