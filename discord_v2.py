@@ -128,7 +128,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         content = str(body).replace("\r\n", "\n").replace("\r", "\n")
         content = re.sub(r"\n{4,}", "\n\n\n", content).strip()
         if content:
-            pieces.append(text(content[:2500]))
+            if platform == "cafe" and len(content) > 3000:
+                content = content[:2980].rstrip() + "\n\n… [전체 글 보기](" + url + ")" if _valid_url(url) else content[:3000]
+            pieces.append(text(content[:3200] if platform == "cafe" else content[:2500]))
     media = []
     if _valid_url(media_url):
         media.append(media_url)
