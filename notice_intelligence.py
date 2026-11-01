@@ -154,8 +154,7 @@ def _report_source_state(name, ok, reason, now):
     _save(HEALTH_FILE, state)
     # One notification on sustained failure; one when the source recovers.
     previous_failures = int(previous.get("consecutive_failures", 0))
-    announce = ((not ok and entry["consecutive_failures"] == 3)
-                or (ok and previous_failures >= 3))
+    announce = ok and previous_failures >= 3
     if announce:
         try:
             from resilience import ADMIN_WEBHOOK, send_webhook
