@@ -62,8 +62,8 @@ def _event_key(title, body, published):
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
-    full = set(re.findall(r"(?<!\\d)(20\\d{2})[./-](\\d{1,2})[./-](\\d{1,2})(?!\\d)", source))
-    short = set(re.findall(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일", source))
+    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", source))
+    short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
     if len(full) > 1 or len(short) > 1:
         return None
     try:
@@ -84,9 +84,9 @@ def _event_key(title, body, published):
 def _clock_key(source):
     """Normalize 20:00 and 오후 8시 to the same stable value."""
     values = set()
-    for h, m in re.findall(r"(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)(?!\\d)", source):
+    for h, m in re.findall(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", source):
         values.add(f"{int(h):02d}:{int(m):02d}")
-    for period, hour, minute in re.findall(r"(오전|오후)\\s*(1[0-2]|[1-9])시\\s*(반|[0-5]?\\d분)?", source):
+    for period, hour, minute in re.findall(r"(오전|오후)\s*(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", source):
         h = int(hour) % 12 + (12 if period == "오후" else 0)
         minute_value = 30 if minute == "반" else int(minute[:-1]) if minute else 0
         values.add(f"{h:02d}:{minute_value:02d}")
@@ -96,7 +96,7 @@ def _clock_key(source):
 def _event_topic(title, body):
     """Never correlate two broadcasts solely because they share a calendar day."""
     source = str(title or "") + "\n" + str(body or "")
-    game = re.findall(r"(?<![가-힣])(?:발헤임|아크\\s*레이더스|마인크래프트|롤|리그\\s*오브\\s*레전드)(?![가-힣])", source, re.I)
+    game = re.findall(r"(?<![가-힣])(?:발헤임|아크\s*레이더스|마인크래프트|롤|리그\s*오브\s*레전드)(?![가-힣])", source, re.I)
     people = participants(title, body)
     topics = sorted(set(x.casefold().replace(" ", "") for x in game))
     if people:
