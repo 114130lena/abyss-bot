@@ -77,6 +77,8 @@ def download_image(group, kind, source, url, index, session=None):
             raise ValueError("Invalid image dimensions")
         if kind == "banner" and width / height < 1.5:
             raise ValueError("Banner is not wide enough")
+        if kind == "profile" and not 0.75 <= width / height <= 1.33:
+            raise ValueError("Profile image is not square-ish")
         ext = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp", "GIF": ".gif"}.get(fmt)
         if not ext:
             raise ValueError("Unsupported image format")
@@ -182,6 +184,11 @@ def sources_configured(group):
 def collect():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     index = read_index()
+    # Remove mistakenly tagged widescreen X banners from profile metadata.
+    for group_data in index.values():
+        if isinstance(group_data, dict):
+            group_data["profile"] = [entry for entry in group_data.get("profile", [])
+                if isinstance(entry, dict) and 0.75 <= entry.get("width", 0) / max(entry.get("height", 1), 1) <= 1.33]
     added = 0
     session = requests.Session()
     chzzk = sources_chzzk(session)
