@@ -255,7 +255,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     if handle:
         identity += "\n" + _safe_markdown(handle)
     if "히요리" in creator:
-        identity += "\n**STELLIVE · ABYSS**"
+        identity += "\n## STELLIVE · ABYSS"
     if _valid_url(avatar) or str(avatar).startswith("attachment://"):
         pieces.append({"type": 9, "components": [text(identity)],
                        "accessory": {"type": 11, "media": {"url": avatar},
