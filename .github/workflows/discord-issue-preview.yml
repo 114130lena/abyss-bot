@@ -156,4 +156,14 @@ jobs:
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           PYTHONPATH=/tmp:/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_collect_creator_media.py
+          "$PY" - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('/home/ubuntu/chzzk-bot/creator_media/index.json')
+          info=json.loads(path.read_text())
+          for group in ('hanayo','sakihane'):
+              for kind in ('profile','banner'):
+                  for item in info.get(group,{}).get(kind,[]):
+                      print('COLLECTED',group,kind,item.get('source'),item.get('width'),item.get('height'),item.get('original_url'))
+          PY
           REMOTE
