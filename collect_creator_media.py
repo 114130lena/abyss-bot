@@ -193,7 +193,7 @@ def collect():
     session = requests.Session()
     chzzk = sources_chzzk(session)
     for group in ACCOUNTS:
-        discovered = sources_youtube(group) + chzzk[group] + sources_x(group, session) + sources_x_free(group, session) + sources_configured(group)
+        discovered = sources_youtube(group) + chzzk[group] + sources_x(group, session) + (sources_x_free(group, session) if os.getenv("ABYSS_PUBLIC_X_DISCOVERY", "0") == "1" else []) + sources_configured(group)
         for kind, source, url in discovered:
             added += int(download_image(group, kind, source, url, index, session=session))
         save_index(index)
