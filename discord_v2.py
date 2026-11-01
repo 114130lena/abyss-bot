@@ -220,7 +220,7 @@ def _creator_theme(creator, handle):
     if "히요리" in identity or "hanayo" in identity:
         return "🌸 H I Y O R I"
     if "후야" in identity or "sakihane" in identity:
-        return "🌙 F U Y A"
+        return "💜🐲 H U Y A"
     return ""
 
 
