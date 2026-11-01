@@ -94,6 +94,43 @@ def _x_headline(body):
     return "X 게시글", ""
 
 
+def _schedule_facts(title, body):
+    """Find explicitly stated schedule facts; never infer or resolve conflicting times."""
+    import re
+    source = str(title or "") + "\n" + str(body or "")
+    lines = [line.strip() for line in source.splitlines() if line.strip()]
+    if not any(word in source for word in ("방송", "일정", "라이브", "LIVE", "대전", "이벤트", "휴방")):
+        return []
+    blocked = ("변경 전", "기존 시간", "원래", "취소", "예정이었", "지난", "어제", "아닐", "미정")
+    date_pattern = re.compile(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일")
+    time_pattern = re.compile(r"(오전|오후)\\s*(1[0-2]|[1-9])시(?:\\s*(?:(?:([0-5]?\\d)분?)|반))?|(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)")
+    dates = []
+    times = []
+    for line in lines:
+        if any(bad in line for bad in blocked):
+            continue
+        dates.extend(m.group(0) for m in date_pattern.finditer(line))
+        times.extend(m.group(0) for m in time_pattern.finditer(line))
+    dates = list(dict.fromkeys(dates))
+    times = list(dict.fromkeys(times))
+    # Multiple event times or dates make an automatic 'start time' ambiguous.
+    if len(dates) > 1 or len(times) > 1:
+        return []
+    facts = []
+    if len(dates) == 1:
+        facts.append("📅 날짜 · " + dates[0])
+    if len(times) == 1:
+        facts.append("🕒 언급된 시간 · " + times[0])
+    return facts
+
+
+def _link_button(url, platform, replay=False):
+    label = ("다시보기 열기" if replay else "방송 보러가기" if platform == "chzzk"
+             else "영상 시청하기" if platform == "youtube"
+             else "게시글 전체 보기" if platform == "cafe" else "X 원문 보기")
+    return {"type": 1, "components": [{"type": 2, "style": 5, "label": label[:80], "url": url}]}
+
+
 def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
           author="", board="", replay=False, ping=True, username="정덕삼",
@@ -117,7 +154,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     else:
         pieces.append(text(identity))
     pieces.append(separator())
-    pieces.append(text("**" + tag + "**"))
+    pieces.append(text("**" + tag + "**"))\n    if platform == "chzzk" and not replay:\n        pieces.append(text("🔴 **LIVE NOW · 방송 중**"))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
