@@ -330,6 +330,7 @@ jobs:
               filename_banner=group+'_banner'+selected['banner'].suffix
               cid=next((c for c,g in CHZZK_GROUPS.items() if g==group),'')
               channel=os.getenv(group.upper()+'_CHZZK_URL','').strip() or ('https://chzzk.naver.com/'+cid if cid else 'https://chzzk.naver.com/')
+              os.environ[group.upper()+'_CHZZK_URL']=channel
               payload=mod.alert('chzzk',creator,banner='',role_id='',
                   title='[테스트] '+('하요링 ~ 오늘은 그녀와 함께' if group=='hanayo' else '후야의 라이브 방송'),
                   category='Just Chatting',url=channel,
