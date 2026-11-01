@@ -99,7 +99,7 @@ jobs:
                   value = item.get('content', '')
                   match = re.fullmatch(r'## \\[(.*?) · (.*?)\\]\\((https://[^)]+)\\)', value)
                   if match:
-                      item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')** · ' + match.group(2)
+                      item['content'] = '## [' + match.group(1) + '](' + match.group(3) + ') · ' + match.group(2)
           # Keep the category adjacent to title, without a repeated time/category footer.
           links_index = next(i for i, item in enumerate(components)
                              if item.get('type') == 1 and
@@ -147,7 +147,7 @@ jobs:
                   match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
                   if match:
                       item['content'] = ('## [' + match.group(1) + '](' + match.group(3)
-                                         + ')\n· ' + match.group(2))
+                                         + ') · ' + match.group(2))
           # Divider 1: profile card / alert body.
           components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
           # Order the footer as: original YouTube banner, then four link buttons.
