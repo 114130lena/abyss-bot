@@ -237,3 +237,8 @@ def check_cafe():
             logging.info("카페 게시판 %s 새 게시글 없음", menu_id)
 
     last_check = time.monotonic()
+    try:
+        from notice_intelligence import report_source
+        report_source("네이버 카페", True)
+    except Exception:
+        logging.exception("카페 진단 기록 실패")
