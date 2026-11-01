@@ -136,7 +136,17 @@ def check_huya_x():
             _save_seen(seen)
             logging.info("후야 X 새 글 알림: %s", post["url"])
         failures = 0
+        try:
+            from notice_intelligence import report_source
+            report_source("후야 X", True)
+        except Exception:
+            logging.exception("후야 X 진단 기록 실패")
     except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
         failures += 1
+        try:
+            from notice_intelligence import report_source
+            report_source("후야 X", False, str(exc))
+        except Exception:
+            logging.exception("X 진단 기록 실패")
         next_check = time.monotonic() + min(300, INTERVAL * (2 ** min(failures, 4)))
         warn_failure("후야 X RSS", failures, exc)
