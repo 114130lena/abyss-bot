@@ -148,6 +148,16 @@ jobs:
           draw.text((205, 136),
                     '@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya',
                     font=_font(24), fill=(209, 209, 225))
+          # Restrained right-side signature balances the long 960px header.
+          # Lower contrast than the readable identity; no duplicate title.
+          signature = 'H I Y O R I' if group == 'hanayo' else 'H U Y A'
+          sig_font = _font(28, bold=True)
+          sig_box = draw.textbbox((0, 0), signature, font=sig_font)
+          sig_width = sig_box[2] - sig_box[0]
+          sig_x = 930 - sig_width
+          draw.line((sig_x, 79, 928, 79), fill=(108, 88, 115), width=2)
+          draw.text((sig_x, 93), signature, font=sig_font, fill=(132, 111, 144))
+          draw.ellipse((917, 145, 926, 154), fill=accent)
           buffer = io.BytesIO()
           profile.save(buffer, format='PNG', optimize=True)
           image = buffer.getvalue()
