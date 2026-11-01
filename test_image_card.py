@@ -6,6 +6,9 @@ import os
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
+TEST_THREAD_ID = "1566335914500816988"
 
 from dotenv import load_dotenv
 from discord_v2 import alert
@@ -57,11 +60,14 @@ def make_preview(group="hanayo"):
     card["allowed_mentions"] = {"parse": []}
     return card, card_image(group)
 
-def send_preview(webhook, payload, image):
+def send_preview(webhook, payload, image, thread_id=TEST_THREAD_ID):
     if not webhook.startswith("https://"):
         raise ValueError("TEST_DISCORD_WEBHOOK_URL must be HTTPS")
-    separator = "&" if "?" in webhook else "?"
-    endpoint = webhook + separator + "with_components=true"
+    parsed = urlsplit(webhook)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["with_components"] = "true"
+    query["thread_id"] = str(thread_id)
+    endpoint = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
     response = requests.post(endpoint,
                              data={"payload_json": json.dumps(payload, ensure_ascii=False)},
                              files={"files[0]": ("abyss_preview.png", image, "image/png")},
@@ -80,7 +86,7 @@ def main():
         if not target:
             raise SystemExit("TEST_DISCORD_WEBHOOK_URL is required; no live webhook fallback")
         send_preview(target, payload, image)
-        print("Preview sent to test webhook with all role mentions disabled.")
+        print("Preview sent to designated test thread with all role mentions disabled.")
     else:
         print(json.dumps({"payload": payload, "png_bytes": len(image)}, ensure_ascii=False, indent=2))
 
