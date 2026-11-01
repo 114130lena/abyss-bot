@@ -122,24 +122,39 @@ jobs:
                   button['label'] = 'CAFE'
               elif button['label'] == '𝕏':
                   button['label'] = 'X'
-          # Restore the native Discord profile header; no generated PNG.
-          # Use consistent three-line hierarchy and leave natural wrapping to Discord.
+          # Second design: real image header, avatar LEFT and brand/name/handle RIGHT.
+          from PIL import Image, ImageDraw, ImageOps
+          from test_image_card import _font, send_preview
+          import requests, io
           avatar_url = official_avatar(group)
-          # Make the native profile header visibly lead the card.
-          # Discord Section text keeps the same font scale as ordinary TextDisplay;
-          # Markdown heading elevates the name without rasterizing it into an image.
-          # Balanced 3-line header: prominent name, normal handle, compact signature.
-          # Keep actual newline escapes; don't insert blank lines or pseudo CSS.
-          profile_text = ('## ' + creator + '\n' +
-                          ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') +
-                          '\n' + ('🌸 HIYORI' if group == 'hanayo' else '💜 HUYA'))
-          if avatar_url.startswith('https://'):
-              components.insert(0, {'type': 9,
-                  'components': [{'type': 10, 'content': profile_text}],
-                  'accessory': {'type': 11, 'media': {'url': avatar_url},
-                                'description': creator + ' 공식 프로필'}})
-          else:
-              components.insert(0, {'type': 10, 'content': profile_text})
+          assert avatar_url.startswith('https://'), 'Official avatar URL missing'
+          response = requests.get(avatar_url, timeout=12)
+          response.raise_for_status()
+          assert len(response.content) < 4000000, 'Avatar exceeds limit'
+          portrait = ImageOps.fit(Image.open(io.BytesIO(response.content)).convert('RGB'),
+                                  (152, 152))
+          profile = Image.new('RGB', (960, 188), (49, 49, 76))
+          draw = ImageDraw.Draw(profile)
+          mask = Image.new('L', (152, 152), 0)
+          ImageDraw.Draw(mask).rounded_rectangle((0, 0, 151, 151), radius=19, fill=255)
+          profile.paste(portrait, (22, 18), mask)
+          accent = (231, 178, 211) if group == 'hanayo' else (189, 174, 232)
+          draw.text((205, 21), 'STELLIVE  ·  ABYSS',
+                    font=_font(22, bold=True), fill=accent)
+          name_font = _font(42, bold=True, require_korean=True)
+          if name_font is None:
+              raise RuntimeError('Korean font missing: cannot render clean header')
+          draw.text((203, 65), creator, font=name_font, fill=(255, 255, 255))
+          draw.text((205, 136),
+                    '@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya',
+                    font=_font(24), fill=(209, 209, 225))
+          buffer = io.BytesIO()
+          profile.save(buffer, format='PNG', optimize=True)
+          image = buffer.getvalue()
+          components.insert(0, {'type': 12, 'items': [{
+              'media': {'url': 'attachment://abyss_preview.png'},
+              'description': creator + ' STELLIVE ABYSS 프로필 헤더'
+          }]})
           # Native Discord text hierarchy: large title, regular-size category.
           for item in components:
               if item.get('type') != 10:
@@ -166,7 +181,7 @@ jobs:
           components.append({'type': 10, 'content': '-# 공식 채널 · OFFICIAL LINKS'})
           components.append(original_banner)
           components.append(link_row)
-          assert components[0]['type'] in (9, 10)
+          assert components[0]['type'] == 12
           assert components[-3]['type'] == 10, 'Official links section label missing'
           assert components[-2]['type'] == 12, 'Bottom YouTube banner missing'
           assert components[-1]['type'] == 1, 'Official links must be below banner'
@@ -176,8 +191,7 @@ jobs:
           webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
           if not webhook:
               raise RuntimeError('No configured Discord webhook')
-          from test_image_card import send_integrated_preview
-          send_integrated_preview(webhook, payload)
-          print('Native Discord profile header + clean title wrapping sent to fixed thread.')
+          send_preview(webhook, payload, image)
+          print('Left-avatar STELLIVE ABYSS header sent to fixed test thread.')
           PY
           REMOTE
