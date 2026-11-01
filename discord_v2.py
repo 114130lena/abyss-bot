@@ -257,18 +257,21 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     theme = _creator_theme(creator, handle)
     if theme:
         identity += "\n" + theme
-    if _valid_url(avatar):
-        pieces.append({"type": 9, "components": [text(identity)],
-                       "accessory": {"type": 11, "media": {"url": avatar},
-                                     "description": creator + " 프로필 사진"}})
-    else:
-        pieces.append(text(identity))
-    pieces.append(separator())
-    pieces.append(text("**" + tag + "**" + ("\n🔴 **LIVE NOW · 방송 중**" if platform == "chzzk" and not replay else "")))
+    # The official top banner already identifies the creator.
+    if not _valid_url(banner):
+        if _valid_url(avatar):
+            pieces.append({"type": 9, "components": [text(identity)],
+                           "accessory": {"type": 11, "media": {"url": avatar},
+                                         "description": creator + " 프로필 사진"}})
+        else:
+            pieces.append(text(identity))
+    pieces.append(text("**" + tag + "**" + (" · 방송 시작" if platform == "chzzk" and not replay else "")))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
         display = _safe_markdown(str(title).replace("\n", " ").strip()[:500])
+        if platform == "chzzk" and category:
+            display += " · " + _safe_markdown(str(category)[:80])
         if _valid_url(url):
             pieces.append(text("## [" + display + "](" + url + ")"))
         else:
@@ -311,9 +314,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             for value in media[:4]
         ]})
     footer = []
-    if category:
+    if category and platform != "chzzk":
         footer.append(str(category)[:100])
-    if date:
+    if date and platform != "chzzk":
         label = ("방송 시작" if platform == "chzzk" and not replay else
                  "등록" if replay else "업로드" if platform == "youtube" else "작성")
         footer.append(label + " · " + _korean_datetime(date) + " KST")
@@ -329,7 +332,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         pieces.append(separator())
         pieces.append({
             "type": 9,
-            "components": [text("-# 공식 채널")],
+            "components": [text("-# ◦")],
             "accessory": {"type": 11, "media": {"url": banner},
                           "description": "스트리머 공식 하단 배너"},
         })
@@ -367,7 +370,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             # When a long post exceeds the limit, merge neighboring text displays.
             for index in range(len(pieces) - 2):
                 if pieces[index]["type"] == 10 and pieces[index+1]["type"] == 10:
-                    pieces[index]["content"] += "\\n" + pieces.pop(index+1)["content"]
+                    pieces[index]["content"] += "\n" + pieces.pop(index+1)["content"]
                     break
             else:
                 raise ValueError("Too many Discord V2 components")
