@@ -255,6 +255,52 @@ class RoutingTests(unittest.TestCase):
                                     for item in components))
                 self.assertTrue(any(item.get("type") == 1 for item in components))
 
+    def test_collab_and_casual_post_classification(self):
+        from discord_v2 import _notice_type
+        self.assertEqual(_notice_type("", "저녁에는 어비스 합방이 있어욥!"), "🎮 합방 예고")
+        self.assertEqual(_notice_type("방송", "이따 방송에서 만나요!"), "📺 방송 예고")
+        self.assertIsNone(_notice_type("", "오늘도 또 만나요 우리!"))
+        self.assertIsNone(_notice_type("", "오늘 휴방 아닙니다"))
+
+    def test_today_card_requires_actual_matching_date(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from discord_v2 import _today_summary
+        now = datetime(2026, 11, 1, 12, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+        self.assertIn("TODAY", _today_summary("오늘 합방", "저녁에 합방 있어요",
+                                            "2026-11-01T01:00:00Z", now=now))
+        self.assertEqual(_today_summary("오늘 합방", "저녁에 합방 있어요",
+                                        "2026-10-30T01:00:00Z", now=now), "")
+        self.assertEqual(_today_summary("오늘 합방", "저녁에 합방 있어요", "", now=now), "")
+        self.assertIn("TODAY", _today_summary("11월 1일 방송 일정", "방송 예정",
+                                            "2026-10-31T10:00:00Z", now=now))
+        self.assertEqual(_today_summary("10월 31일 방송 일정", "방송 예정",
+                                        "2026-10-31T10:00:00Z", now=now), "")
+        self.assertEqual(_today_summary("11월 1일 방송 일정", "방송 예정",
+                                        "2025-11-01T10:00:00Z", now=now), "")
+
+    def test_theme_preserves_role_footer_and_banner(self):
+        from unittest.mock import patch as local_patch
+        with local_patch("discord_v2._today_summary", return_value="📍 **TODAY · 합방 예고**"):
+            card = unified_alert("x", "하나요 히요리",
+                                 "https://example.com/banner.jpg",
+                                 role_id="1563499860135772211",
+                                 title="오늘 합방", body="저녁에 합방 있어요",
+                                 date="2026-11-01T00:00:00Z",
+                                 url="https://x.com/HanayoHiyori/status/1",
+                                 handle="@HanayoHiyori", ping=True)
+        self.assertEqual(card["components"][0]["content"], "<@&1563499860135772211>")
+        self.assertEqual(card["allowed_mentions"]["roles"], ["1563499860135772211"])
+        parts = card["components"][1]["components"]
+        self.assertIn("H I Y O R I", str(parts[0]))
+        self.assertIn("TODAY", str(parts))
+        self.assertEqual(parts[-1]["type"], 12)
+        footer_index = next(i for i, part in enumerate(parts)
+                            if "작성 · " in part.get("content", ""))
+        self.assertEqual(parts[footer_index - 1]["type"], 14)
+        other = unified_alert("cafe", "사키하네 후야", handle="@Sakihanechannel", ping=False)
+        self.assertIn("F U Y A", str(other["components"][0]["components"][0]))
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
