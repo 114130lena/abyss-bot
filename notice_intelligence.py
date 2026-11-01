@@ -3,7 +3,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,7 @@ SCHEDULE_FILE = ROOT / "notice_schedule_state.json"
 HEALTH_FILE = ROOT / "source_health_state.json"
 KNOWN = ("메리", "히요리", "후야", "나나", "시부키", "시로", "리코", "린")
 KST = ZoneInfo("Asia/Seoul")
+_STATE_LOCK = threading.RLock()
 
 
 def participants(title, body):
@@ -45,19 +47,29 @@ def _save(path, state):
 
 
 def _event_key(title, body, published):
-    """Require an explicit full event date; never infer a date from 'today'."""
+    """Match a single explicit event date to the post date, never 'today' alone."""
     source = str(title or "") + "\n" + str(body or "")
-    days = set(re.findall(r"(?<!\d)(20\d{2})[.\/-](\d{1,2})[.\/-](\d{1,2})(?!\d)", source))
-    if len(days) != 1:
+    from discord_v2 import _parse_korean_datetime
+    posted = _parse_korean_datetime(published)
+    if posted is None:
         return None
-    year, month, day = next(iter(days))
+    full = set(re.findall(r"(?<!\\d)(20\\d{2})[.\\/-](\\d{1,2})[.\\/-](\\d{1,2})(?!\\d)", source))
+    short = set(re.findall(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일", source))
+    if len(full) > 1 or len(short) > 1:
+        return None
     try:
-        event = datetime(int(year), int(month), int(day), tzinfo=KST).date()
-        from discord_v2 import _parse_korean_datetime
-        posted = _parse_korean_datetime(published)
-        if posted is None or not (0 <= (event - posted.date()).days <= 30):
+        candidates = []
+        for year, month, day in full:
+            candidates.append(datetime(int(year), int(month), int(day), tzinfo=KST).date())
+        if short:
+            month, day = next(iter(short))
+            for year in (posted.year, posted.year + 1):
+                candidates.append(datetime(year, int(month), int(day), tzinfo=KST).date())
+        valid = {date for date in candidates if 0 <= (date - posted.date()).days <= 30}
+        # Mixed date expressions must not disagree.
+        if full and short and len(valid) != 1:
             return None
-        return event.isoformat()
+        return next(iter(valid)).isoformat() if len(valid) == 1 else None
     except (ValueError, TypeError):
         return None
 
@@ -82,6 +94,11 @@ def record_schedule(group, title, body, published, url):
     if len(clocks) != 1 and kind not in ("🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
+    with _STATE_LOCK:
+        return _record_schedule_state(group, key, kind, clocks, url)
+
+
+def _record_schedule_state(group, key, kind, clocks, url):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key
     previous = state.get(identifier) or {}
@@ -102,6 +119,11 @@ def record_schedule(group, title, body, published, url):
 def report_source(name, ok, reason=""):
     """Operational diagnostics only; no user-facing Discord notification spam."""
     now = datetime.now(KST).isoformat(timespec="seconds")
+    with _STATE_LOCK:
+        _report_source_state(name, ok, reason, now)
+
+
+def _report_source_state(name, ok, reason, now):
     state = _read(HEALTH_FILE)
     previous = state.get(name, {})
     entry = dict(previous)
