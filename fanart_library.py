@@ -40,6 +40,20 @@ def _valid_post(group,url):
         return False
     return bool(re.fullmatch(r"/[A-Za-z0-9_]{1,15}/status/\d+",p.path))
 
+
+def make_banner(source, destination, width=1280, height=720):
+    """Fit the full image to a 16:9 card without cropping; blur background only."""
+    from PIL import ImageOps, ImageFilter
+    with Image.open(source) as original:
+        image=ImageOps.exif_transpose(original).convert("RGB")
+        fitted=ImageOps.contain(image,(width,height),Image.Resampling.LANCZOS)
+        background=ImageOps.fit(image,(width,height),method=Image.Resampling.LANCZOS)
+        background=background.filter(ImageFilter.GaussianBlur(36))
+        background=Image.blend(background,Image.new("RGB",(width,height),(21,23,32)),0.52)
+        background.paste(fitted,((width-fitted.width)//2,(height-fitted.height)//2))
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        background.save(destination,format="JPEG",quality=90,optimize=True)
+
 def ingest():
     """Only accept creator-consented submissions with verified exact hashtag.
 
@@ -80,9 +94,12 @@ def ingest():
             target=BASE/"fanart"/group/(digest+source.suffix.lower())
             target.parent.mkdir(parents=True,exist_ok=True)
             if not target.exists(): shutil.copyfile(source,target)
+            banner=BASE/'fanart_banners'/group/(digest+'.jpg')
+            if not banner.exists(): make_banner(target,banner)
             entries=output.setdefault(group,[])
             if not any(x.get("sha256")==digest for x in entries):
-                entries.append({"sha256":digest,"path":str(target.relative_to(BASE)),
+                entries.append({"sha256":digest,"path":str(banner.relative_to(BASE)),
+                    "original_path":str(target.relative_to(BASE)),
                     "post_url":item["post_url"],"artist":item["artist"],
                     "hashtag":"#"+TAGS[group],"approved":True,
                     "permission_confirmed":True,"width":w,"height":h,
