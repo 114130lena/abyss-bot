@@ -119,3 +119,40 @@ jobs:
           print('Native Section preview sent:',data.get('id'),'group:',group,'components:',len(parts))
           PY
           REMOTE
+
+  collect_media:
+    if: ${{ github.event.issue.title == '[abyss-collect] media' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Owner-only collection request
+        env:
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: test "$ISSUE_AUTHOR" = "$REPO_OWNER"
+      - name: Checkout collector from isolated test branch
+        uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate collector syntax
+        run: python -m py_compile collect_creator_media.py
+      - name: Run collection on existing host without Discord delivery
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_collect_key
+          chmod 600 ~/.ssh/abyss_collect_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes collect_creator_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_collect_creator_media.py"
+          ssh -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          PYTHONPATH=/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_collect_creator_media.py
+          REMOTE
