@@ -154,7 +154,8 @@ def send_preview(webhook, payload, image, thread_id=TEST_THREAD_ID):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--group", choices=("hanayo","sakihane"), default="hanayo")
-    parser.add_argument("--send", action="store_true")\n    parser.add_argument("--both", action="store_true", help="Send two distinct layouts to the same fixed test thread")
+    parser.add_argument("--send", action="store_true")
+    parser.add_argument("--both", action="store_true", help="Send two distinct layouts to the same fixed test thread")
     parser.add_argument("--use-existing-webhook", action="store_true", help="Explicit manual preview with existing webhook, only to the fixed test thread")
     args = parser.parse_args()
     load_dotenv("/home/ubuntu/chzzk-bot/.env")
