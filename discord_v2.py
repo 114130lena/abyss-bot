@@ -169,8 +169,11 @@ def _today_summary(title, body, published, now=None):
     category = _notice_type(title, body)
     if not category:
         return ""
+    post_day = _parse_korean_datetime(published)
+    if post_day is None or post_day.date() > today or post_day.year != today.year:
+        return ""
     source = str(title or "") + "\n" + str(body or "")
-    if any(x in source for x in ("변경 전", "기존 일정", "원래", "어제", "취소되었습니다")):
+    if any(x in source for x in ("변경 전", "기존 일정", "원래", "어제", "취소되었습니다", "내일", "모레")):
         return ""
     dates = set((int(m.group(1)), int(m.group(2))) for m in re.finditer(
         r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
@@ -273,7 +276,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         notice_type = _notice_type(title, body)
         if notice_type:
             analysis_lines.append("**" + notice_type + "**")
-        facts = _schedule_facts(title, body)
+        facts = _schedule_facts(title, body) if notice_type not in ("🌙 휴방 안내", "🚫 방송 취소 안내") else []
         if facts:
             analysis_lines.append("**📌 공지 핵심 정보**\n" + "\n".join(facts))
     if body:
