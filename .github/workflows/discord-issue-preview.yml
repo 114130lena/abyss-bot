@@ -126,21 +126,27 @@ jobs:
           from PIL import Image, ImageDraw, ImageFont, ImageOps
           from test_image_card import _font, send_preview
           import requests, io
-          profile = Image.new('RGB', (960, 170), (48, 48, 74))
+          # Clean, responsive-safe header: subtle tint, ample text/avatar breathing room.
+          profile = Image.new('RGB', (960, 170), (45, 46, 68))
           draw = ImageDraw.Draw(profile)
-          # Quiet palette, clean alignment, single subtle separator and no heavy frames.
-          accent = (222, 181, 223) if group == 'hanayo' else (185, 170, 225)
-          draw.rounded_rectangle((20, 25, 26, 145), radius=3, fill=accent)
+          accent = (226, 166, 202) if group == 'hanayo' else (183, 165, 228)
+          for x in range(960):
+              t = x / 959
+              base = (46, 45, 66) if group == 'hanayo' else (44, 43, 69)
+              end = (64, 49, 77) if group == 'hanayo' else (55, 48, 82)
+              draw.line((x, 0, x, 169),
+                        fill=tuple(round(a*(1-t)+b*t) for a,b in zip(base,end)))
+          draw.rounded_rectangle((24, 29, 29, 140), radius=2, fill=accent)
           display_name = creator
           display_handle = '@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya'
           english = '🌸 H I Y O R I' if group == 'hanayo' else '💜 H U Y A'
           name_font = _font(42, bold=True, require_korean=True)
           if not name_font:
               raise RuntimeError('Korean font unavailable for image card')
-          draw.text((52, 15), display_name, font=name_font, fill=(255, 255, 255))
-          draw.text((54, 80), display_handle, font=_font(25), fill=(216, 215, 230))
+          draw.text((58, 14), display_name, font=name_font, fill=(255, 255, 255))
+          draw.text((60, 80), display_handle, font=_font(25), fill=(216, 215, 230))
           # Decorative flower is drawn separately to prevent unsupported emoji glyphs.
-          draw.text((54, 122), english.split(' ', 1)[1], font=_font(22, bold=True),
+          draw.text((60, 121), english.split(' ', 1)[1], font=_font(21, bold=True),
                     fill=(225, 211, 243))
           avatar_url = official_avatar(group)
           assert avatar_url.startswith('https://'), 'Creator avatar unavailable'
@@ -152,6 +158,8 @@ jobs:
                                   (140, 140))
           mask = Image.new('L', (140, 140), 0)
           ImageDraw.Draw(mask).rounded_rectangle((0, 0, 139, 139), radius=18, fill=255)
+          draw.rounded_rectangle((791, 10, 941, 160), radius=22,
+                                 outline=accent, width=2)
           profile.paste(portrait, (796, 15), mask)
           buffer = io.BytesIO()
           profile.save(buffer, 'PNG')
@@ -160,6 +168,16 @@ jobs:
               'media': {'url': 'attachment://abyss_preview.png'},
               'description': '상단 가로형 프로필 이미지 카드'
           }]})
+          # Compact status/title hierarchy: one status line, one linked title line.
+          for item in components:
+              if item.get('type') == 10:
+                  value = item.get('content', '')
+                  if 'CHZZK' in value and '방송 시작' in value:
+                      item['content'] = '**🟢 CHZZK  ·  LIVE**'
+                  elif value.startswith('## ['):
+                      match = re.fullmatch(r'## \\[(.*?) · (.*?)\\]\\((https://[^)]+)\\)', value)
+                      if match:
+                          item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')** · ' + match.group(2)
           # Divider 1: profile card / alert body.
           components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
           # Order the footer as: original YouTube banner, then four link buttons.
