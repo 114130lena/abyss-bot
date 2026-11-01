@@ -253,7 +253,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     if "히요리" in creator:
         identity += " HANAYO HIYORI"
     if handle:
-        identity += "\n" + _safe_markdown(handle)
+        identity += "\n-# " + _safe_markdown(handle)
     if "히요리" in creator:
         identity += "\n## STELLIVE · ABYSS"
     if _valid_url(avatar) or str(avatar).startswith("attachment://"):
@@ -271,8 +271,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         # Title is clickable; category follows outside the hyperlink on the same line.
         title_line = "[" + display + "](" + url + ")" if _valid_url(url) else display
         if platform == "chzzk" and category:
-            title_line += " · " + _safe_markdown(str(category)[:80])
-        pieces.append(text("## " + title_line))
+            pieces.append(text("## " + title_line + "\n-# · " + _safe_markdown(str(category)[:80])))
+        else:
+            pieces.append(text("## " + title_line))
     analysis_lines = []
     if platform in ("cafe", "x"):
         notice_type = _notice_type(title, body)
