@@ -299,7 +299,48 @@ class RoutingTests(unittest.TestCase):
                             if "작성 · " in part.get("content", ""))
         self.assertEqual(parts[footer_index - 1]["type"], 14)
         other = unified_alert("cafe", "사키하네 후야", handle="@Sakihanechannel", ping=False)
-        self.assertIn("F U Y A", str(other["components"][0]["components"][0]))
+        self.assertIn("H U Y A", str(other["components"][0]["components"][0]))
+
+    def test_huya_x_routing_and_presentation(self):
+        import twitter_huya_notifier as huya
+        self.assertEqual(creator_groups.x_group("SakihaneHuya"), "sakihane")
+        self.assertEqual(huya.GROUP, "sakihane")
+        self.assertNotEqual(huya.SEEN_FILE, twitter.SEEN_FILE)
+        with patch.object(huya, "get_banner", return_value=""), \
+             patch.object(huya, "send_webhook") as sent:
+            huya._notify({"id": "123", "text": "오늘 합방 있습니다",
+                          "url": "https://x.com/SakihaneHuya/status/123",
+                          "pub_date": "", "images": []})
+        payload = sent.call_args.args[1]
+        self.assertEqual(payload["components"][0]["content"], "<@&1564279305171640361>")
+        self.assertEqual(payload["allowed_mentions"]["roles"], ["1564279305171640361"])
+        self.assertIn("H U Y A", str(payload))
+
+    def test_huya_x_initializes_without_historical_notifications(self):
+        import twitter_huya_notifier as huya
+        posts = [{"id": "123", "text": "기존 공지", "url": "https://x.com/SakihaneHuya/status/123"}]
+        with patch.object(huya, "WEBHOOK_URL", "https://discord.com/api/webhooks/test/token"), \
+             patch.object(huya, "_fetch_merged_posts", return_value=posts), \
+             patch.object(huya, "_load_seen", return_value=None), \
+             patch.object(huya, "_save_seen") as saved, \
+             patch.object(huya, "_notify") as sent, \
+             patch.object(huya, "next_check", 0):
+            huya.check_huya_x()
+        sent.assert_not_called()
+        self.assertEqual(saved.call_args.args[0], {"123"})
+
+    def test_huya_x_failure_keeps_post_unread(self):
+        import twitter_huya_notifier as huya
+        post = {"id": "900", "text": "새 게시글", "url": "https://x.com/SakihaneHuya/status/900"}
+        with patch.object(huya, "WEBHOOK_URL", "https://discord.com/api/webhooks/test/token"), \
+             patch.object(huya, "_fetch_merged_posts", return_value=[post]), \
+             patch.object(huya, "_load_seen", return_value=set()), \
+             patch.object(huya, "_save_seen") as saved, \
+             patch.object(huya, "_notify", side_effect=ValueError("failed")), \
+             patch.object(huya, "warn_failure"), \
+             patch.object(huya, "next_check", 0):
+            huya.check_huya_x()
+        saved.assert_not_called()
 
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
