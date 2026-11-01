@@ -136,7 +136,7 @@ jobs:
           ref: test/compact-footer-four-links
           persist-credentials: false
       - name: Validate collector syntax
-        run: python -m py_compile collect_creator_media.py
+        run: python -m py_compile collect_creator_media.py x_public_media.py
       - name: Run collection on existing host without Discord delivery
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -150,9 +150,10 @@ jobs:
           chmod 600 ~/.ssh/abyss_collect_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           scp -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes collect_creator_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_collect_creator_media.py"
+          scp -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes x_public_media.py "$SSH_USER@$SSH_HOST:/tmp/x_public_media.py"
           ssh -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -eu
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          PYTHONPATH=/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_collect_creator_media.py
+          PYTHONPATH=/tmp:/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_collect_creator_media.py
           REMOTE
