@@ -236,8 +236,18 @@ def check_twitter():
             logging.info("X 새 게시글 알림 성공: %s | RSS=%s | 작성 후 지연=%s초",
                          post["url"], post.get("source", "?"), _post_latency(post))
         failures = 0
+        try:
+            from notice_intelligence import report_source
+            report_source("히요리 X", True)
+        except Exception:
+            logging.exception("히요리 X 진단 기록 실패")
     except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
         failures += 1
+        try:
+            from notice_intelligence import report_source
+            report_source("히요리 X", False, str(exc))
+        except Exception:
+            logging.exception("X 진단 기록 실패")
         delay = min(300, INTERVAL * (2 ** min(failures, 4)))
         next_check = time.monotonic() + delay
         warn_failure("X RSS", failures, exc)
