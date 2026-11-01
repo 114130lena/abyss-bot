@@ -391,6 +391,26 @@ class RoutingTests(unittest.TestCase):
             self.assertNotIn("TODAY", str(parts))
             self.assertNotIn("공지 핵심 정보", str(parts))
 
+    def test_connection_error_does_not_duplicate_discord_mentions(self):
+        import requests
+        from resilience import send_webhook
+        with patch("resilience.requests.post", side_effect=requests.ConnectionError("lost")) as post:
+            with self.assertRaises(requests.ConnectionError):
+                send_webhook("https://discord.com/api/webhooks/test/token",
+                             {"content": "<@&123>"}, attempts=3)
+        self.assertEqual(post.call_count, 1)
+
+    def test_connect_timeout_can_retry_safely(self):
+        import requests
+        from unittest.mock import Mock
+        from resilience import send_webhook
+        accepted = Mock()
+        accepted.status_code = 204
+        with patch("resilience.requests.post", side_effect=[requests.ConnectTimeout(), accepted]) as post, \\
+             patch("resilience.time.sleep"):
+            send_webhook("https://discord.com/api/webhooks/test/token", {"content": "test"})
+        self.assertEqual(post.call_count, 2)
+
     def test_read_timeout_does_not_retry_uncertain_discord_delivery(self):
         import requests
         from resilience import send_webhook
