@@ -224,8 +224,19 @@ class RoutingTests(unittest.TestCase):
         cafe_card = unified_alert("cafe", "사키하네 후야", title="10월 31일 방송 일정",
                                   body="오후 7시 방송합니다", url="https://cafe.naver.com/example")
         parts = cafe_card["components"][0]["components"]
-        self.assertTrue(any("📌 공지 핵심 정보" in p.get("content", "") for p in parts))
+        self.assertFalse(any("📌 공지 핵심 정보" in p.get("content", "") for p in parts))
         self.assertTrue(any(p.get("type") == 1 for p in parts))
+
+    def test_cafe_and_x_keep_full_source_without_summary_card(self):
+        for platform in ("cafe", "x"):
+            card = unified_alert(platform, "하나요 히요리",
+                                 title="오늘 방송 일정", body="오후 8시 방송합니다",
+                                 url="https://example.com/post", date="2026-11-01T10:00:00Z",
+                                 ping=False)
+            parts = card["components"][0]["components"]
+            self.assertNotIn("공지 핵심 정보", str(parts))
+            self.assertIn("오후 8시 방송합니다", str(parts))
+            self.assertIn("방송 예고", str(parts))
 
     def test_notice_type_classifies_explicit_announcements(self):
         from discord_v2 import _notice_type
