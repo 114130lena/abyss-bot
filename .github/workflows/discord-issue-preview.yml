@@ -450,3 +450,87 @@ jobs:
                   res.send_webhook(url,payload,attempts=1)
           PY
           REMOTE
+
+  deploy_random_media:
+    if: ${{ github.event.issue.title == '[abyss-deploy] random-media' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify owner authorization
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile random_media.py discord_v2.py resilience.py
+      - name: Back up and deploy validated code to Ubuntu service
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_deploy_key
+          chmod 600 ~/.ssh/abyss_deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in random_media.py discord_v2.py resilience.py; do
+            scp -i ~/.ssh/abyss_deploy_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_deploy_$f"
+          done
+          ssh -i ~/.ssh/abyss_deploy_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          test -f creator_media/index.json
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import sys
+          sys.path.insert(0,'/tmp')
+          import json
+          from pathlib import Path
+          root=Path('/home/ubuntu/chzzk-bot/creator_media')
+          index=json.loads((root/'index.json').read_text())
+          for group in ('hanayo','sakihane'):
+              for kind,needed in (('profile',3),('banner',2)):
+                  entries=index[group][kind]
+                  assert len(entries)>=needed and all((root/i['path']).is_file() for i in entries),f'Incomplete pool {group}/{kind}'
+          PY
+          SERVICE=chzzk-bot.service
+          if ! systemctl is-active --quiet "$SERVICE"; then
+             echo 'Production chzzk-bot.service is not active; aborting deployment'
+             exit 1
+          fi
+          BACKUP="backups/random-media-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$BACKUP"
+          for f in random_media.py discord_v2.py resilience.py; do
+             if [ -f "$f" ]; then cp "$f" "$BACKUP/$f"; fi
+          done
+          cp -f /tmp/abyss_deploy_random_media.py random_media.py
+          cp -f /tmp/abyss_deploy_discord_v2.py discord_v2.py
+          cp -f /tmp/abyss_deploy_resilience.py resilience.py
+          "$PY" -m py_compile random_media.py discord_v2.py resilience.py
+          touch .env
+          "$PY" - <<'PY'
+          from pathlib import Path
+          path=Path('.env')
+          current=path.read_text()
+          rows=[line for line in current.splitlines() if not line.strip().startswith('ABYSS_RANDOM_MEDIA=')]
+          rows.append('ABYSS_RANDOM_MEDIA=1')
+          path.write_text('\n'.join(rows)+'\n')
+          PY
+          sudo systemctl restart "$SERVICE"
+          sleep 3
+          sudo systemctl is-active --quiet "$SERVICE" || {
+            echo 'Service restart failed; restoring backup'
+            for f in random_media.py discord_v2.py resilience.py; do
+              if [ -f "$BACKUP/$f" ]; then cp "$BACKUP/$f" "$f"; fi
+            done
+            sed -i '/^ABYSS_RANDOM_MEDIA=1$/d' .env
+            sudo systemctl restart "$SERVICE"
+            exit 1
+          }
+          echo 'DEPLOY_SUCCESS random media enabled, service active'
+          echo "BACKUP_PATH=$BACKUP"
+          REMOTE
