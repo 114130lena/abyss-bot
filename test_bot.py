@@ -312,6 +312,11 @@ class RoutingTests(unittest.TestCase):
                 self.assertEqual(changed["time"], "오후 9시")
                 self.assertEqual(len(ni._read(schedule)), 1)
                 self.assertIsNone(ni.record_schedule(
+                    "hanayo", "11월 3일 방송 일정", "오후 10시 방송 예정",
+                    "2026-11-02T08:00:00Z", "https://example.com/other"))
+                self.assertEqual(ni._read(schedule)["hanayo:2026-11-03"]["time"], "오후 9시")
+                self.assertEqual(ni._event_key("11월 3일 방송", "", "2026-11-02T08:00:00Z"), "2026-11-03")
+                self.assertIsNone(ni.record_schedule(
                     "hanayo", "오늘 방송", "오후 9시 방송 예정",
                     "2026-11-02T08:00:00Z", "https://example.com/3"))
                 ni.report_source("히요리 X", False, "RSS unavailable")
