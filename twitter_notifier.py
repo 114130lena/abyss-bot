@@ -166,6 +166,11 @@ def _notify(post):
         images=post.get("images", []),
         handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
     send_webhook(WEBHOOK_URL, payload)
+    try:
+        from notice_intelligence import record_schedule
+        record_schedule(X_GROUP, "", post.get("text", ""), post.get("pub_date", ""), post["url"])
+    except Exception:
+        logging.exception("히요리 X 일정 추적 오류(알림은 정상 전송)")
 
 
 def _fetch_merged_posts(include_backups=True):
