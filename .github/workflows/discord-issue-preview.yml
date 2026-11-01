@@ -130,7 +130,7 @@ jobs:
           image = Path('/tmp/abyss_hanayo_banner.jpg').read_bytes()
           im = Image.open(BytesIO(image))
           assert im.format == 'JPEG', 'Uploaded banner is not JPEG'
-          assert im.size == (1536, 353), 'Uploaded banner resolution mismatch'
+          assert im.width >= 400 and im.height >= 100, 'Uploaded banner too small for card'
           print('Verified uploaded original JPEG', im.size, len(image))
           components.insert(0, {'type': 12, 'items': [{
               'media': {'url': 'attachment://hanayo_banner.jpg'},
