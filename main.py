@@ -143,6 +143,12 @@ def run_worker(name, checker, interval):
             failures = 0
         except Exception as exc:
             failures += 1
+            if name == "네이버 카페":
+                try:
+                    from notice_intelligence import report_source
+                    report_source("네이버 카페", False, str(exc))
+                except Exception:
+                    logging.exception("카페 수집 장애 기록 실패")
             warn_failure(name, failures, exc)
         time.sleep(max(1, interval - (time.monotonic() - started)))
 
