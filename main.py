@@ -12,6 +12,7 @@ from chzzk_replay_notifier import check_replays
 from twitter_notifier import check_twitter
 from twitter_huya_notifier import check_huya_x
 from youtube_notifier import check_youtube
+from x_spaces_notifier import check_spaces
 from youtube_websub import start_websub
 from banner_manager import get_banner, run_banner_refresh
 from creator_profiles import handle as creator_handle, avatar as creator_avatar
@@ -166,6 +167,7 @@ def main():
         ("네이버 카페", check_cafe),
         ("X RSS", check_twitter),
         ("후야 X RSS", check_huya_x),
+        ("X Spaces", check_spaces),
         ("유튜브", check_youtube),
         ("치지직 다시보기", check_replays),
     ]
