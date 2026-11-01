@@ -273,44 +273,57 @@ class RoutingTests(unittest.TestCase):
         self.assertIsNone(_notice_type("", "오늘도 또 만나요 우리!"))
         self.assertIsNone(_notice_type("", "오늘 휴방 아닙니다"))
 
-    def test_today_card_requires_actual_matching_date(self):
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        from discord_v2 import _today_summary
-        now = datetime(2026, 11, 1, 12, 0, tzinfo=ZoneInfo("Asia/Seoul"))
-        self.assertIn("TODAY", _today_summary("오늘 합방", "저녁에 합방 있어요",
-                                            "2026-11-01T01:00:00Z", now=now))
-        self.assertEqual(_today_summary("오늘 합방", "저녁에 합방 있어요",
-                                        "2026-10-30T01:00:00Z", now=now), "")
-        self.assertEqual(_today_summary("오늘 합방", "저녁에 합방 있어요", "", now=now), "")
-        self.assertIn("TODAY", _today_summary("11월 1일 방송 일정", "방송 예정",
-                                            "2026-10-31T10:00:00Z", now=now))
-        self.assertEqual(_today_summary("10월 31일 방송 일정", "방송 예정",
-                                        "2026-10-31T10:00:00Z", now=now), "")
-        self.assertEqual(_today_summary("11월 1일 방송 일정", "방송 예정",
-                                        "2025-11-01T10:00:00Z", now=now), "")
-
-    def test_theme_preserves_role_footer_and_banner(self):
-        from unittest.mock import patch as local_patch
-        with local_patch("discord_v2._today_summary", return_value="📍 **TODAY · 합방 예고**"):
-            card = unified_alert("x", "하나요 히요리",
-                                 "https://example.com/banner.jpg",
-                                 role_id="1563499860135772211",
-                                 title="오늘 합방", body="저녁에 합방 있어요",
-                                 date="2026-11-01T00:00:00Z",
-                                 url="https://x.com/HanayoHiyori/status/1",
-                                 handle="@HanayoHiyori", ping=True)
+    def test_compact_collab_subtitle_no_today(self):
+        card = unified_alert("x", "하나요 히요리",
+                             "https://example.com/banner.jpg",
+                             role_id="1563499860135772211",
+                             title="오늘 메리랑 합방", body="저녁에 메리랑 합방 있어요",
+                             date="2026-11-01T00:00:00Z",
+                             url="https://x.com/HanayoHiyori/status/1",
+                             handle="@HanayoHiyori", ping=True)
         self.assertEqual(card["components"][0]["content"], "<@&1563499860135772211>")
         self.assertEqual(card["allowed_mentions"]["roles"], ["1563499860135772211"])
         parts = card["components"][1]["components"]
         self.assertIn("H I Y O R I", str(parts[0]))
-        self.assertIn("TODAY", str(parts))
+        self.assertNotIn("TODAY", str(parts))
+        self.assertIn("-# 🎮 합방 예고", str(parts))
+        self.assertIn("메리와 함께", str(parts))
         self.assertEqual(parts[-1]["type"], 12)
         footer_index = next(i for i, part in enumerate(parts)
                             if "작성 · " in part.get("content", ""))
         self.assertEqual(parts[footer_index - 1]["type"], 14)
         other = unified_alert("cafe", "사키하네 후야", handle="@Sakihanechannel", ping=False)
         self.assertIn("H U Y A", str(other["components"][0]["components"][0]))
+
+    def test_conservative_schedule_tracking_and_health(self):
+        import notice_intelligence as ni
+        from pathlib import Path
+        with TemporaryDirectory() as folder:
+            schedule = Path(folder) / "schedule.json"
+            health = Path(folder) / "health.json"
+            with patch.object(ni, "SCHEDULE_FILE", schedule), patch.object(ni, "HEALTH_FILE", health):
+                created = ni.record_schedule(
+                    "hanayo", "2026-11-03 방송 일정", "오후 8시 방송 예정",
+                    "2026-11-01T08:00:00Z", "https://example.com/1")
+                self.assertEqual(created["time"], "오후 8시")
+                changed = ni.record_schedule(
+                    "hanayo", "2026-11-03 방송 시간 변경", "오후 9시로 변경",
+                    "2026-11-02T08:00:00Z", "https://example.com/2")
+                self.assertEqual(changed["time"], "오후 9시")
+                self.assertEqual(len(ni._read(schedule)), 1)
+                self.assertIsNone(ni.record_schedule(
+                    "hanayo", "오늘 방송", "오후 9시 방송 예정",
+                    "2026-11-02T08:00:00Z", "https://example.com/3"))
+                ni.report_source("히요리 X", False, "RSS unavailable")
+                self.assertEqual(ni._read(health)["히요리 X"]["consecutive_failures"], 1)
+                ni.report_source("히요리 X", True)
+                self.assertEqual(ni._read(health)["히요리 X"]["consecutive_failures"], 0)
+
+    def test_collab_name_requires_collab_context(self):
+        from notice_intelligence import participants
+        self.assertEqual(participants("", "저녁에 메리랑 합방해요!"), ["메리"])
+        self.assertEqual(participants("", "메리랑 밥 먹었어요"), [])
+        self.assertEqual(participants("", "오늘 합방해요"), [])
 
     def test_huya_x_routing_and_presentation(self):
         import twitter_huya_notifier as huya
