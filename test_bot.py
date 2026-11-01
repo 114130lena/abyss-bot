@@ -330,6 +330,60 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(participants("", "메리랑 밥 먹었어요"), [])
         self.assertEqual(participants("", "오늘 합방해요"), [])
 
+    def test_calendar_dates_and_ambiguous_event_dates(self):
+        from notice_intelligence import _event_key
+        stamp = "2026-11-01T10:00:00Z"
+        self.assertEqual(_event_key("11월 3일 방송", "", stamp), "2026-11-03")
+        self.assertEqual(_event_key("2026/11/03 방송", "", stamp), "2026-11-03")
+        self.assertEqual(_event_key("2026-11-03 방송", "", stamp), "2026-11-03")
+        self.assertIsNone(_event_key("11월 3일과 11월 4일 방송", "", stamp))
+
+    def test_collab_aliases_and_no_casual_name_detection(self):
+        from notice_intelligence import participants
+        self.assertIn("시부키", participants("시부키랑 합방", "오늘 함께해요"))
+        self.assertIn("메리", participants("메리와 합방", "방송"))
+        self.assertEqual(participants("메리 일상", "오늘 같이 식사했어요"), [])
+        self.assertEqual(participants("히요리랑 합방", "", creator="히요리"), [])
+
+    def test_admin_recovery_after_sustained_collection_failure(self):
+        import notice_intelligence as ni
+        from pathlib import Path
+        with TemporaryDirectory() as folder, \
+             patch.object(ni, "HEALTH_FILE", Path(folder) / "health.json"), \
+             patch("resilience.ADMIN_WEBHOOK", "https://discord.com/api/webhooks/test/token"), \
+             patch("resilience.send_webhook") as delivered:
+            for _ in range(3):
+                ni.report_source("후야 X", False, "rss unavailable")
+            delivered.assert_not_called()
+            ni.report_source("후야 X", True)
+            self.assertEqual(delivered.call_count, 1)
+            self.assertIn("복구", str(delivered.call_args.args[1]))
+            ni.report_source("후야 X", True)
+            self.assertEqual(delivered.call_count, 1)
+
+    def test_discord_card_limits_keep_role_footer_and_banner(self):
+        for platform in ("chzzk", "x", "cafe", "youtube"):
+            card = unified_alert(platform, "하나요 히요리", "https://example.com/banner.png",
+                                 role_id="1563499860135772211",
+                                 title="메리랑 합방", body="오늘 저녁 메리랑 합방 있어요",
+                                 category="게임", date="2026-11-01T10:00:00Z",
+                                 url="https://example.com/post",
+                                 images=["https://example.com/image.png"], ping=True)
+            parts = card["components"][1]["components"]
+            self.assertLessEqual(len(parts), 10)
+            self.assertEqual(parts[-1]["type"], 12)
+            self.assertIn("<@&1563499860135772211>", str(card))
+            self.assertNotIn("TODAY", str(parts))
+            self.assertNotIn("공지 핵심 정보", str(parts))
+
+    def test_read_timeout_does_not_retry_uncertain_discord_delivery(self):
+        import requests
+        from resilience import send_webhook
+        with patch("resilience.requests.post", side_effect=requests.ReadTimeout()) as post:
+            with self.assertRaises(requests.ReadTimeout):
+                send_webhook("https://discord.com/api/webhooks/test/token", {"content": "test"})
+        self.assertEqual(post.call_count, 1)
+
     def test_huya_x_routing_and_presentation(self):
         import twitter_huya_notifier as huya
         self.assertEqual(creator_groups.x_group("SakihaneHuya"), "sakihane")
