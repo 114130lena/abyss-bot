@@ -252,7 +252,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     identity = "## " + _safe_markdown(creator)
     if handle:
         identity += "\n" + _safe_markdown(handle)
-    if _valid_url(avatar):
+    if _valid_url(avatar) or str(avatar).startswith("attachment://"):
         pieces.append({"type": 9, "components": [text(identity)],
                        "accessory": {"type": 11, "media": {"url": avatar},
                                      "description": creator + " 프로필 사진"}})
