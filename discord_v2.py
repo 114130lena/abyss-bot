@@ -99,12 +99,12 @@ def _notice_type(title, body):
     import re
     source = (str(title or "") + "\n" + str(body or ""))[:3500]
     # A negated status must not be presented as an actual cancellation or break.
-    if re.search(r"(휴방|쉬는 날|방송 취소|방송 중단)\\s*(?:은|이|가)?\\s*(?:아닙니다|아니에요|없습니다|없어요)", source):
+    if re.search(r"(휴방|쉬는 날|방송 취소|방송 중단)\s*(?:은|이|가)?\s*(?:아닙니다|아니에요|없습니다|없어요)", source):
         return None
-    cancel = r"(방송\\s*취소|방송을\\s*취소|일정\\s*취소|라이브\\s*취소|방송\\s*중단)"
-    change = r"(일정\\s*(?:변경|수정|조정)|시간\\s*(?:변경|수정|조정)|방송\\s*(?:연기|지연|변경)|변경된\\s*일정)"
-    break_ = r"(휴방|방송\\s*쉬(?:겠습니다|어요|는\\s*날)|오늘은\\s*쉽니다)"
-    announce = r"(방송\\s*일정|방송\\s*예정|방송\\s*공지|방송\\s*시작|오늘\\s*방송|라이브\\s*예정|방송할\\s*예정|방송합니다)"
+    cancel = r"(방송\s*취소|방송을\s*취소|일정\s*취소|라이브\s*취소|방송\s*중단)"
+    change = r"(일정\s*(?:변경|수정|조정)|시간\s*(?:변경|수정|조정)|방송\s*(?:연기|지연|변경)|변경된\s*일정)"
+    break_ = r"(휴방|방송\s*쉬(?:겠습니다|어요|는\s*날)|오늘은\s*쉽니다)"
+    announce = r"(방송\s*일정|방송\s*예정|방송\s*공지|방송\s*시작|오늘\s*방송|라이브\s*예정|방송할\s*예정|방송합니다)"
     for pattern, label in ((cancel, "🚫 방송 취소 안내"),
                            (change, "🔄 일정 변경 안내"),
                            (break_, "🌙 휴방 안내"),
