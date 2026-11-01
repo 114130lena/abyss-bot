@@ -78,6 +78,11 @@ jobs:
           assert parts[0]['accessory']['type']==11, 'Avatar accessory missing'
           assert parts[1]['type']==14, 'Profile divider missing'
           assert not (parts[0]['type']==12), 'Image-card header must be removed'
+          assert any(p.get('type')==10 and ' · Just Chatting' in p.get('content','') and p.get('content','').startswith('## [') for p in parts), 'Title/category not inline'
+          assert parts[-3].get('type')==10 and 'OFFICIAL LINKS' in parts[-3]['content'], 'Footer signature label missing'
+          assert parts[-2].get('type')==12, 'Full-width YouTube banner missing'
+          assert parts[-1].get('type')==1, 'Four-link row missing'
+          assert [b['label'] for b in parts[-1]['components']]==['CHZZK','CAFE','X','YouTube'], 'Expected four buttons in order'
           payload['allowed_mentions']={'parse':[]}
           hook=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
           assert hook.startswith('https://'), 'Webhook missing'
