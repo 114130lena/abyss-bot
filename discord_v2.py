@@ -102,8 +102,8 @@ def _schedule_facts(title, body):
     if not any(word in source for word in ("방송", "일정", "라이브", "LIVE", "대전", "이벤트", "휴방")):
         return []
     blocked = ("변경 전", "기존 시간", "원래", "취소", "예정이었", "지난", "어제", "아닐", "미정")
-    date_pattern = re.compile(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일")
-    time_pattern = re.compile(r"(오전|오후)\\s*(1[0-2]|[1-9])시(?:\\s*(?:(?:([0-5]?\\d)분?)|반))?|(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)")
+    date_pattern = re.compile(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일")
+    time_pattern = re.compile(r"(오전|오후)\s*(1[0-2]|[1-9])시(?:\s*(?:(?:([0-5]?\d)분?)|반))?|(?<!\d)([01]?\d|2[0-3]):([0-5]\d)")
     dates = []
     times = []
     for line in lines:
@@ -163,6 +163,10 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             pieces.append(text("## [" + display + "](" + url + ")"))
         else:
             pieces.append(text("## " + display))
+    if platform in ("cafe", "x"):
+        facts = _schedule_facts(title, body)
+        if facts:
+            pieces.append(text("**📌 공지 핵심 정보**\n" + "\n".join(facts)))
     if body:
         import re
         content = str(body).replace("\r\n", "\n").replace("\r", "\n")
