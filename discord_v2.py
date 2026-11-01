@@ -276,9 +276,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         notice_type = _notice_type(title, body)
         if notice_type:
             analysis_lines.append("**" + notice_type + "**")
-        facts = _schedule_facts(title, body) if notice_type not in ("🌙 휴방 안내", "🚫 방송 취소 안내") else []
-        if facts:
-            analysis_lines.append("**📌 공지 핵심 정보**\n" + "\n".join(facts))
+
     if body:
         import re
         content = str(body).replace("\r\n", "\n").replace("\r", "\n")
