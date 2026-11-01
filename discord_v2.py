@@ -349,7 +349,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         signature = _creator_theme(creator, handle)
         label = "-# 공식 채널 · OFFICIAL LINKS"
         if signature:
-            label += "　　" + signature
+            label += " · " + signature
         pieces.append(text(label))
         pieces.append(gallery(banner, "공식 유튜브 채널 배너"))
     import os
