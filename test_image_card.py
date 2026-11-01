@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from discord_v2 import alert
+from banner_manager import get_banner
 
 def card_image(group="hanayo"):
     from PIL import Image, ImageDraw, ImageFont
@@ -41,7 +42,7 @@ def card_image(group="hanayo"):
 def make_preview(group="hanayo"):
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     handle = "@HanayoHiyori" if group == "hanayo" else "@Sakihanechannel"
-    card = alert("x", creator, "", "", title="[테스트] 이미지 카드 + V2",
+    card = alert("x", creator, get_banner(group), "", title="[테스트] 이미지 카드 + V2",
                  body="메리와 합방 있어요!\n\n원문과 작은 부제목, 날짜, 버튼은 기존 V2 방식으로 남습니다.",
                  date=datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                  url="https://x.com/HanayoHiyori" if group == "hanayo" else "https://x.com/SakihaneHuya",
