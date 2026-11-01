@@ -265,7 +265,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         identity += " HANAYO HIYORI"
     elif "후야" in creator:
         identity += " SAKIHANE HUYA"
-    if handle:
+    if "후야" in creator:
+        identity += "\n-# @SakihaneHuya"
+    elif handle:
         identity += "\n-# " + _safe_markdown(handle)
     if "히요리" in creator:
         identity += "\n## STELLIVE · ABYSS"
