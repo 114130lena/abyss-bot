@@ -248,6 +248,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
+    # Top banner is preserved; bottom image is displayed as a compact thumbnail.
+    if _valid_url(banner):
+        pieces.append(gallery(banner, "스트리머 공식 상단 배너"))
     identity = "## " + _safe_markdown(creator)
     if handle:
         identity += "\n" + _safe_markdown(handle)
@@ -319,10 +322,55 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     if footer:
         pieces.append(separator())
         pieces.append(text(" · ".join(footer)))
-    if _valid_url(url):
+    # Titles are clickable; retain a source button for platforms without linked titles.
+    if _valid_url(url) and not title:
         pieces.append(_link_button(url, platform, replay))
     if _valid_url(banner):
-        pieces.append(gallery(banner, "스트리머 공식 배너"))
+        pieces.append(separator())
+        pieces.append({
+            "type": 9,
+            "components": [text("-# 공식 채널")],
+            "accessory": {"type": 11, "media": {"url": banner},
+                          "description": "스트리머 공식 하단 배너"},
+        })
+    import os
+    identity_key = (creator + " " + handle).casefold()
+    group = ("hanayo" if "히요리" in identity_key or "hanayo" in identity_key
+             else "sakihane" if "후야" in identity_key or "sakihane" in identity_key
+             else "")
+    # Never substitute another creator's links if a channel ID is not configured.
+    if group:
+        from creator_groups import CHZZK_GROUPS
+        chzzk_id = next((cid for cid, g in CHZZK_GROUPS.items() if g == group), "")
+        youtube = ("https://www.youtube.com/@HanayoHiyori" if group == "hanayo"
+                   else "https://www.youtube.com/@Sakihanechannel")
+        twitter = ("https://x.com/HanayoHiyori" if group == "hanayo"
+                   else "https://x.com/SakihaneHuya")
+        chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
+        if not _valid_url(chzzk) and chzzk_id:
+            chzzk = "https://chzzk.naver.com/" + chzzk_id
+        cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
+        links = [("YouTube", youtube), ("𝕏", twitter),
+                 ("CHZZK", chzzk), ("스텔라이브 카페", cafe)]
+        buttons = [{"type": 2, "style": 5, "label": name, "url": address}
+                   for name, address in links if _valid_url(address)]
+        if buttons:
+            pieces.append({"type": 1, "components": buttons})
+    # Discord containers are limited to 10 direct components; avoid API rejection.
+    # Prefer dropping optional separators if posts contain many independent fields.
+    while len(pieces) > 10:
+        for index in range(len(pieces) - 1, -1, -1):
+            if pieces[index]["type"] == 14:
+                pieces.pop(index)
+                break
+        else:
+            # When a long post exceeds the limit, merge neighboring text displays.
+            for index in range(len(pieces) - 2):
+                if pieces[index]["type"] == 10 and pieces[index+1]["type"] == 10:
+                    pieces[index]["content"] += "\\n" + pieces.pop(index+1)["content"]
+                    break
+            else:
+                raise ValueError("Too many Discord V2 components")
     outer = []
     if role_id:
         outer.append(text("<@&" + role_id + ">" if ping else "[테스트] 멘션 비활성화"))
