@@ -270,12 +270,13 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             pieces.append(text("## " + display))
     analysis_lines = []
     if platform in ("cafe", "x"):
-        today_label = _today_summary(title, body, date)
-        if today_label:
-            analysis_lines.append(today_label)
         notice_type = _notice_type(title, body)
         if notice_type:
-            analysis_lines.append("**" + notice_type + "**")
+            from notice_intelligence import participants
+            companions = participants(title, body) if notice_type == "🎮 합방 예고" else []
+            subtitle = notice_type + (" · " + ", ".join(companions) + "와 함께" if len(companions) == 1 else
+                                      " · " + ", ".join(companions) + " 참여" if companions else "")
+            analysis_lines.append("-# " + subtitle)
 
     if body:
         import re
