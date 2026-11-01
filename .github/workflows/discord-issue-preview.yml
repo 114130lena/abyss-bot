@@ -699,3 +699,65 @@ jobs:
           }
           echo X_IMAGE_DEPLOY_SUCCESS
           REMOTE
+
+  deploy_x_reposts_spaces:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-reposts-spaces' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Owner only
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile main.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_spaces_notifier.py
+      - name: Deploy and test no-ping repost routing and optional spaces
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in main.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_spaces_notifier.py; do
+            scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_release_$f"
+          done
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import sys
+          sys.path.insert(0,'/tmp')
+          import shutil
+          shutil.copy('/tmp/abyss_release_x_repost_notifier.py','/tmp/x_repost_notifier.py')
+          import x_repost_notifier as x
+          assert x.is_repost("RT by @HanayoHiyori: hello")
+          assert not x.is_repost("Hello world")
+          assert dict(__import__('urllib.parse',fromlist=['parse_qs']).parse_qsl(__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(x.thread_url('https://discord.com/api/webhooks/1/token')).query))['thread_id']=='1566509366591627344'
+          print('REPOST_ROUTING_TEST_OK')
+          PY
+          mkdir -p backups/x-reposts-spaces
+          for f in main.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_spaces_notifier.py; do
+            if [ -f "$f" ]; then cp "$f" "backups/x-reposts-spaces/$f"; fi
+            cp "/tmp/abyss_release_$f" "$f"
+          done
+          "$PY" -m py_compile main.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_spaces_notifier.py
+          sudo systemctl restart chzzk-bot.service
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+             for f in main.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_spaces_notifier.py; do
+               if [ -f "backups/x-reposts-spaces/$f" ]; then cp "backups/x-reposts-spaces/$f" "$f"; fi
+             done
+             sudo systemctl restart chzzk-bot.service
+             exit 1
+          }
+          echo X_REPOST_SPACES_DEPLOY_SUCCESS
+          REMOTE
