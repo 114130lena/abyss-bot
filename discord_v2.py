@@ -248,23 +248,17 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
-    # Top banner is preserved; bottom image is displayed as a compact thumbnail.
-    if _valid_url(banner):
-        pieces.append(gallery(banner, "스트리머 공식 상단 배너"))
+    # Native Section profile header: name/handle left, creator portrait right.
     identity = "## " + _safe_markdown(creator)
     if handle:
         identity += "\n" + _safe_markdown(handle)
-    theme = _creator_theme(creator, handle)
-    if theme:
-        identity += "\n" + theme
-    # The official top banner already identifies the creator.
-    if not _valid_url(banner):
-        if _valid_url(avatar):
-            pieces.append({"type": 9, "components": [text(identity)],
-                           "accessory": {"type": 11, "media": {"url": avatar},
-                                         "description": creator + " 프로필 사진"}})
-        else:
-            pieces.append(text(identity))
+    if _valid_url(avatar):
+        pieces.append({"type": 9, "components": [text(identity)],
+                       "accessory": {"type": 11, "media": {"url": avatar},
+                                     "description": creator + " 프로필 사진"}})
+    else:
+        pieces.append(text(identity))
+    pieces.append(separator())
     pieces.append(text("**" + tag + "**" + (" · 방송 시작" if platform == "chzzk" and not replay else "")))
     if platform == "x" and not title:
         title, body = _x_headline(body)
