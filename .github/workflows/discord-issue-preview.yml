@@ -78,7 +78,18 @@ jobs:
               ping=False, handle=handle(group), avatar=avatar(group),
               username='어비스봇 · 테스트',
           )
-          image = card_image(group)
+          from PIL import Image, ImageDraw
+          import io, re
+          source = Image.open(io.BytesIO(card_image(group))).convert('RGB')
+          compact = Image.new('RGB', (960, 172), (52, 44, 71))
+          draw = ImageDraw.Draw(compact)
+          draw.rounded_rectangle((8, 8, 952, 164), radius=20, outline=(112, 96, 143), width=2)
+          compact.paste(source.crop((68, 40, 675, 151)), (40, 30))
+          portrait = source.crop((725, 27, 926, 228)).resize((146, 146))
+          compact.paste(portrait, (790, 13))
+          output = io.BytesIO()
+          compact.save(output, 'PNG')
+          image = output.getvalue()
           assert image.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10]))
           components = payload['components'][-1]['components']
           # Keep the original YouTube header, but replace the duplicate
@@ -99,6 +110,12 @@ jobs:
               'media': {'url': 'attachment://abyss_preview.png'},
               'description': '하단 프로필 이미지 카드'
           }]})
+          for item in components:
+              if item.get('type') == 10:
+                  value = item.get('content', '')
+                  match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
+                  if match:
+                      item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')** · ' + match.group(2)
           assert components[0]['type'] == 12, 'Top banner missing'
           assert components[-2]['type'] == 12, 'Bottom image card missing'
           assert components[-1]['type'] == 1, 'Link buttons missing'
