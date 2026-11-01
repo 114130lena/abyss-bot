@@ -434,6 +434,27 @@ class RoutingTests(unittest.TestCase):
             self.assertIn("합방 예고", str(parts))
             self.assertNotIn("TODAY", str(parts))
 
+    def test_integrated_v2_comparison_has_no_uploaded_image_or_pings(self):
+        import test_image_card as preview
+        from unittest.mock import patch as local_patch, Mock
+        with local_patch("test_image_card.get_banner", return_value="https://example.com/banner.png"):
+            payload = preview.make_integrated_preview("hanayo")
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.assertEqual(payload["flags"], 32768)
+        parts = payload["components"][0]["components"]
+        self.assertNotIn("attachment://", str(parts))
+        self.assertIn("통합형 테스트", str(parts))
+        self.assertIn("H I Y O R I", str(parts))
+        self.assertNotIn("TODAY", str(parts))
+        self.assertNotIn("공지 핵심 정보", str(parts))
+        self.assertEqual(parts[-1]["type"], 12)
+        response = Mock()
+        with patch("test_image_card.requests.post", return_value=response) as sent:
+            preview.send_integrated_preview("https://discord.com/api/webhooks/123/token", payload)
+        self.assertIn("thread_id=1566335914500816988", sent.call_args.args[0])
+        self.assertIn("with_components=true", sent.call_args.args[0])
+        self.assertEqual(sent.call_args.kwargs["json"]["allowed_mentions"], {"parse": []})
+
     def test_image_card_upload_multipart(self):
         import test_image_card as preview
         from unittest.mock import Mock
