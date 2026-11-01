@@ -46,14 +46,14 @@ def _fetch_posts(feed):
     posts = []
     for item in channel.findall("item"):
         post_id = (item.findtext("guid") or "").strip()
-        if not post_id.isdigit() or not common._original_post(item):
+        if not post_id.isdigit() or (not common._original_post(item) and not __import__("x_repost_notifier").is_repost(item.findtext("title") or "")):
             continue
         posts.append({
             "id": post_id, "text": common._post_body(item),
             "url": f"https://x.com/{USERNAME}/status/{post_id}",
             "images": common._post_images(item),
             "pub_date": item.findtext("pubDate") or "",
-            "source": feed,
+            "source": feed, "rss_title": item.findtext("title") or "",
         })
     return posts
 
@@ -135,7 +135,20 @@ def check_huya_x():
             logging.info("후야 X 감시 초기화: 기존 %d개 읽음 처리", len(posts))
             failures = 0
             return
+        from x_repost_notifier import is_repost, notify as notify_repost
+        repost_file=BASE_DIR / "x_huya_repost_seen_posts.json"
+        try:
+            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
+        except (OSError,ValueError,TypeError):
+            repost_seen={p["id"] for p in posts if is_repost(p.get("rss_title"))}
+            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
+            if is_repost(post.get("rss_title")):
+                if post["id"] not in repost_seen:
+                    notify_repost(GROUP,post,WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
+                continue
             if post["id"] in seen:
                 continue
             _notify(post)
