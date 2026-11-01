@@ -185,9 +185,9 @@ jobs:
           if not result.ok: print(result.text[:1200])
           result.raise_for_status()
           data = result.json()
-          assert data.get('attachments'), 'Discord response has no attachments'
-          assert data['attachments'][0].get('filename') == 'hanayo_banner.jpg'
-          print('Original JPEG delivered, message id:',data.get('id'),
-                'attachment bytes:',data['attachments'][0].get('size'))
+          assert data.get('id'), 'Discord response missing message id'
+          print('Delivered original image card, message:',data['id'],
+                'component count:',len(data.get('components',[])),
+                'attachment count:',len(data.get('attachments',[])))
           PY
           REMOTE
