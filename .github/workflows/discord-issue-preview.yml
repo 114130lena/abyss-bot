@@ -638,3 +638,64 @@ jobs:
           PY
           echo FANART_POOL_DEPLOY_SUCCESS
           REMOTE
+
+  deploy_x_images:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-post-images' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile twitter_notifier.py twitter_huya_notifier.py
+      - name: Check RSS sample and deploy parsers
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_x_key
+          chmod 600 ~/.ssh/abyss_x_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in twitter_notifier.py twitter_huya_notifier.py; do
+            scp -i ~/.ssh/abyss_x_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_x_$f"
+          done
+          ssh -i ~/.ssh/abyss_x_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import sys,xml.etree.ElementTree as ET
+          sys.path.insert(0,'/tmp')
+          from pathlib import Path
+          import shutil
+          shutil.copyfile('/tmp/abyss_x_twitter_notifier.py','/tmp/twitter_notifier.py')
+          import twitter_notifier as t
+          sample = '<item xmlns:media="http://search.yahoo.com/mrss/"><description><![CDATA[<p>Hello</p><img src="https://pbs.twimg.com/media/abc.jpg">]]></description><enclosure url="https://pbs.twimg.com/media/def.jpg" type="image/jpeg"/><media:content url="https://pbs.twimg.com/media/ghi.jpg"/></item>'
+          imgs=t._post_images(ET.fromstring(sample))
+          assert len(imgs)==3,imgs
+          print('RSS_IMAGE_PARSER_OK',len(imgs))
+          PY
+          mkdir -p backups/x-images-20261102
+          for f in twitter_notifier.py twitter_huya_notifier.py; do
+            cp "$f" "backups/x-images-20261102/$f"
+            cp "/tmp/abyss_x_$f" "$f"
+          done
+          "$PY" -m py_compile twitter_notifier.py twitter_huya_notifier.py
+          sudo systemctl restart chzzk-bot.service
+          sleep 2
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+            for f in twitter_notifier.py twitter_huya_notifier.py; do cp "backups/x-images-20261102/$f" "$f"; done
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          }
+          echo X_IMAGE_DEPLOY_SUCCESS
+          REMOTE
