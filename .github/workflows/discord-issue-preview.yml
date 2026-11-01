@@ -81,10 +81,28 @@ jobs:
           image = card_image(group)
           assert image.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10]))
           components = payload['components'][-1]['components']
-          components.insert(1, {'type': 12, 'items': [{
+          # Keep the original YouTube header, but replace the duplicate
+          # bottom banner thumbnail with the actual wide PNG profile card.
+          footer_index = next(i for i, item in enumerate(components)
+                              if item['type'] == 1 and
+                              any(b.get('label') == 'YouTube'
+                                  for b in item.get('components', [])))
+          for i in range(footer_index - 1, -1, -1):
+              item = components[i]
+              if item['type'] == 9 and item.get('accessory', {}).get('type') == 11:
+                  components.pop(i)
+                  if i > 0 and components[i-1]['type'] == 14:
+                      components.pop(i-1)
+                  break
+          footer_index = next(i for i, item in enumerate(components) if item['type'] == 1)
+          components.insert(footer_index, {'type': 12, 'items': [{
               'media': {'url': 'attachment://abyss_preview.png'},
-              'description': '이미지 카드 · 스트리머 프로필 헤더'
+              'description': '하단 프로필 이미지 카드'
           }]})
+          assert components[0]['type'] == 12, 'Top banner missing'
+          assert components[-2]['type'] == 12, 'Bottom image card missing'
+          assert components[-1]['type'] == 1, 'Link buttons missing'
+          assert len(components[-1]['components']) >= 3
           assert len(components) <= 10, 'V2 component budget exceeded'
           payload['allowed_mentions'] = {'parse': []}
           webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
