@@ -67,6 +67,19 @@ jobs:
           spec=importlib.util.spec_from_file_location('preview_module','/tmp/abyss_preview_discord_v2.py')
           mod=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(mod)
+          # Resolve the monitored CHZZK channel from the existing server config.
+          from pathlib import Path
+          from creator_groups import chzzk_group
+          channel_path=Path('/home/ubuntu/chzzk-bot/channels.txt')
+          if channel_path.is_file():
+              for raw in channel_path.read_text().splitlines():
+                  cid=raw.strip()
+                  if cid and not cid.startswith('#') and chzzk_group(cid)==group:
+                      os.environ[group.upper()+'_CHZZK_URL']='https://chzzk.naver.com/'+cid
+                      break
+          # A generic CHZZK home link is used only in this preview if no creator ID is configured.
+          if not os.getenv(group.upper()+'_CHZZK_URL','').startswith('https://'):
+              os.environ[group.upper()+'_CHZZK_URL']='https://chzzk.naver.com/'
           payload=mod.alert('chzzk',creator,get_banner(group),role_id='',
               title='[테스트] 하요링 ~ 오늘은 그녀와 함께' if group=='hanayo' else '[테스트] 후야 방송 시작',
               url='https://chzzk.naver.com/',
