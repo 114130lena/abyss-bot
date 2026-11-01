@@ -549,7 +549,7 @@ jobs:
         with:
           ref: test/compact-footer-four-links
           persist-credentials: false
-      - run: python -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py random_media.py
+      - run: python -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py random_media.py
       - name: Install collector and six-hour timer on existing Ubuntu host
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -561,7 +561,7 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_refresh_key
           chmod 600 ~/.ssh/abyss_refresh_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          for f in collect_creator_media.py fanart_library.py fanart_discovery.py random_media.py; do
+          for f in collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py random_media.py; do
             scp -i ~/.ssh/abyss_refresh_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_refresh_$f"
           done
           scp -i ~/.ssh/abyss_refresh_key -o IdentitiesOnly=yes scripts/install_media_refresh.sh "$SSH_USER@$SSH_HOST:/tmp/abyss_install_refresh.sh"
@@ -569,12 +569,13 @@ jobs:
           set -eu
           cd /home/ubuntu/chzzk-bot
           mkdir -p backups/media-refresh
-          for f in random_media.py collect_creator_media.py fanart_library.py fanart_discovery.py; do
+          for f in random_media.py collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py; do
             if [ -f "$f" ]; then cp "$f" "backups/media-refresh/$f"; fi
           done
           cp /tmp/abyss_refresh_collect_creator_media.py collect_creator_media.py
           cp /tmp/abyss_refresh_fanart_library.py fanart_library.py
           cp /tmp/abyss_refresh_fanart_discovery.py fanart_discovery.py
+          cp /tmp/abyss_refresh_fanart_fx_rss.py fanart_fx_rss.py
           cp /tmp/abyss_refresh_random_media.py random_media.py
           bash /tmp/abyss_install_refresh.sh
           REMOTE
