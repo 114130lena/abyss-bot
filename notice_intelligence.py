@@ -152,6 +152,25 @@ def _report_source_state(name, ok, reason, now):
                             name, entry["consecutive_failures"], str(reason)[:120])
     state[name] = entry
     _save(HEALTH_FILE, state)
+    # One notification on sustained failure; one when the source recovers.
+    previous_failures = int(previous.get("consecutive_failures", 0))
+    announce = ((not ok and entry["consecutive_failures"] == 3)
+                or (ok and previous_failures >= 3))
+    if announce:
+        try:
+            from resilience import ADMIN_WEBHOOK, send_webhook
+            if ADMIN_WEBHOOK.startswith("https://"):
+                label = "복구됨" if ok else "연속 수집 실패"
+                send_webhook(ADMIN_WEBHOOK, {
+                    "username": "어비스봇 상태 알림",
+                    "embeds": [{"title": name + " · " + label,
+                                "description": ("수집이 다시 정상화되었습니다." if ok else
+                                                "3회 연속 수집 실패. RSS 및 네트워크 상태를 확인하세요."),
+                                "color": 0x2ECC71 if ok else 0xE67E22}],
+                    "allowed_mentions": {"parse": []},
+                }, attempts=2)
+        except Exception:
+            logging.exception("운영자 수집 상태 알림 전송 실패")
 
 if __name__ == "__main__":
     # Run on the bot host: python notice_intelligence.py
