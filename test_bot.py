@@ -204,6 +204,29 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(_korean_datetime(1761897600000),
                          _korean_datetime(1761897600))
 
+    def test_schedule_highlight_uses_explicit_facts(self):
+        from discord_v2 import _schedule_facts
+        facts = _schedule_facts("10월 31일 방송 일정", "본 방송: 10월 31일 오후 7시")
+        self.assertIn("📅 날짜 · 10월 31일", facts)
+        self.assertIn("🕒 언급된 시간 · 오후 7시", facts)
+
+    def test_schedule_highlight_does_not_guess_between_times(self):
+        from discord_v2 import _schedule_facts
+        facts = _schedule_facts("방송 일정", "방송은 오후 6시, 대회는 오후 7시")
+        self.assertEqual(facts, [])
+
+    def test_alert_buttons_and_live_heading(self):
+        live = unified_alert("chzzk", "하나요 히요리",
+                             title="방송 시작", url="https://chzzk.naver.com/live/test")
+        parts = live["components"][0]["components"]
+        self.assertTrue(any("LIVE NOW" in p.get("content", "") for p in parts))
+        self.assertTrue(any(p.get("type") == 1 for p in parts))
+        cafe_card = unified_alert("cafe", "사키하네 후야", title="10월 31일 방송 일정",
+                                  body="오후 7시 방송합니다", url="https://cafe.naver.com/example")
+        parts = cafe_card["components"][0]["components"]
+        self.assertTrue(any("📌 공지 핵심 정보" in p.get("content", "") for p in parts))
+        self.assertTrue(any(p.get("type") == 1 for p in parts))
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
