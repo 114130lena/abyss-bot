@@ -382,3 +382,71 @@ jobs:
               print('FULL_ALERT_SENT',group,res.json()['id'],len(parts),'profile and banner attached')
           PY
           REMOTE
+
+  verify_random_saved_media:
+    if: ${{ github.event.issue.title == '[abyss-test] random-archive' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile random_media.py discord_v2.py resilience.py
+      - name: Test actual saved media attachment via isolated modules
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in random_media.py discord_v2.py resilience.py; do
+            scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_test_$f"
+          done
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,sys,os
+          from urllib.parse import urlsplit,urlunsplit,urlencode,parse_qsl
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          os.environ['ABYSS_RANDOM_MEDIA']='1'
+          def load(name):
+              spec=importlib.util.spec_from_file_location(name,'/tmp/abyss_test_'+name+'.py')
+              mod=importlib.util.module_from_spec(spec)
+              sys.modules[name]=mod
+              spec.loader.exec_module(mod)
+              return mod
+          rand=load('random_media')
+          res=load('resilience')
+          layout=load('discord_v2')
+          url=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert url.startswith('https://')
+          p=urlsplit(url); q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          url=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              for repeat in range(2):
+                  payload=layout.alert('chzzk',name,
+                    banner='https://yt3.googleusercontent.com/something.jpg',
+                    role_id='',title='[랜덤 이미지 테스트] '+name,
+                    url='https://chzzk.naver.com/',handle='@'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                    avatar='https://yt3.googleusercontent.com/something.jpg',ping=False)
+                  prepared,chosen=rand.prepare_payload(payload)
+                  assert chosen and all(chosen[1][kind][0].is_file() for kind in ('profile','banner'))
+                  assert prepared['components'][-1]['components'][0]['accessory']['media']['url'].startswith('attachment://')
+                  print('TEST_PICK',group,repeat,[(k,v[0].name) for k,v in chosen[1].items()])
+                  res.send_webhook(url,payload,attempts=1)
+          PY
+          REMOTE
