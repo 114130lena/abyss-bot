@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from cafe_notifier import check_cafe
 from chzzk_replay_notifier import check_replays
 from twitter_notifier import check_twitter
+from twitter_huya_notifier import check_huya_x
 from youtube_notifier import check_youtube
 from youtube_websub import start_websub
 from banner_manager import get_banner, run_banner_refresh
@@ -158,6 +159,7 @@ def main():
     workers = [
         ("네이버 카페", check_cafe),
         ("X RSS", check_twitter),
+        ("후야 X RSS", check_huya_x),
         ("유튜브", check_youtube),
         ("치지직 다시보기", check_replays),
     ]
@@ -166,7 +168,7 @@ def main():
             target=run_worker, args=(name, checker, 5), name=name, daemon=True
         )
         thread.start()
-    logging.info("어비스봇 시작: 독립 알림 작업 4개 실행")
+    logging.info("어비스봇 시작: 독립 알림 작업 5개 실행")
     failures = 0
     while True:
         started = time.monotonic()
