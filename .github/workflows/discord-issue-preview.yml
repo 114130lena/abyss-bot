@@ -534,3 +534,46 @@ jobs:
           echo 'DEPLOY_SUCCESS random media enabled, service active'
           echo "BACKUP_PATH=$BACKUP"
           REMOTE
+
+  deploy_media_refresh:
+    if: ${{ github.event.issue.title == '[abyss-deploy] media-refresh' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Owner only
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile collect_creator_media.py fanart_library.py random_media.py
+      - name: Install collector and six-hour timer on existing Ubuntu host
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_refresh_key
+          chmod 600 ~/.ssh/abyss_refresh_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in collect_creator_media.py fanart_library.py random_media.py; do
+            scp -i ~/.ssh/abyss_refresh_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_refresh_$f"
+          done
+          scp -i ~/.ssh/abyss_refresh_key -o IdentitiesOnly=yes scripts/install_media_refresh.sh "$SSH_USER@$SSH_HOST:/tmp/abyss_install_refresh.sh"
+          ssh -i ~/.ssh/abyss_refresh_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p backups/media-refresh
+          for f in random_media.py collect_creator_media.py fanart_library.py; do
+            if [ -f "$f" ]; then cp "$f" "backups/media-refresh/$f"; fi
+          done
+          cp /tmp/abyss_refresh_collect_creator_media.py collect_creator_media.py
+          cp /tmp/abyss_refresh_fanart_library.py fanart_library.py
+          cp /tmp/abyss_refresh_random_media.py random_media.py
+          bash /tmp/abyss_install_refresh.sh
+          REMOTE
