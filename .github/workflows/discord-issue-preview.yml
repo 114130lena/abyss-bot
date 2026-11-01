@@ -40,8 +40,7 @@ jobs:
           chmod 600 ~/.ssh/abyss_test_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_preview_discord_v2.py"
-          scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes hanayo_banner.jpg "$SSH_USER@$SSH_HOST:/tmp/abyss_hanayo_banner.jpg"
-      - name: Send one non-pinging preview to pinned thread
+      - name: Send native Section preview to pinned thread
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
@@ -52,146 +51,44 @@ jobs:
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           "$PY" - <<'PY'
-          import importlib.util, os, sys
+          import os,sys,importlib.util,json
           from datetime import datetime
           from zoneinfo import ZoneInfo
           from dotenv import load_dotenv
-          sys.path.insert(0, '/home/ubuntu/chzzk-bot')
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          import requests
+          sys.path.insert(0,'/home/ubuntu/chzzk-bot')
           load_dotenv('/home/ubuntu/chzzk-bot/.env')
           from banner_manager import get_banner
-          from creator_profiles import handle, avatar
-          from test_image_card import send_preview, card_image
-          spec = importlib.util.spec_from_file_location('abyss_preview_layout', '/tmp/abyss_preview_discord_v2.py')
-          module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(module)
-          group = os.environ['STREAMER'].rsplit(' ', 1)[-1]
-          assert group in ('hanayo', 'sakihane')
-          creator = '하나요 히요리' if group == 'hanayo' else '사키하네 후야'
-          banner = get_banner(group)
-          if not banner:
-              raise RuntimeError('No cached official banner: refusing incomplete preview')
-          payload = module.alert(
-              'chzzk', creator, banner, role_id='',
-              title=('[테스트] 하요링 ~ 오늘은 그녀와 함께' if group == 'hanayo' else '[테스트] 후야의 오늘 방송'),
+          from creator_profiles import handle,avatar
+          group=os.environ['STREAMER'].rsplit(' ',1)[-1]
+          assert group in ('hanayo','sakihane')
+          creator='하나요 히요리' if group=='hanayo' else '사키하네 후야'
+          spec=importlib.util.spec_from_file_location('preview_module','/tmp/abyss_preview_discord_v2.py')
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          payload=mod.alert('chzzk',creator,get_banner(group),role_id='',
+              title='[테스트] 하요링 ~ 오늘은 그녀와 함께' if group=='hanayo' else '[테스트] 후야 방송 시작',
               url='https://chzzk.naver.com/',
               media_url='https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
-              category='Just Chatting', date=datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),
-              ping=False, handle=handle(group), avatar=avatar(group),
-              username='어비스봇 · 테스트',
-          )
-          import re
-          from creator_profiles import avatar as official_avatar
-          components = payload['components'][-1]['components']
-          # Requested composition: compact image header -> alert -> buttons -> official YouTube banner.
-          # Remove original first gallery and the duplicate lower profile thumbnail.
-          original_banner = components.pop(0)
-          assert original_banner['type'] == 12, 'Original YouTube banner missing'
-          components[:] = [item for item in components if not (
-              item.get('type') == 9 and item.get('accessory', {}).get('type') == 11
-          )]
-          # Strip dividers with no meaningful content and ensure footer is clean.
-          components[:] = [item for i, item in enumerate(components)
-                            if not (item.get('type') == 14 and
-                                    (i == 0 or (i+1 < len(components) and
-                                     components[i+1].get('type') == 1)))]
-          for item in components:
-              if item.get('type') == 10:
-                  value = item.get('content', '')
-                  match = re.fullmatch(r'## \\[(.*?) · (.*?)\\]\\((https://[^)]+)\\)', value)
-                  if match:
-                      item['content'] = '## [' + match.group(1) + '](' + match.group(3) + ') · ' + match.group(2)
-          # Keep the category adjacent to title, without a repeated time/category footer.
-          links_index = next(i for i, item in enumerate(components)
-                             if item.get('type') == 1 and
-                             any(b.get('label') == 'YouTube'
-                                 for b in item.get('components', [])))
-          buttons = components[links_index]['components']
-          order = {'CHZZK': 0, '스텔라이브 카페': 1, '𝕏': 2, 'YouTube': 3}
-          buttons.sort(key=lambda b: order.get(b.get('label'), 9))
-          # Resolve the first valid monitored channel for Hanayo where configuration permits.
-          if group == 'hanayo' and not any(b.get('label') == 'CHZZK' for b in buttons):
-              from pathlib import Path
-              channel_file = Path('/home/ubuntu/chzzk-bot/channels.txt')
-              channel_ids = [line.strip() for line in channel_file.read_text().splitlines()
-                             if line.strip() and not line.startswith('#')] if channel_file.exists() else []
-              if channel_ids:
-                  buttons.insert(0, {'type': 2, 'style': 5, 'label': 'CHZZK',
-                                     'url': 'https://chzzk.naver.com/' + channel_ids[0]})
-          # Consistent short labels for mobile; Discord still sizes link buttons automatically.
-          for button in buttons:
-              if button['label'] == '스텔라이브 카페':
-                  button['label'] = 'CAFE'
-              elif button['label'] == '𝕏':
-                  button['label'] = 'X'
-          # Use exact original JPEG uploaded to the test branch; never resize or re-encode.
-          from pathlib import Path
-          from PIL import Image
-          from io import BytesIO
-          if group == 'hanayo':
-              image = Path('/tmp/abyss_hanayo_banner.jpg').read_bytes()
-              filename, mime = 'hanayo_banner.jpg', 'image/jpeg'
-          else:
-              image = card_image(group)
-              filename, mime = 'sakihane_preview.png', 'image/png'
-          im = Image.open(BytesIO(image))
-          assert im.width >= 400 and im.height >= 100, 'Header too small'
-          print('Header verified:',group,im.size,len(image))
-          components.insert(0, {'type': 12, 'items': [{
-              'media': {'url': 'attachment://' + filename},
-              'description': creator + ' 상단 헤더'
-          }]})
-          # Native Discord text hierarchy: large title, regular-size category.
-          for item in components:
-              if item.get('type') != 10:
-                  continue
-              value = item.get('content', '')
-              if 'CHZZK' in value and '방송 시작' in value:
-                  item['content'] = '**🟢 CHZZK · LIVE**'
-              elif value.startswith('## ['):
-                  match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
-                  if match:
-                      item['content'] = ('## [' + match.group(1) + '](' + match.group(3)
-                                         + ') · ' + match.group(2))
-          # Divider 1: profile card / alert body.
-          components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
-          # Order the footer as: original YouTube banner, then four link buttons.
-          link_row = components.pop(next(i for i, item in enumerate(components)
-                                         if item.get('type') == 1 and
-                                         any(b.get('label') == 'YouTube' for b in item.get('components', []))))
-          # Divider 2: stream content / official YouTube banner.
-          # Keep the link row immediately below the banner.
-          if components and components[-1].get('type') == 14:
-              components.pop()
-          components.append({'type': 14, 'divider': True, 'spacing': 1})
-          components.append({'type': 10, 'content': '-# 공식 채널 · OFFICIAL LINKS　　' + ('🌸 H I Y O R I' if group == 'hanayo' else 'SAKIHANE HUYA')})
-          components.append(original_banner)
-          components.append(link_row)
-          assert components[0]['type'] == 12
-          assert components[-3]['type'] == 10, 'Official links section label missing'
-          assert components[-2]['type'] == 12, 'Bottom YouTube banner missing'
-          assert components[-1]['type'] == 1, 'Official links must be below banner'
-          assert len(components[-1]['components']) == 4, 'Exactly four links required'
-          assert len(components) <= 10, 'V2 component budget exceeded'
-          payload['allowed_mentions'] = {'parse': []}
-          webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
-          if not webhook:
-              raise RuntimeError('No configured Discord webhook')
-          import requests, json
-          from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-          parsed = urlsplit(webhook)
-          query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-          query.update({'with_components': 'true', 'thread_id': '1566335914500816988', 'wait': 'true'})
-          url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
-          result = requests.post(url,
-              data={'payload_json': json.dumps(payload, ensure_ascii=False)},
-              files={'files[0]': (filename, image, mime)}, timeout=25)
-          print('Discord response code',result.status_code)
-          if not result.ok: print(result.text[:1200])
-          result.raise_for_status()
-          data = result.json()
-          assert data.get('id'), 'Discord response missing message id'
-          print('Delivered original image card, message:',data['id'],
-                'component count:',len(data.get('components',[])),
-                'attachment count:',len(data.get('attachments',[])))
+              category='Just Chatting',date=datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),
+              ping=False,handle=handle(group),avatar=avatar(group),username='어비스봇 · 테스트')
+          parts=payload['components'][-1]['components']
+          assert parts[0]['type']==9, 'Top must be native Section with avatar'
+          assert parts[0]['accessory']['type']==11, 'Avatar accessory missing'
+          assert parts[1]['type']==14, 'Profile divider missing'
+          assert not (parts[0]['type']==12), 'Image-card header must be removed'
+          payload['allowed_mentions']={'parse':[]}
+          hook=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert hook.startswith('https://'), 'Webhook missing'
+          u=urlsplit(hook)
+          q=dict(parse_qsl(u.query,keep_blank_values=True))
+          q.update({'with_components':'true','thread_id':'1566335914500816988','wait':'true'})
+          endpoint=urlunsplit((u.scheme,u.netloc,u.path,urlencode(q),u.fragment))
+          response=requests.post(endpoint,json=payload,timeout=25)
+          if not response.ok: print(response.text[:1000])
+          response.raise_for_status()
+          data=response.json()
+          print('Native Section preview sent:',data.get('id'),'group:',group,'components:',len(parts))
           PY
           REMOTE
