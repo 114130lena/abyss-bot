@@ -59,7 +59,7 @@ jobs:
           load_dotenv('/home/ubuntu/chzzk-bot/.env')
           from banner_manager import get_banner
           from creator_profiles import handle, avatar
-          from test_image_card import send_integrated_preview
+          from test_image_card import send_preview, card_image
           spec = importlib.util.spec_from_file_location('abyss_preview_layout', '/tmp/abyss_preview_discord_v2.py')
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
@@ -78,11 +78,19 @@ jobs:
               ping=False, handle=handle(group), avatar=avatar(group),
               username='어비스봇 · 테스트',
           )
+          image = card_image(group)
+          assert image.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10]))
+          components = payload['components'][-1]['components']
+          components.insert(1, {'type': 12, 'items': [{
+              'media': {'url': 'attachment://abyss_preview.png'},
+              'description': '이미지 카드 · 스트리머 프로필 헤더'
+          }]})
+          assert len(components) <= 10, 'V2 component budget exceeded'
           payload['allowed_mentions'] = {'parse': []}
           webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
           if not webhook:
               raise RuntimeError('No configured Discord webhook')
-          send_integrated_preview(webhook, payload)
-          print('Preview sent to existing fixed test thread; mentions disabled.')
+          send_preview(webhook, payload, image)
+          print('PNG image card + both banners sent to fixed thread; mentions disabled.')
           PY
           REMOTE
