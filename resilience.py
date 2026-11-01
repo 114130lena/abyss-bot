@@ -52,10 +52,16 @@ def send_webhook(url, payload, attempts=3):
             # Blind retry could ping members twice; leave it unread for operator review.
             logging.warning("Discord response timed out; delivery uncertain, suppressing immediate retry")
             raise
-        except (requests.ConnectionError, requests.ConnectTimeout):
+        except requests.ConnectTimeout:
+            # No TCP connection was established, so a retry is safe.
             if attempt == attempts - 1:
                 raise
             time.sleep(min(2 ** attempt + random.random(), 15))
+        except requests.ConnectionError:
+            # The connection may have dropped after Discord accepted the post.
+            # Do not blindly resend a role mention.
+            logging.warning("Discord connection lost; delivery uncertain, suppressing retry")
+            raise
 
 def warn_failure(service, failures, error):
     """Operator alerts are opt-in, not sent to public notification channels."""
