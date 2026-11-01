@@ -72,7 +72,7 @@ jobs:
               raise RuntimeError('No cached official banner: refusing incomplete preview')
           payload = module.alert(
               'chzzk', creator, banner, role_id='',
-              title='[테스트] 하요링 ~ 오늘은 그녀와 함께',
+              title=('[테스트] 하요링 ~ 오늘은 그녀와 함께' if group == 'hanayo' else '[테스트] 후야의 오늘 방송'),
               url='https://chzzk.naver.com/',
               media_url='https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
               category='Just Chatting', date=datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),
@@ -127,14 +127,18 @@ jobs:
           from pathlib import Path
           from PIL import Image
           from io import BytesIO
-          image = Path('/tmp/abyss_hanayo_banner.jpg').read_bytes()
+          if group == 'hanayo':
+              image = Path('/tmp/abyss_hanayo_banner.jpg').read_bytes()
+              filename, mime = 'hanayo_banner.jpg', 'image/jpeg'
+          else:
+              image = card_image(group)
+              filename, mime = 'sakihane_preview.png', 'image/png'
           im = Image.open(BytesIO(image))
-          assert im.format == 'JPEG', 'Uploaded banner is not JPEG'
-          assert im.width >= 400 and im.height >= 100, 'Uploaded banner too small for card'
-          print('Verified uploaded original JPEG', im.size, len(image))
+          assert im.width >= 400 and im.height >= 100, 'Header too small'
+          print('Header verified:',group,im.size,len(image))
           components.insert(0, {'type': 12, 'items': [{
-              'media': {'url': 'attachment://hanayo_banner.jpg'},
-              'description': '하나요 히요리 원본 헤더 1536x353'
+              'media': {'url': 'attachment://' + filename},
+              'description': creator + ' 상단 헤더'
           }]})
           # Native Discord text hierarchy: large title, regular-size category.
           for item in components:
@@ -159,7 +163,7 @@ jobs:
           if components and components[-1].get('type') == 14:
               components.pop()
           components.append({'type': 14, 'divider': True, 'spacing': 1})
-          components.append({'type': 10, 'content': '-# 공식 채널 · OFFICIAL LINKS'})
+          components.append({'type': 10, 'content': '-# 공식 채널 · OFFICIAL LINKS　　' + ('🌸 H I Y O R I' if group == 'hanayo' else 'SAKIHANE HUYA')})
           components.append(original_banner)
           components.append(link_row)
           assert components[0]['type'] == 12
@@ -180,7 +184,7 @@ jobs:
           url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
           result = requests.post(url,
               data={'payload_json': json.dumps(payload, ensure_ascii=False)},
-              files={'files[0]': ('hanayo_banner.jpg', image, 'image/jpeg')}, timeout=25)
+              files={'files[0]': (filename, image, mime)}, timeout=25)
           print('Discord response code',result.status_code)
           if not result.ok: print(result.text[:1200])
           result.raise_for_status()
