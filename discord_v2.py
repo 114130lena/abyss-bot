@@ -185,13 +185,14 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             pieces.append(text("## [" + display + "](" + url + ")"))
         else:
             pieces.append(text("## " + display))
+    analysis_lines = []
     if platform in ("cafe", "x"):
         notice_type = _notice_type(title, body)
         if notice_type:
-            pieces.append(text("**" + notice_type + "**"))
+            analysis_lines.append("**" + notice_type + "**")
         facts = _schedule_facts(title, body)
         if facts:
-            pieces.append(text("**📌 공지 핵심 정보**\n" + "\n".join(facts)))
+            analysis_lines.append("**📌 공지 핵심 정보**\n" + "\n".join(facts))
     if body:
         import re
         content = str(body).replace("\r\n", "\n").replace("\r", "\n")
@@ -199,21 +200,12 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         if content:
             if platform == "cafe" and len(content) > 3000:
                 content = content[:2980].rstrip() + "\n\n… [전체 글 보기](" + url + ")" if _valid_url(url) else content[:3000]
-            if platform == "cafe":
-                # Keep the content in smaller Text Displays so the footer divider
-                # is not visually lost below one very tall message component.
-                remaining = content[:3200]
-                while remaining:
-                    if len(remaining) <= 1000:
-                        pieces.append(text(remaining))
-                        break
-                    cut = remaining.rfind("\n", 0, 1001)
-                    if cut < 400:
-                        cut = 1000
-                    pieces.append(text(remaining[:cut].rstrip()))
-                    remaining = remaining[cut:].lstrip("\n")
-            else:
-                pieces.append(text(content[:2500]))
+            if analysis_lines:
+                content = "\n\n".join(analysis_lines) + "\n\n" + content
+                analysis_lines = []
+            pieces.append(text(content[:3900] if platform == "cafe" else content[:2900]))
+    if analysis_lines:
+        pieces.append(text("\n\n".join(analysis_lines)))
     media = []
     if _valid_url(media_url):
         media.append(media_url)
