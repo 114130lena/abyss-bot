@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -53,8 +53,8 @@ def _event_key(title, body, published):
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
-    full = set(re.findall(r"(?<!\\d)(20\\d{2})[.\\/-](\\d{1,2})[.\\/-](\\d{1,2})(?!\\d)", source))
-    short = set(re.findall(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일", source))
+    full = set(re.findall(r"(?<!\d)(20\d{2})[.\\/-](\d{1,2})[.\\/-](\d{1,2})(?!\d)", source))
+    short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
     if len(full) > 1 or len(short) > 1:
         return None
     try:
@@ -95,10 +95,10 @@ def record_schedule(group, title, body, published, url):
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, clocks, url)
+        return _record_schedule_state(group, key, kind, status, clocks, url)
 
 
-def _record_schedule_state(group, key, kind, clocks, url):
+def _record_schedule_state(group, key, kind, status, clocks, url):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key
     previous = state.get(identifier) or {}
