@@ -41,7 +41,6 @@ jobs:
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_preview_discord_v2.py"
           scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes random_media.py "$SSH_USER@$SSH_HOST:/tmp/random_media.py"
-          scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes hanayo_banner.jpg "$SSH_USER@$SSH_HOST:/tmp/abyss_hanayo_banner.jpg"
       - name: Send native Section preview to pinned thread
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -84,26 +83,9 @@ jobs:
           # A generic CHZZK home link is used only in this preview if no creator ID is configured.
           if not os.getenv(group.upper()+'_CHZZK_URL','').startswith('https://'):
               os.environ[group.upper()+'_CHZZK_URL']='https://chzzk.naver.com/'
-          import io
-          from PIL import Image
+          # Use the official platform avatar, never the uploaded GitHub banner.
           portrait_data=None
-          portrait_name='hanayo_profile.jpg'
           avatar_url=avatar(group)
-          if group=='hanayo':
-              # A new face-focused crop of the previously uploaded banner.
-              source=Image.open('/tmp/abyss_hanayo_banner.jpg').convert('RGB')
-              w,h=source.size
-              edge=min(h,w)
-              left=max(0,w-edge-8)
-              top=max(0,(h-edge)//2)
-              portrait=source.crop((left,top,left+edge,top+edge))
-              # Upscale the face crop for a crisper looking thumbnail, never distort aspect ratio.
-              portrait=portrait.resize((512,512),Image.Resampling.LANCZOS)
-              output=io.BytesIO()
-              portrait.save(output,format='JPEG',quality=95,subsampling=0)
-              portrait_data=output.getvalue()
-              avatar_url='attachment://'+portrait_name
-              print('Alternative portrait crop:',source.size,'->',portrait.size,'bytes',len(portrait_data))
           payload=mod.alert('chzzk',creator,get_banner(group),role_id='',
               title='[테스트] 하요링 ~ 오늘은 그녀와 함께' if group=='hanayo' else '[테스트] 후야 방송 시작',
               url='https://chzzk.naver.com/',
@@ -115,7 +97,6 @@ jobs:
           assert parts[0]['accessory']['type']==11, 'Avatar accessory missing'
           if group=='hanayo':
               from random_media import candidates
-              assert candidates(group,'profile',avatar_url), 'Missing profile candidates'
               assert candidates(group,'banner',get_banner(group)), 'Missing banner candidates'
           assert parts[1]['type']==14, 'Profile divider missing'
           assert not (parts[0]['type']==12), 'Image-card header must be removed'
@@ -131,12 +112,7 @@ jobs:
           q=dict(parse_qsl(u.query,keep_blank_values=True))
           q.update({'with_components':'true','thread_id':'1566335914500816988','wait':'true'})
           endpoint=urlunsplit((u.scheme,u.netloc,u.path,urlencode(q),u.fragment))
-          if portrait_data is not None:
-              response=requests.post(endpoint,
-                  data={'payload_json':json.dumps(payload,ensure_ascii=False)},
-                  files={'files[0]':(portrait_name,portrait_data,'image/jpeg')},timeout=25)
-          else:
-              response=requests.post(endpoint,json=payload,timeout=25)
+          response=requests.post(endpoint,json=payload,timeout=25)
           if not response.ok: print(response.text[:1000])
           response.raise_for_status()
           data=response.json()
