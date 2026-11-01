@@ -143,10 +143,9 @@ jobs:
               if 'CHZZK' in value and '방송 시작' in value:
                   item['content'] = '**🟢 CHZZK · LIVE**'
               elif value.startswith('## [') and ' · ' in value:
-                  title_part, sep, suffix = value.partition(' · ')
-                  # Linked title must end in the original URL, not in the category.
-                  if sep and suffix.endswith(')'):
-                      item['content'] = title_part.replace('## [', '**[', 1) + '**\n' + suffix
+                  match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
+                  if match:
+                      item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')**\n-# ' + match.group(2)
           # Divider 1: profile card / alert body.
           components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
           # Order the footer as: original YouTube banner, then four link buttons.
