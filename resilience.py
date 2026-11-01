@@ -33,9 +33,37 @@ def send_webhook(url, payload, attempts=3):
         url = url + separator + "with_components=true"
     for attempt in range(attempts):
         try:
-            response = requests.post(url, json=payload, timeout=12)
+            prepared = payload
+            chosen = None
+            if os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
+                try:
+                    from random_media import prepare_payload
+                    prepared, chosen = prepare_payload(payload)
+                except Exception as exc:
+                    logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
+            if chosen:
+                from contextlib import ExitStack
+                group, selected = chosen
+                with ExitStack() as stack:
+                    uploaded = {}
+                    for i, kind in enumerate(("profile", "banner")):
+                        path = selected[kind][0]
+                        mime = ("image/png" if path.suffix.lower() == ".png"
+                                else "image/webp" if path.suffix.lower() == ".webp" else "image/jpeg")
+                        uploaded[f"files[{i}]"] = ("abyss_" + kind + path.suffix,
+                                                   stack.enter_context(path.open("rb")), mime)
+                    response = requests.post(url, data={"payload_json": json.dumps(prepared, ensure_ascii=False)},
+                                             files=uploaded, timeout=30)
+            else:
+                response = requests.post(url, json=prepared, timeout=12)
             if response.status_code not in (429, 500, 502, 503, 504):
                 response.raise_for_status()
+                if chosen:
+                    try:
+                        from random_media import mark_delivered
+                        mark_delivered(*chosen)
+                    except Exception as exc:
+                        logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()
