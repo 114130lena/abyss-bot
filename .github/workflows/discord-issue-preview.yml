@@ -125,8 +125,11 @@ jobs:
           # Restore the native Discord profile header; no generated PNG.
           # Use consistent three-line hierarchy and leave natural wrapping to Discord.
           avatar_url = official_avatar(group)
-          profile_text = ('**' + creator + '**\n' +
-                          ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') +
+          # Make the native profile header visibly lead the card.
+          # Discord Section text keeps the same font scale as ordinary TextDisplay;
+          # Markdown heading elevates the name without rasterizing it into an image.
+          profile_text = ('## ' + creator + '\n' +
+                          '**' + ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') + '**' +
                           '\n' + ('H I Y O R I' if group == 'hanayo' else 'H U Y A'))
           if avatar_url.startswith('https://'):
               components.insert(0, {'type': 9,
