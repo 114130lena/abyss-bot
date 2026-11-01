@@ -14,54 +14,78 @@ from dotenv import load_dotenv
 from discord_v2 import alert
 from banner_manager import get_banner
 
-def _font(size, bold=False):
-    """Prefer installed Korean fonts; keep the renderer functional without them."""
+def _font(size, bold=False, require_korean=False):
+    """Use a real Korean font; never render Hangul through DejaVu tofu glyphs."""
     from PIL import ImageFont
-    variants = (
-        ["/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-         "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"]
-        if bold else
-        ["/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"]
-    )
-    for font in variants + ["/usr/share/fonts/truetype/dejavu/DejaVuSans" +
-                            ("-Bold" if bold else "") + ".ttf"]:
-        try:
+    from pathlib import Path
+    candidates = [
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf" if bold
+        else "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold
+        else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold
+        else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    ]
+    for font in candidates:
+        if Path(font).is_file():
             return ImageFont.truetype(font, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    if require_korean:
+        return None
+    return ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans" +
+        ("-Bold" if bold else "") + ".ttf", size)
+
+
+def _fitted_font(draw, value, max_width, start=48, minimum=22, bold=False,
+                 require_korean=False):
+    """Fit all text before drawing, rather than cutting a name at a line break."""
+    for size in range(start, minimum - 1, -1):
+        font = _font(size, bold=bold, require_korean=require_korean)
+        if font and draw.textbbox((0, 0), value, font=font)[2] <= max_width:
+            return font
+    return _font(minimum, bold=bold, require_korean=require_korean)
 
 
 def card_image(group="hanayo"):
-    """Render a reusable profile-only header. All post content stays in V2."""
+    """Discord-like compact creator header; posts remain native copyable V2 text."""
     from PIL import Image, ImageDraw, ImageOps
     from creator_profiles import avatar as profile_avatar
     from urllib.parse import urlsplit
     style = {
-        "hanayo": ((77, 51, 98), (142, 87, 129), "하나요 히요리",
-                   "@HanayoHiyori", "🌸 H I Y O R I"),
-        "sakihane": ((47, 46, 92), (101, 77, 147), "사키하네 후야",
-                     "@Sakihanechannel", "💜 H U Y A"),
+        "hanayo": ((51, 43, 64), (83, 57, 87), "하나요 히요리",
+                   "HANAYO HIYORI", "@HanayoHiyori", "H I Y O R I", (242, 172, 204)),
+        "sakihane": ((45, 43, 67), (74, 60, 105), "사키하네 후야",
+                     "SAKIHANE HUYA", "@SakihaneHuya", "H U Y A", (192, 173, 246)),
     }
-    a, b, name, handle, theme = style[group]
-    width, height = 960, 248
+    a, b, name_ko, name_en, handle, romanized, accent = style[group]
+    width, height = 960, 252
     im = Image.new("RGB", (width, height))
-    background = ImageDraw.Draw(im)
-    for y in range(height):
-        t = y / max(height - 1, 1)
-        color = tuple(int(x * (1 - t) + z * t) for x, z in zip(a, b))
-        background.line((0, y, width, y), fill=color)
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle((18, 18, width - 18, height - 18), radius=28,
-                        outline=(201, 178, 216), width=2)
-    d.text((57, 42), name, font=_font(48, True), fill=(255, 255, 255))
-    d.text((58, 114), handle, font=_font(28), fill=(225, 210, 237))
-    # A compact romanized theme on the final line: no announcement text.
-    d.text((58, 168), theme, font=_font(27, True), fill=(246, 207, 233))
-    # Official avatar comes from the existing profile cache. No unofficial art.
+    for y in range(height):
+        t = y / (height - 1)
+        d.line((0, y, width, y),
+               fill=tuple(round(x * (1 - t) + z * t) for x, z in zip(a, b)))
+    d.rounded_rectangle((14, 14, 946, 238), radius=22,
+                        outline=(113, 107, 134), width=2)
+    d.rounded_rectangle((40, 48, 47, 205), radius=3, fill=accent)
+
+    text_left = 78
+    max_text_width = 595
+    korean_font = _fitted_font(d, name_ko, max_text_width, 47, 28,
+                               bold=True, require_korean=True)
+    # If the server has no Korean fonts, display readable romanization,
+    # rather than missing-glyph rectangles; CI/server should install fonts-nanum.
+    name = name_ko if korean_font else name_en
+    font_name = korean_font or _fitted_font(d, name_en, max_text_width, 42, 27, True)
+    d.text((text_left, 45), name, font=font_name, fill=(253, 252, 255))
+
+    handle_font = _fitted_font(d, handle, max_text_width, 31, 23)
+    d.text((text_left, 117), handle, font=handle_font, fill=(209, 205, 223))
+    d.text((text_left, 178), romanized,
+           font=_fitted_font(d, romanized, max_text_width, 26, 20, True),
+           fill=accent)
+
+    # Profile ring uses consistent sizing; official cached avatar only.
     avatar_url = profile_avatar(group)
     portrait = None
     if avatar_url:
@@ -69,32 +93,30 @@ def card_image(group="hanayo"):
         if parsed.scheme == "https" and parsed.hostname in (
                 "yt3.googleusercontent.com", "yt3.ggpht.com"):
             try:
-                response = requests.get(avatar_url, timeout=6,
-                                        headers={"User-Agent": "abyss-bot/1.0"})
-                response.raise_for_status()
-                if len(response.content) <= 4_000_000:
-                    portrait = Image.open(io.BytesIO(response.content))
+                res = requests.get(avatar_url, timeout=6,
+                                   headers={"User-Agent": "abyss-bot/1.0"})
+                res.raise_for_status()
+                if len(res.content) <= 4_000_000:
+                    portrait = Image.open(io.BytesIO(res.content))
                     portrait.load()
             except (requests.RequestException, OSError, ValueError):
-                portrait = None
-    size, x, y = 172, 750, 38
-    d.ellipse((x - 4, y - 4, x + size + 4, y + size + 4),
-              outline=(244, 215, 247), width=5)
+                pass
+    size, x, y = 178, 736, 37
+    d.ellipse((x - 5, y - 5, x + size + 5, y + size + 5),
+              outline=accent, width=5)
     if portrait is not None:
         portrait = ImageOps.fit(portrait.convert("RGB"), (size, size))
         mask = Image.new("L", (size, size), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, size-1, size-1), fill=255)
+        ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
         im.paste(portrait, (x, y), mask)
     else:
-        # Avatar not cached or temporarily unavailable: use a neutral symbol.
-        d.ellipse((x, y, x + size, y + size), fill=(104, 89, 133))
-        d.ellipse((x + 57, y + 37, x + 115, y + 95), fill=(213, 193, 227))
-        d.rounded_rectangle((x + 38, y + 106, x + 134, y + 156),
-                            radius=30, fill=(213, 193, 227))
+        d.ellipse((x, y, x + size, y + size), fill=(103, 95, 122))
+        d.ellipse((x + 59, y + 38, x + 119, y + 98), fill=(213, 204, 226))
+        d.rounded_rectangle((x + 40, y + 109, x + 138, y + 156),
+                            radius=24, fill=(213, 204, 226))
     buffer = io.BytesIO()
     im.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
-
 
 def make_integrated_preview(group="hanayo"):
     """Single V2 container, using native profile Section rather than image overlay."""
