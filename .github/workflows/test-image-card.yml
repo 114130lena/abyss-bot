@@ -39,4 +39,4 @@ jobs:
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
-            "cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; \"\$PY\" test_image_card.py --group $STREAMER --both --send --use-existing-webhook"
+            "cd /home/ubuntu/chzzk-bot && if [ ! -f /usr/share/fonts/truetype/nanum/NanumGothicBold.ttf ]; then sudo -n apt-get update -qq && sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y fonts-nanum; fi; if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; \"\$PY\" test_image_card.py --group $STREAMER --both --send --use-existing-webhook"
