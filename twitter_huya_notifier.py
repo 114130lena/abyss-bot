@@ -101,6 +101,11 @@ def _notify(post):
         images=post.get("images", []),
         handle=creator_handle(GROUP), avatar=creator_avatar(GROUP))
     send_webhook(WEBHOOK_URL, payload)
+    try:
+        from notice_intelligence import record_schedule
+        record_schedule(GROUP, "", post.get("text", ""), post.get("pub_date", ""), post["url"])
+    except Exception:
+        logging.exception("후야 X 일정 추적 오류(알림은 정상 전송)")
 
 
 def check_huya_x():
