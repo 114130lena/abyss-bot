@@ -160,6 +160,15 @@ def sources_x(group, session):
         logging.warning("X images unavailable for %s: %s", group, err)
         return []
 
+def sources_x_free(group, session):
+    """Public no-login profile/header discovery; fail closed if access is blocked."""
+    try:
+        from x_public_media import discover
+        return discover(ACCOUNTS[group]["x"], session)
+    except (ImportError, ValueError, TypeError) as err:
+        logging.warning("Free X media collector unavailable: %s", err)
+        return []
+
 def sources_configured(group):
     # Other platforms can be added only from URLs explicitly verified/configured.
     out = []
@@ -177,7 +186,7 @@ def collect():
     session = requests.Session()
     chzzk = sources_chzzk(session)
     for group in ACCOUNTS:
-        discovered = sources_youtube(group) + chzzk[group] + sources_x(group, session) + sources_configured(group)
+        discovered = sources_youtube(group) + chzzk[group] + sources_x(group, session) + sources_x_free(group, session) + sources_configured(group)
         for kind, source, url in discovered:
             added += int(download_image(group, kind, source, url, index, session=session))
         save_index(index)
