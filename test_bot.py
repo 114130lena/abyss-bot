@@ -227,6 +227,34 @@ class RoutingTests(unittest.TestCase):
         self.assertTrue(any("📌 공지 핵심 정보" in p.get("content", "") for p in parts))
         self.assertTrue(any(p.get("type") == 1 for p in parts))
 
+    def test_notice_type_classifies_explicit_announcements(self):
+        from discord_v2 import _notice_type
+        cases = (
+            ("오늘 방송 일정", "오후 8시에 방송합니다", "📺 방송 예고"),
+            ("휴방 공지", "오늘은 휴방입니다", "🌙 휴방 안내"),
+            ("방송 시간 변경", "오후 8시로 변경", "🔄 일정 변경 안내"),
+            ("방송 취소", "방송을 취소합니다", "🚫 방송 취소 안내"),
+            ("그냥 인사", "좋은 아침이에요", None),
+        )
+        for title, body, expected in cases:
+            with self.subTest(title=title):
+                self.assertEqual(_notice_type(title, body), expected)
+
+    def test_notice_does_not_classify_negated_break(self):
+        from discord_v2 import _notice_type
+        self.assertIsNone(_notice_type("안내", "오늘 휴방 아닙니다"))
+
+    def test_x_and_cafe_notice_labels_and_buttons(self):
+        for platform in ("cafe", "x"):
+            with self.subTest(platform=platform):
+                payload = unified_alert(platform, "하나요 히요리",
+                                        title="휴방 공지", body="오늘은 휴방입니다",
+                                        url="https://example.com/post", ping=False)
+                components = payload["components"][0]["components"]
+                self.assertTrue(any("🌙 휴방 안내" in item.get("content", "")
+                                    for item in components))
+                self.assertTrue(any(item.get("type") == 1 for item in components))
+
     def test_cafe_and_x_roles(self):
         post = {"title": "테스트", "url": "https://cafe.naver.com/123", "summary": "",
                 "author": "테스터"}
