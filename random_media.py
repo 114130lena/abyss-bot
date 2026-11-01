@@ -91,6 +91,20 @@ def _local_candidates(group, kind):
         if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp") or path.stat().st_size > 12*1024*1024:
             continue
         found.append((path, item.get("sha256", path.name)))
+    if kind == "banner" and os.getenv("ABYSS_FANART_ENABLED", "0") == "1":
+        fanart = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
+        for item in fanart if isinstance(fanart, list) else []:
+            if not isinstance(item, dict) or item.get("approved") is not True or item.get("permission_confirmed") is not True:
+                continue
+            if item.get("hashtag") != ("#hiyoriart_" if group == "hanayo" else "#huyart"):
+                continue
+            rel = item.get("path", "")
+            if not isinstance(rel, str) or not rel.startswith("fanart/"):
+                continue
+            path = (MEDIA_ROOT / rel).resolve()
+            if MEDIA_ROOT.resolve() not in path.parents or not path.is_file() or path.stat().st_size > 12*1024*1024:
+                continue
+            found.append((path, item.get("sha256", path.name)))
     return found
 
 def choose_local(group, kind):
@@ -136,6 +150,18 @@ def prepare_payload(payload):
         if not picked:
             return output,None
         selected[kind] = picked
+    # Attribute consent-approved fan art in the footer when selected.
+    chosen_banner = selected["banner"][0]
+    if "fanart" in chosen_banner.relative_to(MEDIA_ROOT).parts:
+        info = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
+        record = next((v for v in info if isinstance(v, dict) and v.get("sha256") == selected["banner"][1]), None)
+        if not record or not record.get("permission_confirmed"):
+            return payload, None
+        credit = "-# 🎨 FAN ART · " + record["artist"] + " · [원본 게시물](" + record["post_url"] + ")"
+        for part in parts:
+            if part.get("type") == 10 and "OFFICIAL LINKS" in part.get("content", ""):
+                part["content"] += "\n" + credit
+                break
     section["accessory"]["media"]["url"] = "attachment://abyss_profile" + selected["profile"][0].suffix
     # Only the gallery immediately following the official links signature is the footer.
     for i, part in enumerate(parts[:-1]):
