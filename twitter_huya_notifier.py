@@ -68,7 +68,9 @@ def _fetch_merged_posts():
                 items = job.result()
                 successes += 1
                 for item in items:
-                    posts.setdefault(item["id"], item)
+                    previous = posts.get(item["id"])
+                    if previous is None or len(item.get("images", [])) > len(previous.get("images", [])):
+                        posts[item["id"]] = item
             except (requests.RequestException, ValueError, ET.ParseError, OSError) as exc:
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
     if successes == 0:
