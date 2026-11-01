@@ -20,7 +20,7 @@ jobs:
 
       - name: Validate bot Python files
         run: |
-          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py test_bot.py
+          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py test_bot.py
 
       - name: Install test dependencies and run regression tests
         run: |
@@ -50,7 +50,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
             'mkdir -p /home/ubuntu/chzzk-bot/.deploy-staging'
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
-            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py requirements.txt youtube_channels.txt \
+            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py resilience.py test_alert.py requirements.txt youtube_channels.txt \
             "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/"
 
       - name: Validate and deploy, then restart
@@ -82,13 +82,13 @@ jobs:
             exit 1
           fi
           echo "Using Python: $BOT_PY"
-          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py
+          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py
           "$BOT_PY" -m pip install -r .deploy-staging/requirements.txt
 
           echo "::endgroup::"
           echo "::group::Backup and activate bot version"
           backup_dir=$(mktemp -d /tmp/chzzk-bot-backup.XXXXXX)
-          cp main.py cafe_notifier.py twitter_notifier.py requirements.txt "$backup_dir/"
+          cp main.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py requirements.txt "$backup_dir/"
           if [ -f chzzk_replay_notifier.py ]; then cp chzzk_replay_notifier.py "$backup_dir/"; fi
           if [ -f youtube_notifier.py ]; then cp youtube_notifier.py "$backup_dir/"; fi
           if [ -f youtube_channels.txt ]; then cp youtube_channels.txt "$backup_dir/"; fi
@@ -100,7 +100,7 @@ jobs:
           if [ -f discord_v2.py ]; then cp discord_v2.py "$backup_dir/"; fi
           if [ -f test_alert.py ]; then cp test_alert.py "$backup_dir/"; fi
           restore() {
-            cp "$backup_dir/main.py" "$backup_dir/cafe_notifier.py" "$backup_dir/twitter_notifier.py" "$backup_dir/requirements.txt" .
+            cp "$backup_dir/main.py" "$backup_dir/cafe_notifier.py" "$backup_dir/twitter_notifier.py twitter_huya_notifier.py" "$backup_dir/requirements.txt" .
             if [ -f "$backup_dir/chzzk_replay_notifier.py" ]; then cp "$backup_dir/chzzk_replay_notifier.py" .; else rm -f chzzk_replay_notifier.py; fi
             if [ -f "$backup_dir/youtube_notifier.py" ]; then cp "$backup_dir/youtube_notifier.py" .; else rm -f youtube_notifier.py; fi
             if [ -f "$backup_dir/youtube_channels.txt" ]; then cp "$backup_dir/youtube_channels.txt" .; else rm -f youtube_channels.txt; fi
@@ -120,7 +120,7 @@ jobs:
             diagnose_deploy_failure "$rc"
           }
           trap rollback_on_error ERR
-          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
+          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
