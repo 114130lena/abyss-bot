@@ -71,7 +71,7 @@ jobs:
               raise RuntimeError('No cached official banner: refusing incomplete preview')
           payload = module.alert(
               'chzzk', creator, banner, role_id='',
-              title='[테스트] 방송 제목 · 카테고리 배치 확인',
+              title='[테스트] 하요링 ~ 오늘은 그녀와 함께',
               url='https://chzzk.naver.com/',
               media_url='https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
               category='Just Chatting', date=datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),
@@ -116,17 +116,43 @@ jobs:
               if channel_ids:
                   buttons.insert(0, {'type': 2, 'style': 5, 'label': 'CHZZK',
                                      'url': 'https://chzzk.naver.com/' + channel_ids[0]})
-          # Top image is the compact creator card, bottom is original YouTube banner.
-          profile_text = ('**' + creator + '**\\n' + handle(group) + '\\n' +
-                          ('🌸 H I Y O R I' if group == 'hanayo' else '💜 H U Y A'))
+          # Render the slim horizontal image card as one actual PNG.
+          from PIL import Image, ImageDraw, ImageFont, ImageOps
+          from test_image_card import _font, send_preview
+          import requests, io
+          profile = Image.new('RGB', (960, 170), (50, 51, 78))
+          draw = ImageDraw.Draw(profile)
+          display_name = creator
+          display_handle = '@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya'
+          english = '🌸 H I Y O R I' if group == 'hanayo' else '💜 H U Y A'
+          name_font = _font(42, bold=True, require_korean=True)
+          if not name_font:
+              raise RuntimeError('Korean font unavailable for image card')
+          draw.text((26, 14), display_name, font=name_font, fill=(255, 255, 255))
+          draw.text((28, 79), display_handle, font=_font(25), fill=(216, 215, 230))
+          # Decorative flower is drawn separately to prevent unsupported emoji glyphs.
+          draw.text((28, 125), english.split(' ', 1)[1], font=_font(23, bold=True),
+                    fill=(225, 211, 243))
           avatar_url = official_avatar(group)
           assert avatar_url.startswith('https://'), 'Creator avatar unavailable'
-          components.insert(0, {'type': 9,
-              'components': [{'type': 10, 'content': profile_text}],
-              'accessory': {'type': 11, 'media': {'url': avatar_url},
-                            'description': creator + ' 공식 프로필'}})
+          response = requests.get(avatar_url, timeout=12)
+          response.raise_for_status()
+          if len(response.content) > 4_000_000:
+              raise ValueError('Avatar image too large')
+          portrait = ImageOps.fit(Image.open(io.BytesIO(response.content)).convert('RGB'),
+                                  (140, 140))
+          mask = Image.new('L', (140, 140), 0)
+          ImageDraw.Draw(mask).rounded_rectangle((0, 0, 139, 139), radius=18, fill=255)
+          profile.paste(portrait, (796, 15), mask)
+          buffer = io.BytesIO()
+          profile.save(buffer, 'PNG')
+          image = buffer.getvalue()
+          components.insert(0, {'type': 12, 'items': [{
+              'media': {'url': 'attachment://abyss_preview.png'},
+              'description': '상단 가로형 프로필 이미지 카드'
+          }]})
           components.append(original_banner)
-          assert components[0]['type'] == 9
+          assert components[0]['type'] == 12
           assert components[-2]['type'] == 1, 'Official link buttons not above banner'
           assert components[-1]['type'] == 12, 'Bottom YouTube banner missing'
           assert len(components[-2]['components']) == 4, 'Exactly four links required'
@@ -135,8 +161,7 @@ jobs:
           webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
           if not webhook:
               raise RuntimeError('No configured Discord webhook')
-          from test_image_card import send_integrated_preview
-          send_integrated_preview(webhook, payload)
-          print('Native section profile + bottom YouTube banner sent to fixed thread.')
+          send_preview(webhook, payload, image)
+          print('Rendered slim PNG header + bottom YouTube banner sent to fixed thread.')
           PY
           REMOTE
