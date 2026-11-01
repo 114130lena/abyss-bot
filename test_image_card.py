@@ -96,10 +96,25 @@ def card_image(group="hanayo"):
     return buffer.getvalue()
 
 
+def make_integrated_preview(group="hanayo"):
+    """Single V2 container, using native profile Section rather than image overlay."""
+    from creator_profiles import handle, avatar
+    creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
+    card = alert("x", creator, get_banner(group), "",
+                 title="[통합형 테스트] 프로필 + V2 본문",
+                 body="메리와 합방 있어요!\n\n같은 컨테이너 안의 프로필, 게시글 원문, 부제목, 날짜와 버튼을 비교합니다.",
+                 date=datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
+                 url="https://x.com/HanayoHiyori" if group == "hanayo" else "https://x.com/SakihaneHuya",
+                 handle=handle(group), avatar=avatar(group), ping=False)
+    card["username"] = "어비스봇 · 1안 통합형"
+    card["allowed_mentions"] = {"parse": []}
+    return card
+
+
 def make_preview(group="hanayo"):
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     card = alert("x", creator, get_banner(group), "",
-                 title="이미지 카드 + V2 테스트",
+                 title="[프로필 헤더형 테스트] 이미지 + V2",
                  body="메리와 합방 있어요!\n\n게시글 원문과 부제목, 날짜, 버튼은 V2 본문에 표시됩니다.",
                  date=datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                  url="https://x.com/HanayoHiyori" if group == "hanayo" else "https://x.com/SakihaneHuya",
@@ -139,7 +154,7 @@ def send_preview(webhook, payload, image, thread_id=TEST_THREAD_ID):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--group", choices=("hanayo","sakihane"), default="hanayo")
-    parser.add_argument("--send", action="store_true")
+    parser.add_argument("--send", action="store_true")\n    parser.add_argument("--both", action="store_true", help="Send two distinct layouts to the same fixed test thread")
     parser.add_argument("--use-existing-webhook", action="store_true", help="Explicit manual preview with existing webhook, only to the fixed test thread")
     args = parser.parse_args()
     load_dotenv("/home/ubuntu/chzzk-bot/.env")
@@ -151,7 +166,20 @@ def main():
         send_preview(target, payload, image)
         print("Preview sent to designated test thread with all role mentions disabled.")
     else:
-        print(json.dumps({"payload": payload, "png_bytes": len(image)}, ensure_ascii=False, indent=2))
+        print(json.dumps({"image_header": payload, "integrated": integrated, "png_bytes": len(image)}, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()
+def send_integrated_preview(webhook, payload, thread_id=TEST_THREAD_ID):
+    """Native V2-only comparison; same pinned thread, no image attachment."""
+    if not webhook.startswith("https://"):
+        raise ValueError("Existing webhook must be HTTPS")
+    parsed = urlsplit(webhook)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["with_components"] = "true"
+    query["thread_id"] = str(thread_id)
+    endpoint = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+    response = requests.post(endpoint, json=payload, timeout=20)
+    response.raise_for_status()
+
+
