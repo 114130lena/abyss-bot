@@ -200,3 +200,66 @@ jobs:
           path: x-media-review/X-images-only/
           if-no-files-found: error
           retention-days: 14
+
+  preview_collected_images:
+    if: ${{ github.event.issue.title == '[abyss-preview] collected-images' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify repository owner
+        env:
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: test "$ISSUE_AUTHOR" = "$REPO_OWNER"
+      - name: Open existing server and send four individual image previews
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_preview_key
+          chmod 600 ~/.ssh/abyss_preview_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_preview_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,os
+          from pathlib import Path
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          import requests
+          root=Path('/home/ubuntu/chzzk-bot/creator_media')
+          index=json.loads((root/'index.json').read_text(encoding='utf-8'))
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          hook=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert hook.startswith('https://'), 'Missing Discord webhook'
+          p=urlsplit(hook)
+          q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q.update({'thread_id':'1566335914500816988','wait':'true'})
+          endpoint=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          for group,display in (('hanayo','하나요 히요리'),('sakihane','사키하네 후야')):
+              for kind,caption in (('profile','프로필'),('banner','배너')):
+                  candidates=[x for x in index.get(group,{}).get(kind,[]) if x.get('source')=='x']
+                  assert candidates, f'No collected X image: {group}/{kind}'
+                  item=candidates[-1]
+                  file=root/item['path']
+                  assert file.is_file() and file.stat().st_size>0
+                  filename=f'{group}_{kind}{file.suffix}'
+                  payload={'username':'어비스봇 · 이미지 확인',
+                    'content':f'**[수집 이미지 테스트] {display} · X {caption}**\\n출처: X 공개 프로필 · {item["width"]}×{item["height"]}',
+                    'allowed_mentions':{'parse':[]}}
+                  with file.open('rb') as data:
+                      response=requests.post(endpoint,
+                          data={'payload_json':json.dumps(payload,ensure_ascii=False)},
+                          files={'files[0]':(filename,data,'image/jpeg' if file.suffix.lower()=='.jpg' else 'image/png')},timeout=30)
+                  if not response.ok: print('Discord error:',response.status_code,response.text[:400])
+                  response.raise_for_status()
+                  message=response.json()
+                  assert message.get('id')
+                  print('SENT',group,kind,item.get('source'),item.get('width'),item.get('height'),message['id'])
+          PY
+          REMOTE
