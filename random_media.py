@@ -66,3 +66,83 @@ def choose(group, kind, default=""):
 
 def enabled():
     return os.getenv("ABYSS_RANDOM_MEDIA", "0").strip().lower() in ("1", "true", "yes")
+
+# Local collected-image randomizer. The 10 verified files are the only pool.
+MEDIA_ROOT = DATA_DIR / "creator_media"
+MEDIA_INDEX = MEDIA_ROOT / "index.json"
+MEDIA_LAST = MEDIA_ROOT / "last_used.json"
+
+def _local_candidates(group, kind):
+    if group not in ("hanayo", "sakihane") or kind not in ("profile", "banner"):
+        return []
+    index = _load(MEDIA_INDEX)
+    entries = index.get(group, {}).get(kind, [])
+    found = []
+    for item in entries if isinstance(entries, list) else []:
+        if not isinstance(item, dict):
+            continue
+        rel = item.get("path", "")
+        if not isinstance(rel, str):
+            continue
+        path = (MEDIA_ROOT / rel).resolve()
+        # Never allow an index entry to escape the collector's data folder.
+        if MEDIA_ROOT.resolve() not in path.parents or not path.is_file():
+            continue
+        if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp") or path.stat().st_size > 12*1024*1024:
+            continue
+        found.append((path, item.get("sha256", path.name)))
+    return found
+
+def choose_local(group, kind):
+    """Prefer a different image than the previous successfully delivered alert."""
+    pool = _local_candidates(group, kind)
+    if not pool:
+        return None
+    previous = _load(MEDIA_LAST).get(group, {}).get(kind)
+    allowed = [item for item in pool if item[1] != previous]
+    return random.SystemRandom().choice(allowed or pool)
+
+def mark_delivered(group, selected):
+    from resilience import save_json
+    index = _load(MEDIA_LAST)
+    values = index.setdefault(group, {})
+    for kind, (_, sha) in selected.items():
+        values[kind] = sha
+    save_json(MEDIA_LAST, index)
+
+def prepare_payload(payload):
+    """Replace header avatar and footer banner with fresh local attachment paths.
+
+    Return (clean_payload, selected). No metadata keys enter the Discord API.
+    """
+    import copy
+    output = copy.deepcopy(payload)
+    containers = [c for c in output.get("components",[]) if c.get("type") == 17]
+    if not containers:
+        return output, None
+    parts = containers[-1].get("components", [])
+    section = next((p for p in parts if p.get("type")==9 and p.get("accessory",{}).get("type")==11),None)
+    if not section:
+        return output, None
+    text_value = " ".join(c.get("content","") for c in section.get("components",[]))
+    key = text_value.casefold()
+    group = ("hanayo" if "히요리" in key or "hanayo" in key else
+             "sakihane" if "후야" in key or "sakihane" in key else "")
+    if not group:
+        return output, None
+    selected = {}
+    for kind in ("profile","banner"):
+        picked = choose_local(group,kind)
+        if not picked:
+            return output,None
+        selected[kind] = picked
+    section["accessory"]["media"]["url"] = "attachment://abyss_profile" + selected["profile"][0].suffix
+    # Only the gallery immediately following the official links signature is the footer.
+    for i, part in enumerate(parts[:-1]):
+        if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
+            gallery=parts[i+1]
+            if gallery.get("type")==12:
+                gallery["items"]=[{"media":{"url":"attachment://abyss_banner"+selected["banner"][0].suffix},
+                                   "description":"수집된 공식 채널 배너"}]
+                return output,(group,selected)
+    return payload,None
