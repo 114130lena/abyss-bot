@@ -36,5 +36,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now abyss-media-refresh.timer
 sudo systemctl start abyss-media-refresh.service
 sudo systemctl is-active abyss-media-refresh.timer
-sudo systemctl --no-pager --full status abyss-media-refresh.service | tail -n 10
+sudo systemctl --no-pager --full status abyss-media-refresh.service | tail -n 10 || true
+sudo systemctl show abyss-media-refresh.service -p Result --value | grep -qx success
 echo REFRESH_DEPLOY_SUCCESS
