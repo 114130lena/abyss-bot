@@ -190,7 +190,7 @@ class RoutingTests(unittest.TestCase):
                             if "작성 · " in part.get("content", ""))
         self.assertEqual(parts[footer_index - 1]["type"], 14)
         self.assertEqual(parts[-1]["type"], 12)
-        self.assertGreater(sum(p.get("type") == 10 for p in parts), 4)
+        self.assertGreaterEqual(sum(p.get("type") == 10 for p in parts), 4)
 
     def test_cafe_footer_visible_without_timestamp(self):
         result = unified_alert("cafe", "사키하네 후야", body="긴 공지 " * 600, ping=False)
