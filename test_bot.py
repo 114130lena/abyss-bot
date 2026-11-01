@@ -305,16 +305,16 @@ class RoutingTests(unittest.TestCase):
                 created = ni.record_schedule(
                     "hanayo", "2026-11-03 방송 일정", "오후 8시 방송 예정",
                     "2026-11-01T08:00:00Z", "https://example.com/1")
-                self.assertEqual(created["time"], "오후 8시")
+                self.assertEqual(created["time"], "20:00")
                 changed = ni.record_schedule(
                     "hanayo", "2026-11-03 방송 시간 변경", "오후 9시로 변경",
                     "2026-11-02T08:00:00Z", "https://example.com/2")
-                self.assertEqual(changed["time"], "오후 9시")
+                self.assertEqual(changed["time"], "21:00")
                 self.assertEqual(len(ni._read(schedule)), 1)
                 self.assertIsNone(ni.record_schedule(
                     "hanayo", "11월 3일 방송 일정", "오후 10시 방송 예정",
                     "2026-11-02T08:00:00Z", "https://example.com/other"))
-                self.assertEqual(ni._read(schedule)["hanayo:2026-11-03"]["time"], "오후 9시")
+                self.assertEqual(ni._read(schedule)["hanayo:2026-11-03:unspecified"]["time"], "21:00")
                 self.assertEqual(ni._event_key("11월 3일 방송", "", "2026-11-02T08:00:00Z"), "2026-11-03")
                 self.assertIsNone(ni.record_schedule(
                     "hanayo", "오늘 방송", "오후 9시 방송 예정",
@@ -323,6 +323,21 @@ class RoutingTests(unittest.TestCase):
                 self.assertEqual(ni._read(health)["히요리 X"]["consecutive_failures"], 1)
                 ni.report_source("히요리 X", True)
                 self.assertEqual(ni._read(health)["히요리 X"]["consecutive_failures"], 0)
+
+    def test_schedule_topic_separation_and_clock_normalization(self):
+        import notice_intelligence as ni
+        self.assertEqual(ni._clock_key("오후 8시"), "20:00")
+        self.assertEqual(ni._clock_key("20:00"), "20:00")
+        self.assertEqual(ni._clock_key("오후 8시 / 오후 9시"), None)
+        with TemporaryDirectory() as directory:
+            with patch.object(ni, "SCHEDULE_FILE", Path(directory) / "schedule.json"):
+                a = ni.record_schedule("hanayo", "2026-11-03 마인크래프트 방송 일정",
+                                       "오후 8시 방송합니다", "2026-11-01T08:00:00Z", "https://example.com/a")
+                b = ni.record_schedule("hanayo", "2026-11-03 발헤임 방송 일정",
+                                       "오후 9시 방송합니다", "2026-11-01T08:00:00Z", "https://example.com/b")
+                self.assertIsNotNone(a)
+                self.assertIsNotNone(b)
+                self.assertEqual(len(ni._read(ni.SCHEDULE_FILE)), 2)
 
     def test_collab_name_requires_collab_context(self):
         from notice_intelligence import participants
