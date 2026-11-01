@@ -56,32 +56,52 @@ def _save(path, state):
 
 
 def _event_key(title, body, published):
-    """Match a single explicit event date to the post date, never 'today' alone."""
+    """Only an unambiguous future date may identify an event."""
     source = str(title or "") + "\n" + str(body or "")
     from discord_v2 import _parse_korean_datetime
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
-    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", source))
-    short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
+    full = set(re.findall(r"(?<!\\d)(20\\d{2})[./-](\\d{1,2})[./-](\\d{1,2})(?!\\d)", source))
+    short = set(re.findall(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일", source))
     if len(full) > 1 or len(short) > 1:
         return None
     try:
-        candidates = []
-        for year, month, day in full:
-            candidates.append(datetime(int(year), int(month), int(day), tzinfo=KST).date())
-        if short:
-            month, day = next(iter(short))
-            for year in (posted.year, posted.year + 1):
-                candidates.append(datetime(year, int(month), int(day), tzinfo=KST).date())
-        valid = {date for date in candidates if 0 <= (date - posted.date()).days <= 30}
-        # Mixed date expressions must not disagree.
-        if full and short and len(valid) != 1:
+        explicit = {datetime(int(y), int(m), int(d), tzinfo=KST).date() for y, m, d in full}
+        relative = set()
+        for m, d in short:
+            relative.update(datetime(y, int(m), int(d), tzinfo=KST).date()
+                            for y in (posted.year, posted.year + 1))
+        future = lambda d: 0 <= (d - posted.date()).days <= 30
+        if explicit and relative and not any(d in relative for d in explicit):
             return None
+        valid = {d for d in (explicit or relative) if future(d)}
         return next(iter(valid)).isoformat() if len(valid) == 1 else None
     except (ValueError, TypeError):
         return None
 
+
+def _clock_key(source):
+    """Normalize 20:00 and 오후 8시 to the same stable value."""
+    values = set()
+    for h, m in re.findall(r"(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)(?!\\d)", source):
+        values.add(f"{int(h):02d}:{int(m):02d}")
+    for period, hour, minute in re.findall(r"(오전|오후)\\s*(1[0-2]|[1-9])시\\s*(반|[0-5]?\\d분)?", source):
+        h = int(hour) % 12 + (12 if period == "오후" else 0)
+        minute_value = 30 if minute == "반" else int(minute[:-1]) if minute else 0
+        values.add(f"{h:02d}:{minute_value:02d}")
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def _event_topic(title, body):
+    """Never correlate two broadcasts solely because they share a calendar day."""
+    source = str(title or "") + "\n" + str(body or "")
+    game = re.findall(r"(?<![가-힣])(?:발헤임|아크\\s*레이더스|마인크래프트|롤|리그\\s*오브\\s*레전드)(?![가-힣])", source, re.I)
+    people = participants(title, body)
+    topics = sorted(set(x.casefold().replace(" ", "") for x in game))
+    if people:
+        topics.extend("with:" + x for x in sorted(people))
+    return "|".join(topics) or "unspecified"
 
 def record_schedule(group, title, body, published, url):
     """Correlate only same creator + explicitly dated single-clock events.
@@ -97,33 +117,34 @@ def record_schedule(group, title, body, published, url):
     if key is None:
         return None
     source = str(title or "") + "\n" + str(body or "")
-    clocks = set(re.findall(r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)", source))
-    clocks.update(re.findall(r"(?:오전|오후)\s*(?:1[0-2]|[1-9])시(?:\s*(?:반|[0-5]?\d분))?", source))
-    # Explicitly conflicting times are not suitable for automatic comparisons.
-    if len(clocks) != 1 and kind not in ("🚫 방송 취소 안내", "🌙 휴방 안내") :
-        return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
+    clock = _clock_key(source)
+    if clock is None and status == "scheduled":
+        return None
+    topic = _event_topic(title, body)
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, status, clocks, url)
+        return _record_schedule_state(group, key, kind, status, clock, topic, url)
 
 
-def _record_schedule_state(group, key, kind, status, clocks, url):
+def _record_schedule_state(group, key, kind, status, clock, topic, url):
     state = _read(SCHEDULE_FILE)
-    identifier = str(group) + ":" + key
+    identifier = str(group) + ":" + key + ":" + topic
     previous = state.get(identifier) or {}
-    new = {"status": status, "time": next(iter(clocks)) if len(clocks) == 1 else "",
-           "source": url, "kind": kind}
-    # Two ordinary announcements on one date may be different streams.
-    # Do not treat them as a revision without an explicit change/cancel label.
+    # An unspecified event cannot safely be associated with an already named event.
+    if topic == "unspecified" and any(
+            k.startswith(str(group) + ":" + key + ":") and k != identifier
+            for k in state):
+        return None
+    new = {"status": status, "time": clock or "", "source": url, "kind": kind,
+           "topic": topic}
     if previous and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
-    if previous and previous != new and (previous.get("status"), previous.get("time")) != (status, new["time"]):
+    if previous and (previous.get("status"), previous.get("time")) != (status, new["time"]):
         logging.warning("일정 변경 감지: %s 이전=%s 현재=%s 원문=%s",
                         identifier, previous.get("time") or previous.get("status"),
                         new["time"] or status, url)
     state[identifier] = new
-    # Prevent indefinite growth without guessing which upcoming plans remain valid.
     if len(state) > 300:
         state = dict(sorted(state.items())[-300:])
     _save(SCHEDULE_FILE, state)
