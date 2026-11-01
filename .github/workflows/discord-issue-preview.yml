@@ -26,7 +26,7 @@ jobs:
           ref: test/compact-footer-four-links
           persist-credentials: false
       - name: Compile preview layout
-        run: python -m py_compile discord_v2.py
+        run: python -m py_compile discord_v2.py random_media.py
       - name: Connect to existing bot server
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -40,6 +40,7 @@ jobs:
           chmod 600 ~/.ssh/abyss_test_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_preview_discord_v2.py"
+          scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes random_media.py "$SSH_USER@$SSH_HOST:/tmp/random_media.py"
           scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes hanayo_banner.jpg "$SSH_USER@$SSH_HOST:/tmp/abyss_hanayo_banner.jpg"
       - name: Send native Section preview to pinned thread
         env:
@@ -65,6 +66,8 @@ jobs:
           group=os.environ['STREAMER'].rsplit(' ',1)[-1]
           assert group in ('hanayo','sakihane')
           creator='하나요 히요리' if group=='hanayo' else '사키하네 후야'
+          sys.path.insert(0,'/tmp')
+          os.environ['ABYSS_RANDOM_MEDIA']='1'
           spec=importlib.util.spec_from_file_location('preview_module','/tmp/abyss_preview_discord_v2.py')
           mod=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(mod)
@@ -110,7 +113,10 @@ jobs:
           parts=payload['components'][-1]['components']
           assert parts[0]['type']==9, 'Top must be native Section with avatar'
           assert parts[0]['accessory']['type']==11, 'Avatar accessory missing'
-          if group=='hanayo': assert parts[0]['accessory']['media']['url']=='attachment://hanayo_profile.jpg'
+          if group=='hanayo':
+              from random_media import candidates
+              assert candidates(group,'profile',avatar_url), 'Missing profile candidates'
+              assert candidates(group,'banner',get_banner(group)), 'Missing banner candidates'
           assert parts[1]['type']==14, 'Profile divider missing'
           assert not (parts[0]['type']==12), 'Image-card header must be removed'
           assert any(p.get('type')==10 and ' · Just Chatting' in p.get('content','') and p.get('content','').startswith('## [') for p in parts), 'Title/category not inline'
