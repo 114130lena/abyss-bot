@@ -78,13 +78,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--group", choices=("hanayo","sakihane"), default="hanayo")
     parser.add_argument("--send", action="store_true")
+    parser.add_argument("--use-existing-webhook", action="store_true", help="Explicit manual preview with existing webhook, only to the fixed test thread")
     args = parser.parse_args()
     load_dotenv("/home/ubuntu/chzzk-bot/.env")
     payload, image = make_preview(args.group)
     if args.send:
-        target = os.getenv("TEST_DISCORD_WEBHOOK_URL","")
+        target = os.getenv("DISCORD_WEBHOOK_URL", "") if args.use_existing_webhook else os.getenv("TEST_DISCORD_WEBHOOK_URL","")
         if not target:
-            raise SystemExit("TEST_DISCORD_WEBHOOK_URL is required; no live webhook fallback")
+            raise SystemExit("Selected webhook is not configured")
         send_preview(target, payload, image)
         print("Preview sent to designated test thread with all role mentions disabled.")
     else:
