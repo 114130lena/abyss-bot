@@ -116,34 +116,51 @@ jobs:
           image = output.getvalue()
           assert image.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10]))
           components = payload['components'][-1]['components']
-          # Keep the original YouTube header, but replace the duplicate
-          # bottom banner thumbnail with the actual wide PNG profile card.
-          footer_index = next(i for i, item in enumerate(components)
-                              if item['type'] == 1 and
-                              any(b.get('label') == 'YouTube'
-                                  for b in item.get('components', [])))
-          for i in range(footer_index - 1, -1, -1):
-              item = components[i]
-              if item['type'] == 9 and item.get('accessory', {}).get('type') == 11:
-                  components.pop(i)
-                  if i > 0 and components[i-1]['type'] == 14:
-                      components.pop(i-1)
-                  break
-          footer_index = next(i for i, item in enumerate(components) if item['type'] == 1)
-          components.insert(footer_index, {'type': 12, 'items': [{
-              'media': {'url': 'attachment://abyss_preview.png'},
-              'description': '하단 프로필 이미지 카드'
-          }]})
+          # Requested composition: compact image header -> alert -> buttons -> official YouTube banner.
+          # Remove original first gallery and the duplicate lower profile thumbnail.
+          original_banner = components.pop(0)
+          assert original_banner['type'] == 12, 'Original YouTube banner missing'
+          components[:] = [item for item in components if not (
+              item.get('type') == 9 and item.get('accessory', {}).get('type') == 11
+          )]
+          # Strip dividers with no meaningful content and ensure footer is clean.
+          components[:] = [item for i, item in enumerate(components)
+                            if not (item.get('type') == 14 and
+                                    (i == 0 or (i+1 < len(components) and
+                                     components[i+1].get('type') == 1)))]
           for item in components:
               if item.get('type') == 10:
                   value = item.get('content', '')
-                  match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
+                  match = re.fullmatch(r'## \\[(.*?) · (.*?)\\]\\((https://[^)]+)\\)', value)
                   if match:
                       item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')** · ' + match.group(2)
-          assert components[0]['type'] == 12, 'Top banner missing'
-          assert components[-2]['type'] == 12, 'Bottom image card missing'
-          assert components[-1]['type'] == 1, 'Link buttons missing'
-          assert len(components[-1]['components']) >= 3
+          # Keep the category adjacent to title, without a repeated time/category footer.
+          links_index = next(i for i, item in enumerate(components)
+                             if item.get('type') == 1 and
+                             any(b.get('label') == 'YouTube'
+                                 for b in item.get('components', [])))
+          buttons = components[links_index]['components']
+          order = {'CHZZK': 0, '스텔라이브 카페': 1, '𝕏': 2, 'YouTube': 3}
+          buttons.sort(key=lambda b: order.get(b.get('label'), 9))
+          # Resolve the first valid monitored channel for Hanayo where configuration permits.
+          if group == 'hanayo' and not any(b.get('label') == 'CHZZK' for b in buttons):
+              from pathlib import Path
+              channel_file = Path('/home/ubuntu/chzzk-bot/channels.txt')
+              channel_ids = [line.strip() for line in channel_file.read_text().splitlines()
+                             if line.strip() and not line.startswith('#')] if channel_file.exists() else []
+              if channel_ids:
+                  buttons.insert(0, {'type': 2, 'style': 5, 'label': 'CHZZK',
+                                     'url': 'https://chzzk.naver.com/' + channel_ids[0]})
+          # Top image is the compact creator card, bottom is original YouTube banner.
+          components.insert(0, {'type': 12, 'items': [{
+              'media': {'url': 'attachment://abyss_preview.png'},
+              'description': '상단 스트리머 이미지 카드'
+          }]})
+          components.append(original_banner)
+          assert components[0]['type'] == 12
+          assert components[-2]['type'] == 1, 'Official link buttons not above banner'
+          assert components[-1]['type'] == 12, 'Bottom YouTube banner missing'
+          assert len(components[-2]['components']) == 4, 'Exactly four links required'
           assert len(components) <= 10, 'V2 component budget exceeded'
           payload['allowed_mentions'] = {'parse': []}
           webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
