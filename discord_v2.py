@@ -94,6 +94,26 @@ def _x_headline(body):
     return "X 게시글", ""
 
 
+def _notice_type(title, body):
+    """Conservative classification of explicitly stated announcements."""
+    import re
+    source = (str(title or "") + "\n" + str(body or ""))[:3500]
+    # A negated status must not be presented as an actual cancellation or break.
+    if re.search(r"(휴방|쉬는 날|방송 취소|방송 중단)\\s*(?:은|이|가)?\\s*(?:아닙니다|아니에요|없습니다|없어요)", source):
+        return None
+    cancel = r"(방송\\s*취소|방송을\\s*취소|일정\\s*취소|라이브\\s*취소|방송\\s*중단)"
+    change = r"(일정\\s*(?:변경|수정|조정)|시간\\s*(?:변경|수정|조정)|방송\\s*(?:연기|지연|변경)|변경된\\s*일정)"
+    break_ = r"(휴방|방송\\s*쉬(?:겠습니다|어요|는\\s*날)|오늘은\\s*쉽니다)"
+    announce = r"(방송\\s*일정|방송\\s*예정|방송\\s*공지|방송\\s*시작|오늘\\s*방송|라이브\\s*예정|방송할\\s*예정|방송합니다)"
+    for pattern, label in ((cancel, "🚫 방송 취소 안내"),
+                           (change, "🔄 일정 변경 안내"),
+                           (break_, "🌙 휴방 안내"),
+                           (announce, "📺 방송 예고")):
+        if re.search(pattern, source, re.IGNORECASE):
+            return label
+    return None
+
+
 def _schedule_facts(title, body):
     """Find explicitly stated schedule facts; never infer or resolve conflicting times."""
     import re
@@ -166,6 +186,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         else:
             pieces.append(text("## " + display))
     if platform in ("cafe", "x"):
+        notice_type = _notice_type(title, body)
+        if notice_type:
+            pieces.append(text("**" + notice_type + "**"))
         facts = _schedule_facts(title, body)
         if facts:
             pieces.append(text("**📌 공지 핵심 정보**\n" + "\n".join(facts)))
