@@ -113,23 +113,32 @@ def _post_body(item):
 
 
 def _post_images(item):
-    """Pick up to four public HTTPS image URLs exposed by the RSS description."""
+    """Parse X image URLs from HTML and standard RSS media tags."""
     from urllib.parse import urlparse
-    description = item.findtext("description") or ""
+    urls = []
+    def add(value):
+        value = unescape(str(value or "")).strip()
+        if value.startswith("//"):
+            value = "https:" + value
+        p = urlparse(value)
+        if p.scheme == "https" and p.hostname in ("pbs.twimg.com", "abs.twimg.com") and "/media/" in p.path and value not in urls:
+            urls.append(value)
     class Finder(HTMLParser):
-        def __init__(self):
-            super().__init__(convert_charrefs=True)
-            self.urls = []
         def handle_starttag(self, tag, attrs):
-            if tag != "img":
+            if tag not in ("img", "source", "a"):
                 return
-            attributes = dict(attrs)
-            url = attributes.get("src") or attributes.get("data-src") or ""
-            if url.startswith("https://") and urlparse(url).hostname and url not in self.urls:
-                self.urls.append(url)
-    parser = Finder()
-    parser.feed(description)
-    return parser.urls[:4]
+            values = dict(attrs)
+            for key in ("src", "data-src", "data-original", "data-original-src", "data-image", "href"):
+                add(values.get(key))
+            for key in ("srcset", "data-srcset"):
+                for candidate in (values.get(key) or "").split(","):
+                    add(candidate.strip().split(" ")[0])
+    Finder().feed(item.findtext("description") or "")
+    for node in item.iter():
+        name = node.tag.rsplit("}", 1)[-1].lower()
+        if name in ("enclosure", "content", "thumbnail"):
+            add(node.attrib.get("url"))
+    return urls[:4]
 
 
 def _fetch_posts(feed_url=None):
@@ -188,7 +197,9 @@ def _fetch_merged_posts(include_backups=True):
                 items = future.result()
                 successes += 1
                 for post in items:
-                    posts_by_id.setdefault(post["id"], post)
+                    previous = posts_by_id.get(post["id"])
+                    if previous is None or len(post.get("images", [])) > len(previous.get("images", [])):
+                        posts_by_id[post["id"]] = post
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
