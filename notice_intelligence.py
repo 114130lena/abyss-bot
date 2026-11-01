@@ -53,7 +53,7 @@ def _event_key(title, body, published):
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
-    full = set(re.findall(r"(?<!\d)(20\d{2})[.\\/-](\d{1,2})[.\\/-](\d{1,2})(?!\d)", source))
+    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[.\\/-](\d{1,2})(?!\d)", source))
     short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
     if len(full) > 1 or len(short) > 1:
         return None
@@ -104,6 +104,11 @@ def _record_schedule_state(group, key, kind, status, clocks, url):
     previous = state.get(identifier) or {}
     new = {"status": status, "time": next(iter(clocks)) if len(clocks) == 1 else "",
            "source": url, "kind": kind}
+    # Two ordinary announcements on one date may be different streams.
+    # Do not treat them as a revision without an explicit change/cancel label.
+    if previous and previous.get("time") != new["time"] and kind not in (
+            "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
+        return None
     if previous and previous != new and (previous.get("status"), previous.get("time")) != (status, new["time"]):
         logging.warning("일정 변경 감지: %s 이전=%s 현재=%s 원문=%s",
                         identifier, previous.get("time") or previous.get("status"),
