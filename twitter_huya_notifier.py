@@ -121,6 +121,11 @@ def check_huya_x():
         posts = _fetch_merged_posts()
         if not posts:
             failures = 0
+            try:
+                from notice_intelligence import report_source
+                report_source("후야 X", True)
+            except Exception:
+                logging.exception("X 수집 진단 기록 실패")
             return
         seen = _load_seen()
         if seen is None:
