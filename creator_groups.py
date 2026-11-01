@@ -8,7 +8,7 @@ YOUTUBE_GROUPS = {
     "UC0YQnenKBCu5sGb7H61n6HA": SAKIHANE,
 }
 CAFE_MENU_GROUPS = {"431": HANAYO, "382": SAKIHANE}
-X_USER_GROUPS = {"hanayohiyori": HANAYO}
+X_USER_GROUPS = {"hanayohiyori": HANAYO, "sakihanehuya": SAKIHANE}
 
 def role_for(group):
     return GROUP_ROLES[group]
