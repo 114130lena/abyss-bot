@@ -411,6 +411,35 @@ class RoutingTests(unittest.TestCase):
             send_webhook("https://discord.com/api/webhooks/test/token", {"content": "test"})
         self.assertEqual(post.call_count, 2)
 
+    def test_image_card_preview_isolated_and_no_mentions(self):
+        import test_image_card as preview
+        from unittest.mock import patch as local_patch
+        for group in ("hanayo", "sakihane"):
+            with local_patch("test_image_card.get_banner", return_value="https://example.com/banner.png"):
+                payload, png = preview.make_preview(group)
+            self.assertEqual(png[:8], bytes([137,80,78,71,13,10,26,10]))
+            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+            self.assertEqual(payload["flags"], 32768)
+            parts = payload["components"][0]["components"]
+            self.assertEqual(parts[0]["type"], 12)
+            self.assertEqual(parts[0]["items"][0]["media"]["url"], "attachment://abyss_preview.png")
+            self.assertEqual(parts[-1]["type"], 12)
+            self.assertLessEqual(len(parts), 10)
+            self.assertIn("합방 예고", str(parts))
+            self.assertNotIn("TODAY", str(parts))
+
+    def test_image_card_upload_multipart(self):
+        import test_image_card as preview
+        from unittest.mock import Mock
+        response = Mock()
+        with patch("test_image_card.requests.post", return_value=response) as sent:
+            preview.send_preview("https://discord.com/api/webhooks/123/token",
+                                 {"allowed_mentions": {"parse": []}, "flags": 32768},
+                                 b"png")
+        self.assertIn("with_components=true", sent.call_args.args[0])
+        self.assertEqual(sent.call_args.kwargs["files"]["files[0]"][0], "abyss_preview.png")
+        self.assertIn("payload_json", sent.call_args.kwargs["data"])
+
     def test_read_timeout_does_not_retry_uncertain_discord_delivery(self):
         import requests
         from resilience import send_webhook
