@@ -122,7 +122,7 @@ jobs:
                   button['label'] = 'CAFE'
               elif button['label'] == '𝕏':
                   button['label'] = 'X'
-          # Second design: real image header, avatar LEFT and brand/name/handle RIGHT.
+          # Mirror the header: STELLIVE / name / handle LEFT, official portrait RIGHT.
           from PIL import Image, ImageDraw, ImageOps
           from test_image_card import _font, send_preview
           import requests, io
@@ -132,38 +132,30 @@ jobs:
           response.raise_for_status()
           assert len(response.content) < 4000000, 'Avatar exceeds limit'
           portrait = ImageOps.fit(Image.open(io.BytesIO(response.content)).convert('RGB'),
-                                  (152, 152))
+                                  (174, 174))
           profile = Image.new('RGB', (960, 188), (49, 49, 76))
           draw = ImageDraw.Draw(profile)
-          mask = Image.new('L', (152, 152), 0)
-          ImageDraw.Draw(mask).rounded_rectangle((0, 0, 151, 151), radius=19, fill=255)
-          profile.paste(portrait, (22, 18), mask)
           accent = (231, 178, 211) if group == 'hanayo' else (189, 174, 232)
-          draw.text((205, 21), 'STELLIVE  ·  ABYSS',
+          draw.text((38, 22), 'STELLIVE  ·  ABYSS',
                     font=_font(22, bold=True), fill=accent)
           name_font = _font(42, bold=True, require_korean=True)
           if name_font is None:
               raise RuntimeError('Korean font missing: cannot render clean header')
-          draw.text((203, 65), creator, font=name_font, fill=(255, 255, 255))
-          draw.text((205, 136),
+          draw.text((36, 65), creator, font=name_font, fill=(255, 255, 255))
+          draw.text((38, 137),
                     '@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya',
                     font=_font(24), fill=(209, 209, 225))
-          # Restrained right-side signature balances the long 960px header.
-          # Lower contrast than the readable identity; no duplicate title.
-          signature = 'H I Y O R I' if group == 'hanayo' else 'H U Y A'
-          sig_font = _font(28, bold=True)
-          sig_box = draw.textbbox((0, 0), signature, font=sig_font)
-          sig_width = sig_box[2] - sig_box[0]
-          sig_x = 930 - sig_width
-          draw.line((sig_x, 79, 928, 79), fill=(108, 88, 115), width=2)
-          draw.text((sig_x, 93), signature, font=sig_font, fill=(132, 111, 144))
-          draw.ellipse((917, 145, 926, 154), fill=accent)
+          # Portrait occupies the right edge; keep the face upright, don't mirror artwork.
+          mask = Image.new('L', (174, 174), 0)
+          ImageDraw.Draw(mask).rounded_rectangle((0, 0, 173, 173), radius=18, fill=255)
+          profile.paste(portrait, (772, 7), mask)
+          draw.line((752, 23, 752, 165), fill=(107, 85, 114), width=2)
           buffer = io.BytesIO()
           profile.save(buffer, format='PNG', optimize=True)
           image = buffer.getvalue()
           components.insert(0, {'type': 12, 'items': [{
               'media': {'url': 'attachment://abyss_preview.png'},
-              'description': creator + ' STELLIVE ABYSS 프로필 헤더'
+              'description': creator + ' STELLIVE ABYSS 좌측 텍스트 우측 프로필 헤더'
           }]})
           # Native Discord text hierarchy: large title, regular-size category.
           for item in components:
@@ -202,6 +194,6 @@ jobs:
           if not webhook:
               raise RuntimeError('No configured Discord webhook')
           send_preview(webhook, payload, image)
-          print('Left-avatar STELLIVE ABYSS header sent to fixed test thread.')
+          print('Mirrored right-portrait STELLIVE ABYSS header sent to fixed test thread.')
           PY
           REMOTE
