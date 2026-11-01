@@ -150,9 +150,11 @@ def make_preview(group="hanayo"):
     # Only one X brand mark, no duplicate "𝕏 X".
     if container and container[0].get("type") == 10:
         container[0]["content"] = container[0]["content"].replace("𝕏 X", "𝕏")
+    # A native divider keeps the header and post content aligned across screens.
     container.insert(0, {"type": 12, "items": [{
         "media": {"url": "attachment://abyss_preview.png"},
         "description": "스트리머 공식 프로필 헤더"}]})
+    container.insert(1, {"type": 14, "divider": True, "spacing": 1})
     if len(container) > 10:
         raise ValueError("Discord V2 container component limit exceeded")
     card["username"] = "어비스봇 이미지 미리보기"
