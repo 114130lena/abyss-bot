@@ -143,3 +143,13 @@ def _report_source_state(name, ok, reason, now):
                             name, entry["consecutive_failures"], str(reason)[:120])
     state[name] = entry
     _save(HEALTH_FILE, state)
+
+if __name__ == "__main__":
+    # Run on the bot host: python notice_intelligence.py
+    # No webhook tokens or post contents are printed.
+    state = _read(HEALTH_FILE)
+    for name in ("네이버 카페", "히요리 X", "후야 X"):
+        item = state.get(name) or {}
+        print(f"{name}: last_success={item.get('last_success', '없음')} "
+              f"last_check={item.get('last_check', '없음')} "
+              f"failures={item.get('consecutive_failures', 0)}")
