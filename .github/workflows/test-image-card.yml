@@ -23,7 +23,7 @@ jobs:
       - name: Install image-preview dependencies
         run: python -m pip install -r requirements.txt
       - name: Validate preview message without sending
-        run: python test_image_card.py --group "${{ inputs.streamer }}"
+        run: python test_image_card.py --group "${{ inputs.streamer }}" --both
       - name: Post preview through existing server webhook into fixed test thread
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -39,4 +39,4 @@ jobs:
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
-            "cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; \"\$PY\" test_image_card.py --group $STREAMER --send --use-existing-webhook"
+            "cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; \"\$PY\" test_image_card.py --group $STREAMER --both --send --use-existing-webhook"
