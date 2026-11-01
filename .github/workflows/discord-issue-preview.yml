@@ -78,17 +78,41 @@ jobs:
               ping=False, handle=handle(group), avatar=avatar(group),
               username='어비스봇 · 테스트',
           )
-          from PIL import Image, ImageDraw
+          from PIL import Image, ImageDraw, ImageFont
           import io, re
+          from test_image_card import _font
           source = Image.open(io.BytesIO(card_image(group))).convert('RGB')
-          compact = Image.new('RGB', (960, 172), (52, 44, 71))
+          width, height = 960, 188
+          compact = Image.new('RGB', (width, height))
           draw = ImageDraw.Draw(compact)
-          draw.rounded_rectangle((8, 8, 952, 164), radius=20, outline=(112, 96, 143), width=2)
-          compact.paste(source.crop((68, 40, 675, 151)), (40, 30))
-          portrait = source.crop((725, 27, 926, 228)).resize((146, 146))
-          compact.paste(portrait, (790, 13))
+          start_color = (48, 40, 67) if group == 'sakihane' else (63, 41, 61)
+          end_color = (72, 54, 91) if group == 'sakihane' else (97, 57, 86)
+          for y in range(height):
+              ratio = y / (height - 1)
+              color = tuple(round(a * (1-ratio) + b * ratio) for a,b in zip(start_color, end_color))
+              draw.line((0,y,width,y), fill=color)
+          draw.rounded_rectangle((10, 10, 950, 178), radius=24,
+                                 outline=(124, 103, 149), width=3)
+          accent = (191, 162, 240) if group == 'sakihane' else (241, 172, 201)
+          draw.rounded_rectangle((35, 33, 42, 154), radius=3, fill=accent)
+          display = '사키하네 후야' if group == 'sakihane' else '하나요 히요리'
+          handle_text = '@SakihaneHuya' if group == 'sakihane' else '@HanayoHiyori'
+          name_font = _font(49, bold=True, require_korean=True)
+          latin_fallback = 'SAKIHANE HUYA' if group == 'sakihane' else 'HANAYO HIYORI'
+          if name_font is None:
+              name_font = _font(45, bold=True)
+              display = latin_fallback
+          draw.text((68, 35), display, font=name_font, fill=(250, 246, 255))
+          draw.text((70, 105), handle_text, font=_font(30),
+                    fill=(205, 193, 222))
+          # Crop only the circular avatar artwork, never the old name/handle.
+          portrait = source.crop((730, 31, 924, 225)).resize((146, 146))
+          mask = Image.new('L', (146,146), 0)
+          ImageDraw.Draw(mask).ellipse((0,0,145,145), fill=255)
+          draw.ellipse((768, 19, 934, 185), fill=accent)
+          compact.paste(portrait, (778, 29), mask)
           output = io.BytesIO()
-          compact.save(output, 'PNG')
+          compact.save(output, 'PNG', optimize=True)
           image = output.getvalue()
           assert image.startswith(bytes([137, 80, 78, 71, 13, 10, 26, 10]))
           components = payload['components'][-1]['components']
