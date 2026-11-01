@@ -135,17 +135,18 @@ jobs:
                                 'description': creator + ' 공식 프로필'}})
           else:
               components.insert(0, {'type': 10, 'content': profile_text})
-          # Preserve working newline characters and keep category on its own line.
+          # Native Discord text hierarchy: large title, regular-size category.
           for item in components:
               if item.get('type') != 10:
                   continue
               value = item.get('content', '')
               if 'CHZZK' in value and '방송 시작' in value:
                   item['content'] = '**🟢 CHZZK · LIVE**'
-              elif value.startswith('## [') and ' · ' in value:
+              elif value.startswith('## ['):
                   match = re.fullmatch(r'## \[(.*?) · (.*?)\]\((https://[^)]+)\)', value)
                   if match:
-                      item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')**\n-# ' + match.group(2)
+                      item['content'] = ('## [' + match.group(1) + '](' + match.group(3)
+                                         + ')\n· ' + match.group(2))
           # Divider 1: profile card / alert body.
           components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
           # Order the footer as: original YouTube banner, then four link buttons.
@@ -157,9 +158,11 @@ jobs:
           if components and components[-1].get('type') == 14:
               components.pop()
           components.append({'type': 14, 'divider': True, 'spacing': 1})
+          components.append({'type': 10, 'content': '-# 공식 채널 · OFFICIAL LINKS'})
           components.append(original_banner)
           components.append(link_row)
           assert components[0]['type'] in (9, 10)
+          assert components[-3]['type'] == 10, 'Official links section label missing'
           assert components[-2]['type'] == 12, 'Bottom YouTube banner missing'
           assert components[-1]['type'] == 1, 'Official links must be below banner'
           assert len(components[-1]['components']) == 4, 'Exactly four links required'
