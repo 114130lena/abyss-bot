@@ -263,3 +263,98 @@ jobs:
                   print('SENT',group,kind,item.get('source'),item.get('width'),item.get('height'),message['id'])
           PY
           REMOTE
+
+  preview_full_alert_x:
+    if: ${{ github.event.issue.title == '[abyss-preview] full-alert-x' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Owner-only
+        env:
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: test "$ISSUE_AUTHOR" = "$REPO_OWNER"
+      - name: Checkout test layout
+        uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile
+        run: python -m py_compile discord_v2.py
+      - name: Preview full live alerts with saved X images
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_full_key
+          chmod 600 ~/.ssh/abyss_full_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_full_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_full_discord_v2.py"
+          ssh -i ~/.ssh/abyss_full_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,json,os
+          from pathlib import Path
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          import requests
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          import sys
+          sys.path.insert(0,'/home/ubuntu/chzzk-bot')
+          from creator_profiles import handle
+          from creator_groups import CHZZK_GROUPS
+          spec=importlib.util.spec_from_file_location('layout','/tmp/abyss_full_discord_v2.py')
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          root=Path('/home/ubuntu/chzzk-bot/creator_media')
+          index=json.loads((root/'index.json').read_text(encoding='utf-8'))
+          hook=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert hook.startswith('https://')
+          u=urlsplit(hook)
+          q=dict(parse_qsl(u.query,keep_blank_values=True))
+          q.update({'with_components':'true','thread_id':'1566335914500816988','wait':'true'})
+          endpoint=urlunsplit((u.scheme,u.netloc,u.path,urlencode(q),u.fragment))
+          for group,creator in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              selected={}
+              for kind in ('profile','banner'):
+                  items=[x for x in index.get(group,{}).get(kind,[]) if x.get('source')=='x']
+                  assert items,'No saved X '+kind+' for '+group
+                  selected[kind]=root/items[-1]['path']
+                  assert selected[kind].is_file()
+              filename_profile=group+'_profile'+selected['profile'].suffix
+              filename_banner=group+'_banner'+selected['banner'].suffix
+              cid=next((c for c,g in CHZZK_GROUPS.items() if g==group),'')
+              channel=os.getenv(group.upper()+'_CHZZK_URL','').strip() or ('https://chzzk.naver.com/'+cid if cid else 'https://chzzk.naver.com/')
+              payload=mod.alert('chzzk',creator,banner='',role_id='',
+                  title='[테스트] '+('하요링 ~ 오늘은 그녀와 함께' if group=='hanayo' else '후야의 라이브 방송'),
+                  category='Just Chatting',url=channel,
+                  media_url='https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
+                  handle=handle(group),avatar='attachment://'+filename_profile,
+                  ping=False,username='어비스봇 · X 이미지 통합 테스트')
+              parts=payload['components'][-1]['components']
+              assert parts[0]['type']==9 and parts[0]['accessory']['type']==11
+              # Footer signature and full-width banner precede the four official links.
+              links=parts[-1] if parts[-1].get('type')==1 else None
+              assert links and len(links.get('components',[]))==4,'Four link buttons missing'
+              parts.insert(len(parts)-1,{'type':12,'items':[{
+                  'media':{'url':'attachment://'+filename_banner},
+                  'description':creator+' X 공식 헤더'}]})
+              parts.insert(len(parts)-2,{'type':10,'content':'-# 공식 채널 · OFFICIAL LINKS · '+('🌸 H I Y O R I' if group=='hanayo' else '💜🐲 H U Y A')})
+              parts.insert(len(parts)-3,{'type':14,'divider':True,'spacing':1})
+              assert len(parts)<=10,'Discord container limit exceeded'
+              payload['allowed_mentions']={'parse':[]}
+              with selected['profile'].open('rb') as profile,selected['banner'].open('rb') as banner:
+                  files={'files[0]':(filename_profile,profile,'image/jpeg'),
+                         'files[1]':(filename_banner,banner,'image/jpeg')}
+                  res=requests.post(endpoint,data={'payload_json':json.dumps(payload,ensure_ascii=False)},files=files,timeout=30)
+              if not res.ok: print('Discord API error',res.status_code,res.text[:700])
+              res.raise_for_status()
+              assert res.json().get('id')
+              print('FULL_ALERT_SENT',group,res.json()['id'],len(parts),'profile and banner attached')
+          PY
+          REMOTE
