@@ -1,0 +1,88 @@
+name: Abyss Discord preview via approved issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  preview:
+    if: ${{ github.event.issue.title == '[abyss-test] hanayo' || github.event.issue.title == '[abyss-test] sakihane' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Check owner-only request
+        env:
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          test "$ISSUE_AUTHOR" = "$REPO_OWNER"
+      - name: Checkout isolated preview branch
+        uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile preview layout
+        run: python -m py_compile discord_v2.py
+      - name: Connect to existing bot server
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_test_key
+          chmod 600 ~/.ssh/abyss_test_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_preview_discord_v2.py"
+      - name: Send one non-pinging preview to pinned thread
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          STREAMER: ${{ github.event.issue.title }}
+        run: |
+          ssh -i ~/.ssh/abyss_test_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "STREAMER='$STREAMER' bash -s" <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util, os, sys
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          from dotenv import load_dotenv
+          sys.path.insert(0, '/home/ubuntu/chzzk-bot')
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          from banner_manager import get_banner
+          from creator_profiles import handle, avatar
+          from test_image_card import send_integrated_preview
+          spec = importlib.util.spec_from_file_location('abyss_preview_layout', '/tmp/abyss_preview_discord_v2.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          group = os.environ['STREAMER'].rsplit(' ', 1)[-1]
+          assert group in ('hanayo', 'sakihane')
+          creator = '하나요 히요리' if group == 'hanayo' else '사키하네 후야'
+          banner = get_banner(group)
+          if not banner:
+              raise RuntimeError('No cached official banner: refusing incomplete preview')
+          payload = module.alert(
+              'chzzk', creator, banner, role_id='',
+              title='[테스트] 방송 제목 · 카테고리 배치 확인',
+              url='https://chzzk.naver.com/',
+              media_url='https://i.ytimg.com/vi/aqz-KE-bpKQ/hqdefault.jpg',
+              category='Just Chatting', date=datetime.now(ZoneInfo('Asia/Seoul')).isoformat(),
+              ping=False, handle=handle(group), avatar=avatar(group),
+              username='어비스봇 · 테스트',
+          )
+          payload['allowed_mentions'] = {'parse': []}
+          webhook = os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL', '')
+          if not webhook:
+              raise RuntimeError('No configured Discord webhook')
+          send_integrated_preview(webhook, payload)
+          print('Preview sent to existing fixed test thread; mentions disabled.')
+          PY
+          REMOTE
