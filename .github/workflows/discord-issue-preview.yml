@@ -167,3 +167,36 @@ jobs:
                       print('COLLECTED',group,kind,item.get('source'),item.get('width'),item.get('height'),item.get('original_url'))
           PY
           REMOTE
+
+      - name: Retrieve collected X images for user review
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          mkdir -p x-media-review
+          scp -i ~/.ssh/abyss_collect_key -o IdentitiesOnly=yes -r "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/creator_media/" x-media-review/
+          python - <<'PY'
+          import json,shutil
+          from pathlib import Path
+          root=Path('x-media-review/creator_media')
+          index=json.loads((root/'index.json').read_text())
+          out=Path('x-media-review/X-images-only')
+          out.mkdir(parents=True,exist_ok=True)
+          for group in ('hanayo','sakihane'):
+              for kind in ('profile','banner'):
+                  for item in index.get(group,{}).get(kind,[]):
+                      if item.get('source')!='x': continue
+                      source=root/item['path']
+                      if not source.is_file(): continue
+                      name=group+'_'+kind+source.suffix
+                      shutil.copyfile(source,out/name)
+                      print('X_IMAGE',name,source.stat().st_size)
+          shutil.rmtree(root)
+          PY
+      - name: Attach collected X images to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-public-profile-and-banners
+          path: x-media-review/X-images-only/
+          if-no-files-found: error
+          retention-days: 14
