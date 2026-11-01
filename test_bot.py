@@ -423,8 +423,9 @@ class RoutingTests(unittest.TestCase):
             parts = payload["components"][0]["components"]
             self.assertEqual(parts[0]["type"], 12)
             self.assertEqual(parts[0]["items"][0]["media"]["url"], "attachment://abyss_preview.png")
-            self.assertEqual(parts[1]["type"], 10)
-            self.assertEqual(parts[1]["content"], "**𝕏**")
+            self.assertEqual(parts[1]["type"], 14)
+            self.assertEqual(parts[2]["type"], 10)
+            self.assertEqual(parts[2]["content"], "**𝕏**")
             self.assertNotIn("H I Y O R I", str(parts))
             self.assertNotIn("H U Y A", str(parts))
             self.assertNotIn("\\\\[테스트\\\\]", str(parts))
