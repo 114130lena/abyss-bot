@@ -577,3 +577,63 @@ jobs:
           cp /tmp/abyss_refresh_random_media.py random_media.py
           bash /tmp/abyss_install_refresh.sh
           REMOTE
+
+  enable_approved_fanart:
+    if: ${{ github.event.issue.title == '[abyss-deploy] approved-fanart' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile random_media.py
+      - name: Enable approved fan art pool without affecting existing official photos
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes random_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_fanart_random_media.py"
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          test -f creator_media/index.json
+          mkdir -p backups/fanart-20261102
+          cp random_media.py backups/fanart-20261102/random_media.py
+          cp .env backups/fanart-20261102/env.backup
+          cp /tmp/abyss_fanart_random_media.py random_media.py
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile random_media.py
+          "$PY" - <<'PY'
+          from pathlib import Path
+          p=Path('.env')
+          rows=[r for r in p.read_text().splitlines() if not r.startswith('ABYSS_FANART_ENABLED=')]
+          rows.append('ABYSS_FANART_ENABLED=1')
+          p.write_text('\n'.join(rows)+'\n')
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sleep 2
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+            cp backups/fanart-20261102/random_media.py random_media.py
+            cp backups/fanart-20261102/env.backup .env
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          }
+          "$PY" - <<'PY'
+          from random_media import _local_candidates
+          for group in ('hanayo','sakihane'):
+              print('POOL',group,'profiles',len(_local_candidates(group,'profile')),'banners',len(_local_candidates(group,'banner')))
+          PY
+          echo FANART_POOL_DEPLOY_SUCCESS
+          REMOTE
