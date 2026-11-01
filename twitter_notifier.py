@@ -220,6 +220,11 @@ def check_twitter():
         if not posts:
             logging.info("X RSS: 원본 게시글 없음")
             failures = 0
+            try:
+                from notice_intelligence import report_source
+                report_source("히요리 X", True)
+            except Exception:
+                logging.exception("X 수집 진단 기록 실패")
             return
         seen = _load_seen()
         if seen is None:
