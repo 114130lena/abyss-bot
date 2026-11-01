@@ -10,7 +10,7 @@ THREAD_ID="1566509366591627344"
 
 def is_repost(title):
     import re
-    return bool(re.match(r"^(?:RT by|Retweeted by)\\s+@?[^:]+:",str(title or ""),re.I))
+    return bool(re.match(r"^(?:RT by|Retweeted by)\s+@?[^:]+:",str(title or ""),re.I))
 
 def thread_url(webhook):
     p=urlsplit(webhook)
