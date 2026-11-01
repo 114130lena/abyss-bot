@@ -251,7 +251,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     # Native Section profile header: name/handle left, creator portrait right.
     identity = "## " + _safe_markdown(creator)
     if "히요리" in creator:
-        identity += "\n**HANAYO HIYORI**"
+        identity += " HANAYO HIYORI"
     if handle:
         identity += "\n" + _safe_markdown(handle)
     if _valid_url(avatar) or str(avatar).startswith("attachment://"):
