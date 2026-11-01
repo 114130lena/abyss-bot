@@ -247,17 +247,6 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "x": "𝕏 X",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
-    # Pick profile and footer banner independently from available official-source pool.
-    # The feature is opt-in until verified in the isolated test branch.
-    import os
-    if os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
-        from random_media import choose
-        key = (creator + " " + handle).casefold()
-        group = ("hanayo" if "히요리" in key or "hanayo" in key
-                 else "sakihane" if "후야" in key or "sakihane" in key else "")
-        if group:
-            avatar = choose(group, "profile", avatar)
-            banner = choose(group, "banner", banner)
     pieces = []
     # Native Section profile header: name/handle left, creator portrait right.
     identity = "## " + _safe_markdown(creator)
