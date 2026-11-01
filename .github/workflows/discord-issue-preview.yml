@@ -128,9 +128,11 @@ jobs:
           # Make the native profile header visibly lead the card.
           # Discord Section text keeps the same font scale as ordinary TextDisplay;
           # Markdown heading elevates the name without rasterizing it into an image.
+          # Balanced 3-line header: prominent name, normal handle, compact signature.
+          # Keep actual newline escapes; don't insert blank lines or pseudo CSS.
           profile_text = ('## ' + creator + '\n' +
-                          '**' + ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') + '**' +
-                          '\n' + ('H I Y O R I' if group == 'hanayo' else 'H U Y A'))
+                          ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') +
+                          '\n' + ('🌸 HIYORI' if group == 'hanayo' else '💜 HUYA'))
           if avatar_url.startswith('https://'):
               components.insert(0, {'type': 9,
                   'components': [{'type': 10, 'content': profile_text}],
