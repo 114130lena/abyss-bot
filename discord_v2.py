@@ -259,17 +259,16 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     else:
         pieces.append(text(identity))
     pieces.append(separator())
-    pieces.append(text("**" + tag + "**" + (" · 방송 시작" if platform == "chzzk" and not replay else "")))
+    pieces.append(text("**🟢 CHZZK · LIVE**" if platform == "chzzk" and not replay else "**" + tag + "**"))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
         display = _safe_markdown(str(title).replace("\n", " ").strip()[:500])
+        # Title is clickable; category follows outside the hyperlink on the same line.
+        title_line = "[" + display + "](" + url + ")" if _valid_url(url) else display
         if platform == "chzzk" and category:
-            display += " · " + _safe_markdown(str(category)[:80])
-        if _valid_url(url):
-            pieces.append(text("## [" + display + "](" + url + ")"))
-        else:
-            pieces.append(text("## " + display))
+            title_line += " · " + _safe_markdown(str(category)[:80])
+        pieces.append(text("## " + title_line))
     analysis_lines = []
     if platform in ("cafe", "x"):
         notice_type = _notice_type(title, body)
@@ -324,12 +323,13 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         pieces.append(_link_button(url, platform, replay))
     if _valid_url(banner):
         pieces.append(separator())
-        pieces.append({
-            "type": 9,
-            "components": [text("-# ◦")],
-            "accessory": {"type": 11, "media": {"url": banner},
-                          "description": "스트리머 공식 하단 배너"},
-        })
+        # Small signature above the full-width official YouTube banner.
+        signature = _creator_theme(creator, handle)
+        label = "-# 공식 채널 · OFFICIAL LINKS"
+        if signature:
+            label += "　　" + signature
+        pieces.append(text(label))
+        pieces.append(gallery(banner, "공식 유튜브 채널 배너"))
     import os
     identity_key = (creator + " " + handle).casefold()
     group = ("hanayo" if "히요리" in identity_key or "hanayo" in identity_key
@@ -347,8 +347,8 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
         cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
-        links = [("YouTube", youtube), ("𝕏", twitter),
-                 ("CHZZK", chzzk), ("스텔라이브 카페", cafe)]
+        links = [("CHZZK", chzzk), ("CAFE", cafe),
+                 ("X", twitter), ("YouTube", youtube)]
         buttons = [{"type": 2, "style": 5, "label": name, "url": address}
                    for name, address in links if _valid_url(address)]
         if buttons:
