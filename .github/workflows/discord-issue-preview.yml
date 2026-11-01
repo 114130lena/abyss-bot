@@ -125,9 +125,9 @@ jobs:
           # Restore the native Discord profile header; no generated PNG.
           # Use consistent three-line hierarchy and leave natural wrapping to Discord.
           avatar_url = official_avatar(group)
-          profile_text = ('**' + creator + '**\\n' +
+          profile_text = ('**' + creator + '**\n' +
                           ('@HanayoHiyori' if group == 'hanayo' else '@SakihaneHuya') +
-                          '\\n-# ' + ('🌸 H I Y O R I' if group == 'hanayo' else '💜 H U Y A'))
+                          '\n' + ('H I Y O R I' if group == 'hanayo' else 'H U Y A'))
           if avatar_url.startswith('https://'):
               components.insert(0, {'type': 9,
                   'components': [{'type': 10, 'content': profile_text}],
@@ -135,18 +135,18 @@ jobs:
                                 'description': creator + ' 공식 프로필'}})
           else:
               components.insert(0, {'type': 10, 'content': profile_text})
-          # Split the title and category into two text lines, so long titles
-          # wrap naturally without leaving an orphaned category at the edge.
+          # Preserve working newline characters and keep category on its own line.
           for item in components:
               if item.get('type') != 10:
                   continue
               value = item.get('content', '')
               if 'CHZZK' in value and '방송 시작' in value:
                   item['content'] = '**🟢 CHZZK · LIVE**'
-              elif value.startswith('## ['):
-                  match = re.fullmatch(r'## \\[(.*?) · (.*?)\\]\\((https://[^)]+)\\)', value)
-                  if match:
-                      item['content'] = '**[' + match.group(1) + '](' + match.group(3) + ')**\\n-# ' + match.group(2)
+              elif value.startswith('## [') and ' · ' in value:
+                  title_part, sep, suffix = value.partition(' · ')
+                  # Linked title must end in the original URL, not in the category.
+                  if sep and suffix.endswith(')'):
+                      item['content'] = title_part.replace('## [', '**[', 1) + '**\n' + suffix
           # Divider 1: profile card / alert body.
           components.insert(1, {'type': 14, 'divider': True, 'spacing': 1})
           # Order the footer as: original YouTube banner, then four link buttons.
