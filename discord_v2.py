@@ -154,7 +154,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     else:
         pieces.append(text(identity))
     pieces.append(separator())
-    pieces.append(text("**" + tag + "**"))\n    if platform == "chzzk" and not replay:\n        pieces.append(text("🔴 **LIVE NOW · 방송 중**"))
+    pieces.append(text("**" + tag + "**"))
+    if platform == "chzzk" and not replay:
+        pieces.append(text("🔴 **LIVE NOW · 방송 중**"))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
