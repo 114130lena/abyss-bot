@@ -406,7 +406,7 @@ class RoutingTests(unittest.TestCase):
         from resilience import send_webhook
         accepted = Mock()
         accepted.status_code = 204
-        with patch("resilience.requests.post", side_effect=[requests.ConnectTimeout(), accepted]) as post, \\
+        with patch("resilience.requests.post", side_effect=[requests.ConnectTimeout(), accepted]) as post, \
              patch("resilience.time.sleep"):
             send_webhook("https://discord.com/api/webhooks/test/token", {"content": "test"})
         self.assertEqual(post.call_count, 2)
