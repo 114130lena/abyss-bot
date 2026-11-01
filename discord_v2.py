@@ -39,6 +39,10 @@ def payload(platform, role_id, banner, headline, creator, details, media_url="",
         parts.append(text("[🔗 " + link_label + "](" + link_url + ")"))
     # Discord v2 does not allow legacy content or embeds.
     # Place the mention as an independent Text Display above the container.
+    # Discord Components V2 Container has a limit of 10 direct children.
+    # Preserve the official banner, role mention, and original link on long posts.
+    if len(pieces) > 10:
+        raise ValueError("Discord card contains too many components")
     outer = []
     if role_id:
         outer.append(text("<@&" + role_id + ">" if ping else "[테스트] 역할 " + role_id + " (멘션 비활성화)"))
@@ -257,9 +261,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     else:
         pieces.append(text(identity))
     pieces.append(separator())
-    pieces.append(text("**" + tag + "**"))
-    if platform == "chzzk" and not replay:
-        pieces.append(text("🔴 **LIVE NOW · 방송 중**"))
+    pieces.append(text("**" + tag + "**" + ("\n🔴 **LIVE NOW · 방송 중**" if platform == "chzzk" and not replay else "")))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
@@ -273,7 +275,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         notice_type = _notice_type(title, body)
         if notice_type:
             from notice_intelligence import participants
-            companions = participants(title, body) if notice_type == "🎮 합방 예고" else []
+            companions = participants(title, body, "히요리" if "히요리" in creator else "후야" if "후야" in creator else "") if notice_type == "🎮 합방 예고" else []
             subtitle = notice_type + (" · " + ", ".join(companions) + "와 함께" if len(companions) == 1 else
                                       " · " + ", ".join(companions) + " 참여" if companions else "")
             analysis_lines.append("-# " + subtitle)
