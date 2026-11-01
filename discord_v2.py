@@ -182,11 +182,11 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
                     if len(remaining) <= 1000:
                         pieces.append(text(remaining))
                         break
-                    cut = remaining.rfind("\\n", 0, 1001)
+                    cut = remaining.rfind("\n", 0, 1001)
                     if cut < 400:
                         cut = 1000
                     pieces.append(text(remaining[:cut].rstrip()))
-                    remaining = remaining[cut:].lstrip("\\n")
+                    remaining = remaining[cut:].lstrip("\n")
             else:
                 pieces.append(text(content[:2500]))
     media = []
@@ -215,6 +215,8 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     if footer:
         pieces.append(separator())
         pieces.append(text(" · ".join(footer)))
+    if _valid_url(url):
+        pieces.append(_link_button(url, platform, replay))
     if _valid_url(banner):
         pieces.append(gallery(banner, "스트리머 공식 배너"))
     outer = []
