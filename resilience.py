@@ -47,7 +47,12 @@ def send_webhook(url, payload, attempts=3):
             else:
                 delay = 2 ** attempt
             time.sleep(min(max(delay, 0.5), 30))
-        except (requests.ConnectionError, requests.Timeout):
+        except requests.ReadTimeout:
+            # Discord may have accepted the post even when its response was lost.
+            # Blind retry could ping members twice; leave it unread for operator review.
+            logging.warning("Discord response timed out; delivery uncertain, suppressing immediate retry")
+            raise
+        except (requests.ConnectionError, requests.ConnectTimeout):
             if attempt == attempts - 1:
                 raise
             time.sleep(min(2 ** attempt + random.random(), 15))
