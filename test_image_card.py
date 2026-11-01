@@ -3,6 +3,7 @@ import argparse
 import io
 import json
 import os
+import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -57,7 +58,6 @@ def make_preview(group="hanayo"):
     return card, card_image(group)
 
 def send_preview(webhook, payload, image):
-    import requests
     if not webhook.startswith("https://"):
         raise ValueError("TEST_DISCORD_WEBHOOK_URL must be HTTPS")
     separator = "&" if "?" in webhook else "?"
