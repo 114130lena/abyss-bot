@@ -95,53 +95,130 @@ def _x_headline(body):
 
 
 def _notice_type(title, body):
-    """Conservative classification of explicitly stated announcements."""
+    """Classify explicitly announced streaming events, not casual greetings."""
     import re
     source = (str(title or "") + "\n" + str(body or ""))[:3500]
-    # A negated status must not be presented as an actual cancellation or break.
-    if re.search(r"(휴방|쉬는 날|방송 취소|방송 중단)\s*(?:은|이|가)?\s*(?:아닙니다|아니에요|없습니다|없어요)", source):
+    # Only an explicit stream-related sentence is enough to declare a status.
+    negated = re.search(
+        r"(?:휴방|방송\s*취소|방송\s*중단)\s*(?:은|이|가)?\s*"
+        r"(?:아닙니다|아니에요|아님|없습니다|없어요)", source)
+    if negated:
         return None
-    cancel = r"(방송\s*취소|방송을\s*취소|일정\s*취소|라이브\s*취소|방송\s*중단)"
-    change = r"(일정\s*(?:변경|수정|조정)|시간\s*(?:변경|수정|조정)|방송\s*(?:연기|지연|변경)|변경된\s*일정)"
-    break_ = r"(휴방|방송\s*쉬(?:겠습니다|어요|는\s*날)|오늘은\s*쉽니다)"
-    announce = r"(방송\s*일정|방송\s*예정|방송\s*공지|방송\s*시작|오늘\s*방송|라이브\s*예정|방송할\s*예정|방송합니다)"
-    for pattern, label in ((cancel, "🚫 방송 취소 안내"),
-                           (change, "🔄 일정 변경 안내"),
-                           (break_, "🌙 휴방 안내"),
-                           (announce, "📺 방송 예고")):
+    rules = (
+        (r"방송(?:을|이)?\s*취소|방송\s*중단|라이브\s*취소|"
+         r"(?:방송|합방)\s*일정\s*취소", "🚫 방송 취소 안내"),
+        (r"(?:방송|합방|라이브)?\s*(?:일정|시간)\s*(?:변경|수정|조정)|"
+         r"(?:방송|합방)\s*(?:연기|지연|변경)|변경된\s*(?:방송|합방)?\s*일정", "🔄 일정 변경 안내"),
+        (r"휴방|오늘(?:은|도)?\s*(?:방송을?)?\s*쉬(?:어요|겠습니다|는\s*날|기로)|"
+         r"오늘(?:은|도)?\s*쉽니다", "🌙 휴방 안내"),
+        (r"합방(?:이|은|을|은요|은욤)?\s*(?:있|합니|해요|해욥|예정|시작)|"
+         r"(?:오늘|내일|이따|저녁|밤에|오후|오전).{0,24}합방|"
+         r"합방.{0,24}(?:오늘|내일|저녁|오후|오전)", "🎮 합방 예고"),
+        (r"방송\s*(?:일정|예정|공지|시작)|오늘\s*방송|라이브\s*예정|"
+         r"방송할\s*예정|방송합니다|방송\s*(?:켤게|킬게|켜요|켜겠)|"
+         r"(?:오늘|이따|저녁).{0,20}방송에서\s*만나", "📺 방송 예고"),
+    )
+    for pattern, label in rules:
         if re.search(pattern, source, re.IGNORECASE):
             return label
     return None
 
 
 def _schedule_facts(title, body):
-    """Find explicitly stated schedule facts; never infer or resolve conflicting times."""
+    """Extract only unambiguous, explicitly written calendar and clock values."""
     import re
     source = str(title or "") + "\n" + str(body or "")
     lines = [line.strip() for line in source.splitlines() if line.strip()]
-    if not any(word in source for word in ("방송", "일정", "라이브", "LIVE", "대전", "이벤트", "휴방")):
+    if not any(word in source for word in ("방송", "일정", "라이브", "LIVE", "대전",
+                                           "이벤트", "휴방", "합방")):
         return []
     blocked = ("변경 전", "기존 시간", "원래", "취소", "예정이었", "지난", "어제", "아닐", "미정")
     date_pattern = re.compile(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일")
-    time_pattern = re.compile(r"(오전|오후)\s*(1[0-2]|[1-9])시(?:\s*(?:(?:([0-5]?\d)분?)|반))?|(?<!\d)([01]?\d|2[0-3]):([0-5]\d)")
-    dates = []
-    times = []
+    time_pattern = re.compile(
+        r"(오전|오후)\s*(1[0-2]|[1-9])시(?:\s*(?:[0-5]?\d분?|반))?"
+        r"|(?<!\d)([01]?\d|2[0-3]):([0-5]\d)")
+    dates, times = [], []
     for line in lines:
-        if any(bad in line for bad in blocked):
+        if any(word in line for word in blocked):
             continue
         dates.extend(m.group(0) for m in date_pattern.finditer(line))
         times.extend(m.group(0) for m in time_pattern.finditer(line))
     dates = list(dict.fromkeys(dates))
     times = list(dict.fromkeys(times))
-    # Multiple event times or dates make an automatic 'start time' ambiguous.
     if len(dates) > 1 or len(times) > 1:
         return []
-    facts = []
-    if len(dates) == 1:
-        facts.append("📅 날짜 · " + dates[0])
-    if len(times) == 1:
-        facts.append("🕒 언급된 시간 · " + times[0])
-    return facts
+    result = []
+    if dates:
+        result.append("📅 날짜 · " + dates[0])
+    if times:
+        result.append("🕒 언급된 시간 · " + times[0])
+    return result
+
+
+def _today_summary(title, body, published, now=None):
+    """Show TODAY only for a confirmed same-day event in Korean local time.
+
+    Relative 'today' references are valid only when the post itself is from today.
+    Never use the current date as a replacement for a missing publication timestamp.
+    """
+    import re
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    zone = ZoneInfo("Asia/Seoul")
+    today = (now or datetime.now(zone)).astimezone(zone).date()
+    category = _notice_type(title, body)
+    if not category:
+        return ""
+    source = str(title or "") + "\n" + str(body or "")
+    if any(x in source for x in ("변경 전", "기존 일정", "원래", "어제", "취소되었습니다")):
+        return ""
+    dates = set((int(m.group(1)), int(m.group(2))) for m in re.finditer(
+        r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
+    if dates:
+        if len(dates) != 1 or (today.month, today.day) not in dates:
+            return ""
+        # A post from a prior year cannot authorize today's same month/day.
+        if published:
+            post_day = _parse_korean_datetime(published)
+            if post_day is None or post_day.date().year != today.year:
+                return ""
+    elif re.search(r"오늘|금일", source):
+        post_day = _parse_korean_datetime(published)
+        if post_day is None or post_day.date() != today:
+            return ""
+    else:
+        return ""
+    return "📍 **TODAY · " + category.split(" ", 1)[1] + "**"
+
+
+def _parse_korean_datetime(value):
+    from datetime import datetime
+    from email.utils import parsedate_to_datetime
+    from zoneinfo import ZoneInfo
+    if not value:
+        return None
+    zone = ZoneInfo("Asia/Seoul")
+    try:
+        raw = str(value).strip()
+        if raw.isdigit() and len(raw) in (10, 13):
+            return datetime.fromtimestamp(int(raw) / (1000 if len(raw) == 13 else 1), zone)
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            dt = parsedate_to_datetime(raw)
+        return (dt.replace(tzinfo=zone) if dt.tzinfo is None else dt.astimezone(zone))
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _creator_theme(creator, handle):
+    """Cosmetic only: do not change role IDs or platform color accents."""
+    identity = (str(creator) + " " + str(handle)).casefold()
+    if "히요리" in identity or "hanayo" in identity:
+        return "🌸 H I Y O R I"
+    if "후야" in identity or "sakihane" in identity:
+        return "🌙 F U Y A"
+    return ""
 
 
 def _link_button(url, platform, replay=False):
@@ -167,6 +244,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     identity = "## " + _safe_markdown(creator)
     if handle:
         identity += "\n" + _safe_markdown(handle)
+    theme = _creator_theme(creator, handle)
+    if theme:
+        identity += "\n" + theme
     if _valid_url(avatar):
         pieces.append({"type": 9, "components": [text(identity)],
                        "accessory": {"type": 11, "media": {"url": avatar},
@@ -187,6 +267,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             pieces.append(text("## " + display))
     analysis_lines = []
     if platform in ("cafe", "x"):
+        today_label = _today_summary(title, body, date)
+        if today_label:
+            analysis_lines.append(today_label)
         notice_type = _notice_type(title, body)
         if notice_type:
             analysis_lines.append("**" + notice_type + "**")
