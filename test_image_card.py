@@ -151,26 +151,6 @@ def send_preview(webhook, payload, image, thread_id=TEST_THREAD_ID):
                              timeout=20)
     response.raise_for_status()
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--group", choices=("hanayo","sakihane"), default="hanayo")
-    parser.add_argument("--send", action="store_true")
-    parser.add_argument("--both", action="store_true", help="Send two distinct layouts to the same fixed test thread")
-    parser.add_argument("--use-existing-webhook", action="store_true", help="Explicit manual preview with existing webhook, only to the fixed test thread")
-    args = parser.parse_args()
-    load_dotenv("/home/ubuntu/chzzk-bot/.env")
-    payload, image = make_preview(args.group)
-    if args.send:
-        target = os.getenv("DISCORD_WEBHOOK_URL", "") if args.use_existing_webhook else os.getenv("TEST_DISCORD_WEBHOOK_URL","")
-        if not target:
-            raise SystemExit("Selected webhook is not configured")
-        send_preview(target, payload, image)
-        print("Preview sent to designated test thread with all role mentions disabled.")
-    else:
-        print(json.dumps({"image_header": payload, "integrated": integrated, "png_bytes": len(image)}, ensure_ascii=False, indent=2))
-
-if __name__ == "__main__":
-    main()
 def send_integrated_preview(webhook, payload, thread_id=TEST_THREAD_ID):
     """Native V2-only comparison; same pinned thread, no image attachment."""
     if not webhook.startswith("https://"):
@@ -184,3 +164,28 @@ def send_integrated_preview(webhook, payload, thread_id=TEST_THREAD_ID):
     response.raise_for_status()
 
 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--group", choices=("hanayo","sakihane"), default="hanayo")
+    parser.add_argument("--send", action="store_true")
+    parser.add_argument("--both", action="store_true", help="Send two distinct layouts to the same fixed test thread")
+    parser.add_argument("--use-existing-webhook", action="store_true", help="Explicit manual preview with existing webhook, only to the fixed test thread")
+    args = parser.parse_args()
+    load_dotenv("/home/ubuntu/chzzk-bot/.env")
+    payload, image = make_preview(args.group)
+    integrated = make_integrated_preview(args.group) if args.both else None
+    if args.send:
+        target = os.getenv("DISCORD_WEBHOOK_URL", "") if args.use_existing_webhook else os.getenv("TEST_DISCORD_WEBHOOK_URL","")
+        if not target:
+            raise SystemExit("Selected webhook is not configured")
+        if integrated is not None:
+            send_integrated_preview(target, integrated)
+        send_preview(target, payload, image)
+        print("Two designs sent." if args.both else "One design sent.")
+        print("All role mentions disabled.")
+    else:
+        print(json.dumps({"image_header": payload, "integrated": integrated, "png_bytes": len(image)}, ensure_ascii=False, indent=2))
+
+if __name__ == "__main__":
+    main()
