@@ -437,6 +437,7 @@ class RoutingTests(unittest.TestCase):
                                  {"allowed_mentions": {"parse": []}, "flags": 32768},
                                  b"png")
         self.assertIn("with_components=true", sent.call_args.args[0])
+        self.assertIn("thread_id=1566335914500816988", sent.call_args.args[0])
         self.assertEqual(sent.call_args.kwargs["files"]["files[0]"][0], "abyss_preview.png")
         self.assertIn("payload_json", sent.call_args.kwargs["data"])
 
