@@ -11,23 +11,32 @@ from zoneinfo import ZoneInfo
 ROOT = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 SCHEDULE_FILE = ROOT / "notice_schedule_state.json"
 HEALTH_FILE = ROOT / "source_health_state.json"
-KNOWN = ("메리", "히요리", "후야", "나나", "시부키", "시로", "리코", "린")
+ALIASES = {
+    "메리": ("메리",), "히요리": ("히요리", "하나요"), "후야": ("후야", "후유", "HUYA"),
+    "나나": ("나나",), "시부키": ("시부키", "부키"), "시로": ("시로",),
+    "리코": ("리코",), "린": ("린",),
+}
+COLLAB = re.compile(r"합방|콜라보|컬래버|함께\s*방송|같이\s*방송|[×Xx]\s*합방", re.I)
 KST = ZoneInfo("Asia/Seoul")
 _STATE_LOCK = threading.RLock()
 
 
-def participants(title, body):
-    """Only named collaborators adjacent to a collab statement are included."""
+def participants(title, body, creator=""):
+    """Recognize explicit collaborators, not unrelated names in chatter."""
     source = str(title or "") + "\n" + str(body or "")
     result = []
     for line in source.splitlines():
-        if "합방" not in line:
+        if not COLLAB.search(line):
             continue
-        for name in KNOWN:
-            if name in result:
+        for canonical, names in ALIASES.items():
+            if canonical in result or (creator and canonical == creator):
                 continue
-            if re.search(r"(?<![가-힣])" + re.escape(name) + r"(?:랑|하고|와|과|님과|님이|님도|,|·|\s|$)", line):
-                result.append(name)
+            for alias in names:
+                pattern = (r"(?<![가-힣A-Za-z])" + re.escape(alias) +
+                           r"(?:님)?(?=랑|하고|와|과|님|[\s,·×Xx]|$)")
+                if re.search(pattern, line, re.I):
+                    result.append(canonical)
+                    break
     return result[:4]
 
 
@@ -53,7 +62,7 @@ def _event_key(title, body, published):
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
-    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[.\\/-](\d{1,2})(?!\d)", source))
+    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", source))
     short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
     if len(full) > 1 or len(short) > 1:
         return None
@@ -91,7 +100,7 @@ def record_schedule(group, title, body, published, url):
     clocks = set(re.findall(r"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)", source))
     clocks.update(re.findall(r"(?:오전|오후)\s*(?:1[0-2]|[1-9])시(?:\s*(?:반|[0-5]?\d분))?", source))
     # Explicitly conflicting times are not suitable for automatic comparisons.
-    if len(clocks) != 1 and kind not in ("🚫 방송 취소 안내", "🌙 휴방 안내"):
+    if len(clocks) != 1 and kind not in ("🚫 방송 취소 안내", "🌙 휴방 안내") :
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
     with _STATE_LOCK:
