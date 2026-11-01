@@ -191,8 +191,31 @@ jobs:
                       name=group+'_'+kind+source.suffix
                       shutil.copyfile(source,out/name)
                       print('X_IMAGE',name,source.stat().st_size)
-          shutil.rmtree(root)
           PY
+      - name: Package all ten actually collected images
+        run: |
+          python - <<'PY'
+          import json, shutil
+          from pathlib import Path
+          root=Path('x-media-review/creator_media')
+          index=json.loads((root/'index.json').read_text())
+          out=Path('x-media-review/all-collected-images')
+          for group in ('hanayo','sakihane'):
+              for kind in ('profile','banner'):
+                  for item in index.get(group,{}).get(kind,[]):
+                      path=root/item['path']
+                      target=out/group/kind/(item['source']+path.suffix)
+                      target.parent.mkdir(parents=True,exist_ok=True)
+                      shutil.copyfile(path,target)
+                      print('ORIGINAL_IMAGE',target, path.stat().st_size)
+          PY
+      - name: Attach all collected originals
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-10-original-creator-images
+          path: x-media-review/all-collected-images/
+          if-no-files-found: error
+          retention-days: 14
       - name: Attach collected X images to workflow run
         uses: actions/upload-artifact@v4
         with:
