@@ -1,0 +1,32 @@
+name: Preview image card in Discord test thread
+on:
+  workflow_dispatch:
+    inputs:
+      streamer:
+        description: Streamer for the mock notification
+        required: true
+        type: choice
+        options:
+          - hanayo
+          - sakihane
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install image-preview dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate preview message without sending
+        run: python test_image_card.py --group "${{ inputs.streamer }}"
+      - name: Post preview to designated test thread
+        env:
+          TEST_DISCORD_WEBHOOK_URL: ${{ secrets.TEST_DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$TEST_DISCORD_WEBHOOK_URL" ]; then
+            echo "::error::Set TEST_DISCORD_WEBHOOK_URL under repository Actions secrets first."
+            exit 1
+          fi
+          python test_image_card.py --group "${{ inputs.streamer }}" --send
