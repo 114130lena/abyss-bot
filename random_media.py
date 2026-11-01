@@ -99,7 +99,7 @@ def _local_candidates(group, kind):
             if item.get("hashtag") != ("#hiyoriart_" if group == "hanayo" else "#huyart"):
                 continue
             rel = item.get("path", "")
-            if not isinstance(rel, str) or not rel.startswith("fanart/"):
+            if not isinstance(rel, str) or not (rel.startswith("fanart/") or rel.startswith("fanart_banners/")):
                 continue
             path = (MEDIA_ROOT / rel).resolve()
             if MEDIA_ROOT.resolve() not in path.parents or not path.is_file() or path.stat().st_size > 12*1024*1024:
@@ -152,7 +152,7 @@ def prepare_payload(payload):
         selected[kind] = picked
     # Attribute consent-approved fan art in the footer when selected.
     chosen_banner = selected["banner"][0]
-    if "fanart" in chosen_banner.relative_to(MEDIA_ROOT).parts:
+    if any(p in ("fanart","fanart_banners") for p in chosen_banner.relative_to(MEDIA_ROOT).parts):
         info = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
         record = next((v for v in info if isinstance(v, dict) and v.get("sha256") == selected["banner"][1]), None)
         if not record or not record.get("permission_confirmed"):
