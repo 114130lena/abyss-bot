@@ -1,0 +1,47 @@
+name: Inspect all notification delays
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  diagnose:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] all-platform-latency' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read service logs and channel freshness
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/latency_key
+          chmod 600 ~/.ssh/latency_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/latency_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,time
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          for name in ('POLL_INTERVAL','X_POLL_INTERVAL','CAFE_POLL_INTERVAL','YOUTUBE_POLL_INTERVAL','ABYSS_RANDOM_MEDIA','ABYSS_FANART_URLS'):
+              print('CONFIG',name,os.getenv(name,'default'))
+          import twitter_notifier as h,twitter_huya_notifier as f
+          for group,mod in [('hanayo',h),('sakihane',f)]:
+              begin=time.monotonic()
+              try:
+                  posts=mod._fetch_merged_posts()
+                  print('RSS',group,'elapsed',round(time.monotonic()-begin,2),'count',len(posts),'newest',[(p['id'],len(p.get('images',[])),p.get('pub_date')) for p in posts[-3:]])
+              except Exception as exc:print('RSS_FAILURE',group,type(exc).__name__,str(exc)[:150])
+          PY
+          echo EVENT_LOGS
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -Ei '작성 후 지연|알림 성공|알림 전송|YOUTUBE_FEED_RETRY|X_RSS_FETCH|RSS 서버 조회 실패|후야 X RSS 소스 실패|CAFE.*FAIL|ERROR|FANART_FALLBACK' | tail -n 160 || true
+          echo SERVICE
+          sudo systemctl is-active chzzk-bot.service
+          REMOTE
