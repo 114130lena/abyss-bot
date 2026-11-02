@@ -883,3 +883,70 @@ jobs:
           print('THREAD_ROUTE_CONFIRMED')
           PY
           REMOTE
+
+  fix_live_layout:
+    if: ${{ github.event.issue.title == '[abyss-deploy] latest-layout' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Authorize repository owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: test "$OWNER" = "$AUTHOR"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate current design
+        run: |
+          python -m py_compile discord_v2.py
+          grep -q 'STELLIVE · ABYSS' discord_v2.py
+          grep -q 'OFFICIAL LINKS' discord_v2.py
+      - name: Inspect live version, deploy, test and restart
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes discord_v2.py "$SSH_USER@$SSH_HOST:/tmp/abyss_new_discord_v2.py"
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          echo 'BEFORE_SHA:'; sha256sum discord_v2.py
+          echo 'BEFORE_LATEST_MARKER:'; grep -c 'STELLIVE · ABYSS' discord_v2.py || :
+          echo 'SERVICE_UNIT:'; systemctl show chzzk-bot.service -p WorkingDirectory -p ExecStart --no-pager | cut -c 1-350
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/abyss_new_discord_v2.py
+          "$PY" - <<'PY'
+          import importlib.util
+          s=importlib.util.spec_from_file_location('design','/tmp/abyss_new_discord_v2.py')
+          d=importlib.util.module_from_spec(s);s.loader.exec_module(d)
+          for creator,handle in [('하나요 히요리','@HanayoHiyori'),('사키하네 후야','@SakihaneHuya')]:
+              for platform in ('chzzk','youtube','cafe','x'):
+                  p=d.alert(platform,creator,banner='https://example.com/banner.jpg',
+                       role_id='',title='디자인 확인용',url='https://example.com',
+                       avatar='https://example.com/avatar.jpg',handle=handle,ping=False)
+                  components=p['components'][-1]['components']
+                  assert any(i['type']==9 for i in components), (creator,platform)
+                  assert any(i['type']==10 and 'OFFICIAL LINKS' in i.get('content','') for i in components)
+          print('ALL_PLATFORM_DESIGNS_OK')
+          PY
+          mkdir -p backups/layout-upgrade
+          cp discord_v2.py backups/layout-upgrade/discord_v2.py
+          cp /tmp/abyss_new_discord_v2.py discord_v2.py
+          sudo systemctl restart chzzk-bot.service
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+            cp backups/layout-upgrade/discord_v2.py discord_v2.py
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          }
+          echo 'AFTER_SHA:'; sha256sum discord_v2.py
+          echo 'LATEST_LAYOUT_DEPLOY_SUCCESS'
+          REMOTE
