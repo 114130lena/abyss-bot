@@ -357,6 +357,19 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
+        if not _valid_url(chzzk) and group == "hanayo":
+            # The live monitor stores both channel IDs in channels.txt, whereas
+            # only Sakihane is explicitly mapped in CHZZK_GROUPS.
+            from pathlib import Path
+            import re
+            channels = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot")) / "channels.txt"
+            try:
+                matches = [line.strip() for line in channels.read_text(encoding="utf-8").splitlines()
+                           if re.fullmatch(r"[0-9a-f]{32}",line.strip()) and line.strip() not in CHZZK_GROUPS]
+                if len(matches) == 1:
+                    chzzk = "https://chzzk.naver.com/" + matches[0]
+            except OSError:
+                pass
         if not _valid_url(chzzk) and platform == "chzzk" and _valid_url(url):
             from urllib.parse import urlparse
             parsed = urlparse(url)
