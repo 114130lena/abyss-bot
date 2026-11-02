@@ -103,7 +103,10 @@ def send_webhook(url, payload, attempts=3):
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
                     if selected_urls:
-                        # Keep 'chosen' so the randomized official profile file is attached.\n                        # Fanart replaces only the footer URL, not the profile attachment.\n                        prepared = linked\n                        logging.info('FANART_SELECTED group=%s source=%s', selected_urls.get('group'), selected_urls.get('banner', ('','',''))[2])
+                        # Keep 'chosen' so the randomized official profile file is attached.
+                        # Fanart replaces only the footer URL, not the profile attachment.
+                        prepared = linked
+                        logging.info('FANART_SELECTED group=%s source=%s', selected_urls.get('group'), selected_urls.get('banner', ('','',''))[2])
                 except Exception as exc:
                     logging.warning("팬아트 링크 선택 실패: %s", exc)
             # Attach X post photos alongside the existing random header/footer images.
