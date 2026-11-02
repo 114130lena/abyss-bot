@@ -248,28 +248,38 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         "cafe": "🟢 NAVER CAFE",
     }[platform]
     pieces = []
+    # Native Section profile header: name/handle left, creator portrait right.
     identity = "## " + _safe_markdown(creator)
-    if handle:
-        identity += "\n" + _safe_markdown(handle)
-    theme = _creator_theme(creator, handle)
-    if theme:
-        identity += "\n" + theme
-    if _valid_url(avatar):
+    if "히요리" in creator:
+        identity += " HANAYO HIYORI"
+    elif "후야" in creator:
+        identity += " SAKIHANE HUYA"
+    if "후야" in creator:
+        identity += "\n-# @SakihaneHuya"
+    elif handle:
+        identity += "\n-# " + _safe_markdown(handle)
+    if "히요리" in creator:
+        identity += "\n## STELLIVE · ABYSS"
+    elif "후야" in creator:
+        identity += "\n## STELLIVE · EVERYS"
+    if _valid_url(avatar) or str(avatar).startswith("attachment://"):
         pieces.append({"type": 9, "components": [text(identity)],
                        "accessory": {"type": 11, "media": {"url": avatar},
                                      "description": creator + " 프로필 사진"}})
     else:
         pieces.append(text(identity))
     pieces.append(separator())
-    pieces.append(text("**" + tag + "**" + ("\n🔴 **LIVE NOW · 방송 중**" if platform == "chzzk" and not replay else "")))
+    pieces.append(text("**🟢 CHZZK · LIVE**" if platform == "chzzk" and not replay else "**" + tag + "**"))
     if platform == "x" and not title:
         title, body = _x_headline(body)
     if title:
         display = _safe_markdown(str(title).replace("\n", " ").strip()[:500])
-        if _valid_url(url):
-            pieces.append(text("## [" + display + "](" + url + ")"))
+        # Title is clickable; category follows outside the hyperlink on the same line.
+        title_line = "[" + display + "](" + url + ")" if _valid_url(url) else display
+        if platform == "chzzk" and category:
+            pieces.append(text("## " + title_line + "\n-# · " + _safe_markdown(str(category)[:80])))
         else:
-            pieces.append(text("## " + display))
+            pieces.append(text("## " + title_line))
     analysis_lines = []
     if platform in ("cafe", "x"):
         notice_type = _notice_type(title, body)
@@ -308,9 +318,9 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             for value in media[:4]
         ]})
     footer = []
-    if category:
+    if category and platform != "chzzk":
         footer.append(str(category)[:100])
-    if date:
+    if date and platform != "chzzk":
         label = ("방송 시작" if platform == "chzzk" and not replay else
                  "등록" if replay else "업로드" if platform == "youtube" else "작성")
         footer.append(label + " · " + _korean_datetime(date) + " KST")
@@ -319,10 +329,56 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
     if footer:
         pieces.append(separator())
         pieces.append(text(" · ".join(footer)))
-    if _valid_url(url):
+    # Titles are clickable; retain a source button for platforms without linked titles.
+    if _valid_url(url) and not title:
         pieces.append(_link_button(url, platform, replay))
     if _valid_url(banner):
-        pieces.append(gallery(banner, "스트리머 공식 배너"))
+        pieces.append(separator())
+        # Small signature above the full-width official YouTube banner.
+        signature = _creator_theme(creator, handle)
+        label = "-# 공식 채널 · OFFICIAL LINKS"
+        if signature:
+            label += " · " + signature
+        pieces.append(text(label))
+        pieces.append(gallery(banner, "공식 유튜브 채널 배너"))
+    import os
+    identity_key = (creator + " " + handle).casefold()
+    group = ("hanayo" if "히요리" in identity_key or "hanayo" in identity_key
+             else "sakihane" if "후야" in identity_key or "sakihane" in identity_key
+             else "")
+    # Never substitute another creator's links if a channel ID is not configured.
+    if group:
+        from creator_groups import CHZZK_GROUPS
+        chzzk_id = next((cid for cid, g in CHZZK_GROUPS.items() if g == group), "")
+        youtube = ("https://www.youtube.com/@HanayoHiyori" if group == "hanayo"
+                   else "https://www.youtube.com/@Sakihanechannel")
+        twitter = ("https://x.com/HanayoHiyori" if group == "hanayo"
+                   else "https://x.com/SakihaneHuya")
+        chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
+        if not _valid_url(chzzk) and chzzk_id:
+            chzzk = "https://chzzk.naver.com/" + chzzk_id
+        cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
+        links = [("CHZZK", chzzk), ("CAFE", cafe),
+                 ("X", twitter), ("YouTube", youtube)]
+        buttons = [{"type": 2, "style": 5, "label": name, "url": address}
+                   for name, address in links if _valid_url(address)]
+        if buttons:
+            pieces.append({"type": 1, "components": buttons})
+    # Discord containers are limited to 10 direct components; avoid API rejection.
+    # Prefer dropping optional separators if posts contain many independent fields.
+    while len(pieces) > 10:
+        for index in range(len(pieces) - 1, -1, -1):
+            if pieces[index]["type"] == 14:
+                pieces.pop(index)
+                break
+        else:
+            # When a long post exceeds the limit, merge neighboring text displays.
+            for index in range(len(pieces) - 2):
+                if pieces[index]["type"] == 10 and pieces[index+1]["type"] == 10:
+                    pieces[index]["content"] += "\n" + pieces.pop(index+1)["content"]
+                    break
+            else:
+                raise ValueError("Too many Discord V2 components")
     outer = []
     if role_id:
         outer.append(text("<@&" + role_id + ">" if ping else "[테스트] 멘션 비활성화"))
