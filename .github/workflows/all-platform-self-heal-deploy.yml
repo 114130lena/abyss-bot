@@ -1,0 +1,72 @@
+name: Deploy cross-platform auto recovery
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] all-platform-self-heal' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile and verify watchdog recovery thresholds
+        run: |
+          python -m py_compile main.py platform_self_heal.py
+          python - <<'PY'
+          import time
+          from platform_self_heal import Supervisor
+          s=Supervisor(stall_seconds=10)
+          s.register("youtube")
+          assert not s.problems(live_names={"youtube"})
+          assert s.problems(live_names=set())[0] == ("youtube","dead")
+          s.begin("youtube")
+          assert s.problems(live_names={"youtube"},now=time.monotonic()+11)[0] == ("youtube","stalled")
+          s.finish("youtube")
+          assert not s.problems(live_names={"youtube"})
+          print("SELF_HEAL_TESTS_PASSED")
+          PY
+      - name: Install safe service restart and validate all worker threads
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/selfheal_key
+          chmod 600 ~/.ssh/selfheal_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in main.py platform_self_heal.py; do
+            scp -i ~/.ssh/selfheal_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/selfheal_$f"
+          done
+          ssh -i ~/.ssh/selfheal_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p backups/all-platform-self-heal
+          cp main.py backups/all-platform-self-heal/main.py
+          cp /tmp/selfheal_main.py main.py
+          cp /tmp/selfheal_platform_self_heal.py platform_self_heal.py
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile main.py platform_self_heal.py
+          sudo mkdir -p /etc/systemd/system/chzzk-bot.service.d
+          printf '[Service]\nRestart=on-failure\nRestartSec=10s\nStartLimitIntervalSec=0\n' | sudo tee /etc/systemd/system/chzzk-bot.service.d/auto-recovery.conf >/dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          "$PY" - <<'PY'
+          from platform_self_heal import Supervisor
+          s=Supervisor()
+          for n in ("네이버 카페","X RSS","후야 X RSS","X Spaces","유튜브","치지직 다시보기"):
+              s.register(n)
+          print("RECOVERY_WORKERS",len(s._states))
+          PY
+          echo SERVICE_RESTART_POLICY
+          sudo systemctl show chzzk-bot.service -p Restart -p RestartUSec -p ActiveState
+          echo ALL_PLATFORM_SELF_HEAL_DEPLOY_SUCCESS
+          REMOTE
