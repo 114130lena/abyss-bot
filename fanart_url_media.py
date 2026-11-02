@@ -77,12 +77,16 @@ def apply(payload, group=None):
                 return payload,None
             button={"type":2,"style":5,"label":"원본 게시물","url":source}
             row=next((x for x in reversed(parts) if x.get("type")==1 and isinstance(x.get("components"),list)),None)
-            if row and len(row["components"])<5:
-                row["components"]=[button]+[x for x in row["components"] if x.get("label")!="원본 게시물"]
-            elif not row and len(parts)<10:
-                parts.append({"type":1,"components":[button]})
-            else:
+            # This is a fifth *new* button. Never overwrite one of the four
+            # permanent platform links or silently trim the last button.
+            required=("CHZZK","CAFE","X","YouTube")
+            if not row:
                 return payload,None
+            base_buttons=[x for x in row["components"] if x.get("label")!="원본 게시물"]
+            if tuple(x.get("label") for x in base_buttons)!=required:
+                return payload,None
+            row["components"]=[button]+base_buttons
+            assert len(row["components"])==5
             return out,{"group":group,"avatar":picked,"banner":picked}
     return payload,None
 
