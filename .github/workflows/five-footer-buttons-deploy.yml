@@ -1,0 +1,80 @@
+name: Deploy fixed four and five footer links
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] five-footer-buttons' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile updated card and fanart modules
+        run: python -m py_compile discord_v2.py fanart_url_media.py
+      - name: Verify actual server footer buttons before deploying
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/footer_key
+          chmod 600 ~/.ssh/footer_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in discord_v2.py fanart_url_media.py; do
+            scp -i ~/.ssh/footer_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/five_footer_$f"
+          done
+          ssh -i ~/.ssh/footer_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,os,sys
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          spec=importlib.util.spec_from_file_location('discord_v2_new','/tmp/five_footer_discord_v2.py')
+          layout=importlib.util.module_from_spec(spec);spec.loader.exec_module(layout)
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              for platform in ('chzzk','youtube','x','cafe'):
+                  p=layout.alert(platform,name,banner=get_banner(group),role_id='',title='버튼 검증',
+                      body='확인용',url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),ping=False)
+                  rows=[c for box in p.get('components',[]) for c in box.get('components',[]) if c.get('type')==1]
+                  buttons=[b.get('label') for row in rows for b in row.get('components',[])]
+                  assert buttons == ['CHZZK','CAFE','X','YouTube'],(group,platform,buttons)
+                  print('FOUR_BUTTONS_OK',group,platform,','.join(buttons),flush=True)
+          PY
+          mkdir -p backups/footer-buttons
+          cp discord_v2.py backups/footer-buttons/discord_v2.py
+          cp fanart_url_media.py backups/footer-buttons/fanart_url_media.py
+          cp /tmp/five_footer_discord_v2.py discord_v2.py
+          cp /tmp/five_footer_fanart_url_media.py fanart_url_media.py
+          "$PY" -m py_compile discord_v2.py fanart_url_media.py
+          "$PY" - <<'PY'
+          from discord_v2 import alert
+          from fanart_url_media import apply,candidates
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              assert candidates(group),(group,'missing fanart')
+              p=alert('chzzk',name,banner=get_banner(group),role_id='',title='팬아트 버튼 테스트',
+                  url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),ping=False)
+              out,selected=apply(p,group)
+              assert selected,(group,'fanart unavailable')
+              rows=[c for box in out['components'] for c in box.get('components',[]) if c.get('type')==1]
+              buttons=[b['label'] for row in rows for b in row['components']]
+              assert buttons==['원본 게시물','CHZZK','CAFE','X','YouTube'],(group,buttons)
+              print('FIVE_BUTTONS_OK',group,','.join(buttons),flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo FIVE_FOOTER_BUTTONS_DEPLOY_SUCCESS
+          REMOTE
