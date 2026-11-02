@@ -24,6 +24,52 @@ def load_json(path, default):
     except FileNotFoundError:
         return default
 
+def _collect_x_image_attachments(prepared):
+    """Resolve only X media photo URLs and attach verified image bytes.
+
+    Original URL remains untouched if fetching the photo fails.
+    """
+    import io
+    from urllib.parse import urlsplit
+    from PIL import Image
+    attachments = []
+    for container in prepared.get("components", []):
+        for block in container.get("components", []):
+            if block.get("type") != 12:
+                continue
+            for item in block.get("items", []):
+                media = item.get("media", {})
+                source = media.get("url", "")
+                parsed = urlsplit(source)
+                if parsed.scheme != "https" or parsed.hostname != "pbs.twimg.com" or not parsed.path.startswith("/media/"):
+                    continue
+                if len(attachments) >= 4:
+                    return attachments
+                try:
+                    with requests.get(source, stream=True, timeout=12, allow_redirects=False) as res:
+                        res.raise_for_status()
+                        if not res.headers.get("Content-Type", "").lower().startswith("image/"):
+                            continue
+                        raw = bytearray()
+                        for part in res.iter_content(65536):
+                            raw.extend(part)
+                            if len(raw) > 8_000_000:
+                                raise ValueError("X image exceeds attachment limit")
+                    with Image.open(io.BytesIO(raw)) as im:
+                        im.verify()
+                    with Image.open(io.BytesIO(raw)) as im:
+                        if im.format not in ("JPEG", "PNG", "WEBP"):
+                            continue
+                        kind = im.format
+                    ext = ".png" if kind == "PNG" else ".webp" if kind == "WEBP" else ".jpg"
+                    name = "abyss_x_media_" + str(len(attachments)) + ext
+                    media["url"] = "attachment://" + name
+                    mime = "image/png" if ext == ".png" else "image/webp" if ext == ".webp" else "image/jpeg"
+                    attachments.append((name, bytes(raw), mime))
+                except (requests.RequestException, ValueError, OSError, TypeError) as exc:
+                    logging.warning("X post picture URL fetch failed; original URL retained: %s", type(exc).__name__)
+    return attachments
+
 def send_webhook(url, payload, attempts=3):
     """Retry transient HTTP/network failures, respecting Discord retry_after."""
     if not url.startswith("https://"):
@@ -33,9 +79,77 @@ def send_webhook(url, payload, attempts=3):
         url = url + separator + "with_components=true"
     for attempt in range(attempts):
         try:
-            response = requests.post(url, json=payload, timeout=12)
+            prepared = payload
+            chosen = None
+            selected_urls = None
+            # X/Cafe posts with their own photos keep the original official banner.
+            # Skip randomized local attachments entirely for those notifications.
+            native_post_photo = False
+            try:
+                from fanart_url_media import has_post_photos
+                native_post_photo = has_post_photos(payload)
+                tag = " ".join(c.get("content","") for box in payload.get("components",[]) if box.get("type")==17 for c in box.get("components",[]) if c.get("type")==10)
+                native_post_photo = native_post_photo or "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag)
+            except Exception as exc:
+                logging.warning("게시글 이미지 확인 실패: %s", exc)
+            if not native_post_photo and os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
+                try:
+                    from random_media import prepare_payload
+                    prepared, chosen = prepare_payload(payload)
+                except Exception as exc:
+                    logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
+            if os.getenv("ABYSS_FANART_URLS", "0") == "1":
+                try:
+                    from fanart_url_media import apply as apply_fanart_urls
+                    linked, selected_urls = apply_fanart_urls(prepared)
+                    if selected_urls:
+                        # Keep 'chosen' so the randomized official profile file is attached.
+                        # Fanart replaces only the footer URL, not the profile attachment.
+                        prepared = linked
+                        logging.info('FANART_SELECTED group=%s source=%s', selected_urls.get('group'), selected_urls.get('banner', ('','',''))[2])
+                except Exception as exc:
+                    logging.warning("팬아트 링크 선택 실패: %s", exc)
+            # Attach X post photos alongside the existing random header/footer images.
+            # Work from a fresh payload copy so retries never use stale attachment URLs.
+            if prepared is payload:
+                import copy
+                prepared = copy.deepcopy(payload)
+            x_photos = _collect_x_image_attachments(prepared)
+            if chosen or x_photos:
+                from contextlib import ExitStack
+                import io
+                with ExitStack() as stack:
+                    uploaded = {}
+                    offset = 0
+                    if chosen:
+                        group, selected = chosen
+                        for i, kind in enumerate(("profile", "banner")):
+                            path = selected[kind][0]
+                            mime = ("image/png" if path.suffix.lower() == ".png"
+                                    else "image/webp" if path.suffix.lower() == ".webp" else "image/jpeg")
+                            uploaded[f"files[{i}]"] = ("abyss_" + kind + path.suffix,
+                                                       stack.enter_context(path.open("rb")), mime)
+                        offset = 2
+                    for i,(filename,data,mime) in enumerate(x_photos):
+                        uploaded[f"files[{i+offset}]"] = (filename,io.BytesIO(data),mime)
+                    response = requests.post(url, data={"payload_json": json.dumps(prepared, ensure_ascii=False)},
+                                             files=uploaded, timeout=35)
+            else:
+                response = requests.post(url, json=prepared, timeout=12)
             if response.status_code not in (429, 500, 502, 503, 504):
                 response.raise_for_status()
+                if selected_urls:
+                    try:
+                        from fanart_url_media import mark_delivered as mark_fanart_delivered
+                        mark_fanart_delivered(selected_urls)
+                    except Exception as exc:
+                        logging.warning("팬아트 사용 기록 저장 실패: %s", exc)
+                if chosen:
+                    try:
+                        from random_media import mark_delivered
+                        mark_delivered(*chosen)
+                    except Exception as exc:
+                        logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()
