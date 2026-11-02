@@ -67,6 +67,18 @@ jobs:
                   unchanged,art=mod.apply(with_photo,group)
                   assert art is None and unchanged==with_photo, (group,platform)
                   print('FANART_SUPPRESSED_FOR_POST_PHOTO',group,platform,flush=True)
+              # A YouTube thumbnail does not suppress artist media.
+              youtube=alert('youtube',name,banner=get_banner(group),role_id='',
+                  title='[테스트] 유튜브 영상 썸네일',url='https://www.youtube.com/',
+                  images=['https://i.ytimg.com/vi/example/hqdefault.jpg'],
+                  avatar=avatar(group),handle=handle(group),ping=False)
+              assert mod.has_post_photos(youtube) is False
+              # CHZZK live and replay are also eligible for fanart.
+              for replay in (False,True):
+                  chzzk=alert('chzzk',name,banner=get_banner(group),role_id='',
+                      title='[테스트] 치지직',url='https://chzzk.naver.com/',
+                      avatar=avatar(group),handle=handle(group),ping=False,replay=replay)
+                  assert mod.has_post_photos(chzzk) is False
               prepared,selected=mod.apply(payload,group)
               assert selected, 'No URL-based art available'
               parts=prepared['components'][-1]['components']
