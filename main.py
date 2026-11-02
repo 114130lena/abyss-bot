@@ -95,7 +95,8 @@ def send_discord_notification(live):
         title=live["title"], url=live["url"],
         media_url=live.get("thumbnail", ""),
         category=live.get("category", ""), date=live.get("open_date", ""),
-        handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group))
+        handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group),
+        chzzk_channel_id=live["channel_id"])
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
