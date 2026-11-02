@@ -1,3 +1,4 @@
+import x_feed_health as feed_health
 """Independent Huya X RSS watcher; reuses the existing validated RSS parsing helpers."""
 import json
 import logging
@@ -35,7 +36,7 @@ failures = 0
 
 
 def _fetch_posts(feed):
-    response = requests.get(feed, timeout=8, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
+    response = requests.get(feed, timeout=5, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -62,7 +63,7 @@ def _fetch_merged_posts():
     posts = {}
     successes = 0
     with ThreadPoolExecutor(max_workers=min(3, len(FEEDS))) as pool:
-        jobs = {pool.submit(_fetch_posts, url): url for url in FEEDS}
+        jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
         for job in as_completed(jobs):
             try:
                 items = job.result()
@@ -75,14 +76,7 @@ def _fetch_merged_posts():
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
     if successes == 0:
         raise ValueError("All Huya X RSS sources failed")
-    if any(not p.get("images") for p in posts.values()):
-        try:
-            fallback = common._fx_image_map(USERNAME)
-            for post_id, post in posts.items():
-                if not post.get("images"):
-                    post["images"] = fallback.get(post_id, [])
-        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            logging.info("Huya FxEmbed image fallback unavailable: %s", type(exc).__name__)
+    # Do not block alert delivery on optional FxEmbed media enrichment.
     return sorted(posts.values(), key=lambda item: int(item["id"]))
 
 
