@@ -88,6 +88,8 @@ def send_webhook(url, payload, attempts=3):
             try:
                 from fanart_url_media import has_post_photos
                 native_post_photo = has_post_photos(payload)
+                tag = " ".join(c.get("content","") for box in payload.get("components",[]) if box.get("type")==17 for c in box.get("components",[]) if c.get("type")==10)
+                native_post_photo = native_post_photo or "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag)
             except Exception as exc:
                 logging.warning("게시글 이미지 확인 실패: %s", exc)
             if not native_post_photo and os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
