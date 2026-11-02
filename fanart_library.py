@@ -54,6 +54,19 @@ def make_banner(source, destination, width=1280, height=720):
         destination.parent.mkdir(parents=True,exist_ok=True)
         background.save(destination,format="JPEG",quality=90,optimize=True)
 
+def make_profile(source, destination, size=512):
+    """Create a square avatar, preserving the illustration in a blurred backdrop."""
+    from PIL import ImageOps, ImageFilter
+    with Image.open(source) as original:
+        image = ImageOps.exif_transpose(original).convert("RGB")
+        foreground = ImageOps.contain(image, (size, size), Image.Resampling.LANCZOS)
+        backdrop = ImageOps.fit(image, (size, size), method=Image.Resampling.LANCZOS)
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(22))
+        backdrop = Image.blend(backdrop, Image.new("RGB", (size, size), (21, 23, 32)), 0.35)
+        backdrop.paste(foreground, ((size - foreground.width)//2, (size - foreground.height)//2))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        backdrop.save(destination, format="JPEG", quality=92, optimize=True)
+
 def ingest():
     """Only accept creator-consented submissions with verified exact hashtag.
 
@@ -96,10 +109,13 @@ def ingest():
             if not target.exists(): shutil.copyfile(source,target)
             banner=BASE/'fanart_banners'/group/(digest+'.jpg')
             if not banner.exists(): make_banner(target,banner)
+            profile=BASE/"fanart_profiles"/group/(digest+".jpg")
+            if not profile.exists(): make_profile(target,profile)
             entries=output.setdefault(group,[])
             if not any(x.get("sha256")==digest for x in entries):
                 entries.append({"sha256":digest,"path":str(banner.relative_to(BASE)),
                     "original_path":str(target.relative_to(BASE)),
+                    "profile_path":str(profile.relative_to(BASE)),
                     "post_url":item["post_url"],"artist":item["artist"],
                     "hashtag":"#"+TAGS[group],"approved":True,
                     "permission_confirmed":True,"width":w,"height":h,
