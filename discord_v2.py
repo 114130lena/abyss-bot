@@ -222,9 +222,9 @@ def _creator_theme(creator, handle):
     """Cosmetic only: do not change role IDs or platform color accents."""
     identity = (str(creator) + " " + str(handle)).casefold()
     if "히요리" in identity or "hanayo" in identity:
-        return "🌸 H I Y O R I"
+        return "🌸 HIYORI"
     if "후야" in identity or "sakihane" in identity:
-        return "💜🐲 H U Y A"
+        return "💜🐲 HUYA"
     return ""
 
 
