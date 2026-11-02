@@ -1117,7 +1117,7 @@ jobs:
              ('x','sakihane','사키하네 후야','[랜덤 이미지 테스트 5/5] X 리트윗','','리트윗 알림 디자인 테스트 · 멘션 없음'),
           ]
           for platform,group,name,title,category,body in cases:
-              payload=alert(platform,name,get_banner(group),role_id='',title=title,category=category,body=body,
+              payload=alert(platform,name,get_banner(group) or __import__('json').loads(__import__('pathlib').Path('creator_media/index.json').read_text())[group]['banner'][0]['original_url'],role_id='',title=title,category=category,body=body,
                  url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
                  avatar=avatar(group),handle=handle(group),ping=False)
               payload['allowed_mentions']={'parse':[]}
