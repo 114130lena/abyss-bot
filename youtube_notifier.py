@@ -241,7 +241,12 @@ def _check_youtube_channels(channel_ids):
         except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
             count = _channel_failures.get(channel_id, 0) + 1
             _channel_failures[channel_id] = count
-            delay = min(1800, INTERVAL * (2 ** min(count, 4)))
+            # YouTube RSS occasionally responds with transient 404/500. Do not wait up to 30 min.
+            # Retry within 60-120 s, with a little jitter to avoid synchronized requests.
+            import random
+            delay = min(120, max(30, INTERVAL) + min(count, 4) * 15) + random.uniform(0, 5)
+            logging.warning("YOUTUBE_FEED_RETRY channel=%s status=%s delay_s=%.1f",
+                            channel_id, getattr(getattr(exc, "response", None), "status_code", None), delay)
             _channel_retry_at[channel_id] = time.monotonic() + delay
             warn_failure("YouTube " + channel_id, count, exc)
             continue
