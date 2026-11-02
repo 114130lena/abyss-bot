@@ -1,7 +1,8 @@
 """Weekly disk cleanup for unneeded fanart candidate JPEG copies.
 Keeps original post metadata and permanent delivered-URL history unchanged.
 """
-import json,os,time
+import json,os,time,sys
+sys.path.insert(0,'/home/ubuntu/chzzk-bot')
 from pathlib import Path
 from fanart_discovery import BASE,QUEUE,read,write
 CACHE=(BASE/"fanart_candidates").resolve()
