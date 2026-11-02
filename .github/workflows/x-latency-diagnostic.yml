@@ -1,0 +1,68 @@
+name: Diagnose X alert latency
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] x-latency' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Inspect X RSS and recent bot logs without sending notifications
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_diag_key
+          chmod 600 ~/.ssh/abyss_diag_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_diag_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import os,requests,time,xml.etree.ElementTree as ET
+          from email.utils import parsedate_to_datetime
+          from datetime import datetime,timezone
+          import twitter_notifier as hi
+          import twitter_huya_notifier as fu
+          print('X_POLL_INTERVAL',os.getenv('X_POLL_INTERVAL','default=30'))
+          print('FEED_COUNTS',len(hi.ALL_FEEDS),len(fu.FEEDS))
+          for group,feeds in (('hanayo',hi.ALL_FEEDS),('sakihane',fu.FEEDS)):
+              for url in feeds:
+                  t=time.monotonic()
+                  try:
+                      r=requests.get(url,timeout=9,headers={'User-Agent':'abyss-bot/1.0 (RSS polling)'})
+                      elapsed=round(time.monotonic()-t,2)
+                      r.raise_for_status()
+                      root=ET.fromstring(r.content)
+                      items=root.findall('./channel/item')
+                      latest=[]
+                      for item in items:
+                          dt=item.findtext('pubDate')
+                          if not dt:continue
+                          try:age=round((datetime.now(timezone.utc)-parsedate_to_datetime(dt).astimezone(timezone.utc)).total_seconds()/60,1)
+                          except Exception:continue
+                          latest.append(age)
+                      print('RSS_SOURCE',group,url.split('/')[2],'http',r.status_code,'seconds',elapsed,'items',len(items),'freshest_age_min',min(latest) if latest else 'unknown')
+                  except Exception as e:
+                      print('RSS_SOURCE',group,url.split('/')[2],'seconds',round(time.monotonic()-t,2),'error',type(e).__name__,str(e)[:120])
+          for group,mod in (('hanayo',hi),('sakihane',fu)):
+              t=time.monotonic()
+              try:
+                  posts=mod._fetch_merged_posts()
+                  print('MERGE',group,'elapsed_s',round(time.monotonic()-t,2),'posts',len(posts),'latest_pub_date',posts[-1].get('pub_date','') if posts else '')
+              except Exception as e:
+                  print('MERGE',group,'elapsed_s',round(time.monotonic()-t,2),'error',type(e).__name__,str(e)[:160])
+          PY
+          echo RECENT_X_DELIVERY_LOGS
+          sudo journalctl -u chzzk-bot.service --since '8 hours ago' --no-pager -o short-iso | grep -Ei 'X RSS|X 새 |후야 X|X post|webhook|429|retry|timeout' | tail -n 75 || true
+          REMOTE
