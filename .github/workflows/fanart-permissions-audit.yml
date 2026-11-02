@@ -1,0 +1,51 @@
+name: Fanart permissions evidence audit
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  audit:
+    if: ${{ github.event.issue.title == '[abyss-audit] fanart-permissions' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read candidate metadata and print rights evidence without modifying status
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/audit_key
+          chmod 600 ~/.ssh/audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,sys,re,collections
+          from pathlib import Path
+          sys.path.insert(0,'/home/ubuntu/chzzk-bot')
+          from fanart_discovery import read,QUEUE,classify,DENY,ALLOW,CREDIT
+          data=read(QUEUE)
+          count=collections.Counter()
+          for key,item in sorted(data.items()):
+              t=str(item.get("text",""))
+              status=classify(t)
+              count[status]+=1
+              evidence=[]
+              for cat,patterns in (("DENY",DENY),("ALLOW",ALLOW),("CREDIT",CREDIT)):
+                  for pattern in patterns:
+                      m=re.search(pattern,t,re.I)
+                      if m:
+                          evidence.append({"kind":cat,"matched":m.group(0),"context":t[max(0,m.start()-38):m.end()+55]})
+                          break
+              result={"id":key,"artist":item.get("artist"),"post_url":item.get("post_url"),"group":item.get("group"),"status":status,"review_status":item.get("review_status"),"evidence":evidence,"text_excerpt":t[:150]}
+              print("FANART_AUDIT "+json.dumps(result,ensure_ascii=False))
+          print("FANART_TOTAL "+json.dumps({"total":len(data),"classifications":dict(count)},ensure_ascii=False))
+          PY
+          REMOTE
