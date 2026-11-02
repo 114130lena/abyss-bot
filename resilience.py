@@ -87,6 +87,14 @@ def send_webhook(url, payload, attempts=3):
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
+            if os.getenv("ABYSS_FANART_URLS", "0") == "1":
+                try:
+                    from fanart_url_media import apply as apply_fanart_urls
+                    linked, selected_urls = apply_fanart_urls(prepared)
+                    if selected_urls:
+                        prepared, chosen = linked, None
+                except Exception as exc:
+                    logging.warning("팬아트 링크 선택 실패: %s", exc)
             # Attach X post photos alongside the existing random header/footer images.
             # Work from a fresh payload copy so retries never use stale attachment URLs.
             if prepared is payload:
