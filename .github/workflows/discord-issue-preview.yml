@@ -762,3 +762,64 @@ jobs:
           }
           echo X_REPOST_SPACES_DEPLOY_SUCCESS
           REMOTE
+
+  deploy_repost_fix:
+    if: ${{ github.event.issue.title == '[abyss-deploy] repost-fix' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Owner only
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py
+      - name: Test classification and deploy with rollback
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py; do
+            scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_repost_fix_$f"
+          done
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,sys
+          p='/tmp/abyss_repost_fix_x_repost_notifier.py'
+          spec=importlib.util.spec_from_file_location('x_repost_notifier',p)
+          x=importlib.util.module_from_spec(spec);sys.modules['x_repost_notifier']=x;spec.loader.exec_module(x)
+          for title in ('RT by HanayoHiyori', 'RT by @SakihaneHuya: new art','Reposted by @SakihaneHuya', 'Retweeted by HanayoHiyori','Repost: cool art'):
+              assert x.is_repost(title),title
+          for title in ('New art posted', 'Live streaming today','Replying to @someone'):
+              assert not x.is_repost(title),title
+          assert 'thread_id=1566509366591627344' in x.thread_url('https://discord.com/api/webhooks/1/token')
+          print('REPOST_CLASSIFICATION_OK')
+          PY
+          mkdir -p backups/repost-fix
+          for f in twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py; do
+            cp "$f" "backups/repost-fix/$f"
+            cp "/tmp/abyss_repost_fix_$f" "$f"
+          done
+          "$PY" -m py_compile twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py
+          sudo systemctl restart chzzk-bot.service
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+            for f in twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py; do cp "backups/repost-fix/$f" "$f"; done
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          }
+          echo REPOST_FIX_DEPLOY_SUCCESS
+          REMOTE
