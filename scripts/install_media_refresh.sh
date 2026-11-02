@@ -4,7 +4,7 @@ cd /home/ubuntu/chzzk-bot
 PY=.venv/bin/python
 if [ ! -x "$PY" ]; then PY=.venv-test/bin/python; fi
 test -x "$PY"
-"$PY" -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py random_media.py
+"$PY" -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py fanart_candidate_cache.py random_media.py
 mkdir -p creator_media/fanart_inbox
 "$PY" fanart_library.py
 cat >/tmp/abyss-media-refresh.service <<EOF
@@ -16,7 +16,7 @@ User=$(whoami)
 WorkingDirectory=/home/ubuntu/chzzk-bot
 Environment=BOT_DATA_DIR=/home/ubuntu/chzzk-bot
 Environment=ABYSS_PUBLIC_X_DISCOVERY=0
-ExecStart=/bin/bash -c '$PY collect_creator_media.py; $PY fanart_discovery.py; $PY fanart_fx_rss.py; $PY fanart_library.py'
+ExecStart=/bin/bash -c '$PY collect_creator_media.py; $PY fanart_discovery.py; $PY fanart_fx_rss.py; $PY fanart_candidate_cache.py; $PY fanart_library.py'
 TimeoutStartSec=240
 EOF
 cat >/tmp/abyss-media-refresh.timer <<'EOF'
