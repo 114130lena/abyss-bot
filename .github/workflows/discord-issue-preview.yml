@@ -1135,3 +1135,80 @@ jobs:
               print('SENT_RANDOM_PLATFORM',platform,group,flush=True)
           PY
           REMOTE
+
+  preview_five_original_isolated:
+    if: ${{ github.event.issue.title == '[abyss-test] original-random-five' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Verify owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile random_media.py discord_v2.py resilience.py
+      - name: Isolated November 2 02:15 random attachment implementation, all five types
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in random_media.py discord_v2.py resilience.py; do
+            scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_original_$f"
+          done
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,sys,os
+          from dotenv import load_dotenv
+          from urllib.parse import urlsplit,urlunsplit,urlencode,parse_qsl
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          os.environ['ABYSS_RANDOM_MEDIA']='1'
+          def load(name):
+              spec=importlib.util.spec_from_file_location(name,'/tmp/abyss_original_'+name+'.py')
+              mod=importlib.util.module_from_spec(spec)
+              sys.modules[name]=mod
+              spec.loader.exec_module(mod)
+              return mod
+          random_media=load('random_media')
+          resilience=load('resilience')
+          design=load('discord_v2')
+          from creator_profiles import handle
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base);q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          cases=[
+            ('chzzk','hanayo','하나요 히요리','[오전 2:15 원본 테스트 1/5] 치지직 LIVE'),
+            ('youtube','sakihane','사키하네 후야','[오전 2:15 원본 테스트 2/5] 유튜브 업로드'),
+            ('x','hanayo','하나요 히요리','[오전 2:15 원본 테스트 3/5] X 일반 게시글'),
+            ('cafe','sakihane','사키하네 후야','[오전 2:15 원본 테스트 4/5] 카페 공지'),
+            ('x','sakihane','사키하네 후야','[오전 2:15 원본 테스트 5/5] X 리트윗'),
+          ]
+          for platform,group,name,title in cases:
+              payload=design.alert(platform,name,
+                  banner='https://yt3.googleusercontent.com/something.jpg',
+                  role_id='',title=title,body=('리트윗' if title.endswith('리트윗') else ''),
+                  url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                  avatar='https://yt3.googleusercontent.com/something.jpg',handle=handle(group),ping=False)
+              payload['allowed_mentions']={'parse':[]}
+              prepared,selected=random_media.prepare_payload(payload)
+              assert selected and selected[0]==group,(platform,selected)
+              assert all(selected[1][kind][0].is_file() for kind in ('profile','banner'))
+              print('SELECTED_ORIGINAL',platform,group,[(kind,selected[1][kind][0].name) for kind in ('profile','banner')],flush=True)
+              resilience.send_webhook(dest,payload,attempts=1)
+              print('SENT_ORIGINAL',platform,group,flush=True)
+          PY
+          REMOTE
