@@ -1,0 +1,56 @@
+name: Deploy photo-safe repost and Cafe alerts
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] photo-safe-repost-cafe' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Check syntax and photo-state contract
+        run: |
+          python -m py_compile resilience.py cafe_notifier.py x_repost_notifier.py
+          python - <<'PY'
+          a=open('resilience.py').read()
+          assert 'native_post_photo = native_post_photo or has_post_photos(payload)' in a
+          assert 'if not native_post_photo and os.getenv("ABYSS_FANART_URLS"' in a
+          assert "payload['_abyss_photo_unknown'] = True" in open('cafe_notifier.py').read()
+          assert 'payload["_abyss_photo_unknown"] = True' in open('x_repost_notifier.py').read()
+          print('PHOTO_SAFE_TEST_PASS')
+          PY
+      - name: Install and restart bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/photo_safe_key
+          chmod 600 ~/.ssh/photo_safe_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in resilience.py cafe_notifier.py x_repost_notifier.py; do
+            scp -i ~/.ssh/photo_safe_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/photo_safe_$f"
+          done
+          ssh -i ~/.ssh/photo_safe_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/photo_safe_resilience.py /tmp/photo_safe_cafe_notifier.py /tmp/photo_safe_x_repost_notifier.py
+          mkdir -p backups/photo-safe-repost-cafe
+          for f in resilience.py cafe_notifier.py x_repost_notifier.py; do
+            cp "$f" "backups/photo-safe-repost-cafe/$f"
+            cp "/tmp/photo_safe_$f" "$f"
+          done
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo PHOTO_SAFE_DEPLOY_SUCCESS
+          REMOTE
