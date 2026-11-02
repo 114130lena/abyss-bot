@@ -1212,3 +1212,74 @@ jobs:
               print('SENT_ORIGINAL',platform,group,flush=True)
           PY
           REMOTE
+
+  deploy_final_layout_and_x_photos:
+    if: ${{ github.event.issue.title == '[abyss-deploy] final-layout-x-photos' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Verify owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: test "$OWNER" = "$AUTHOR"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile and check changed components
+        run: |
+          python -m py_compile discord_v2.py resilience.py random_media.py
+          grep -q '🌸 HIYORI' discord_v2.py
+          grep -q '💜🐲 HUYA' discord_v2.py
+          grep -q '_collect_x_image_attachments' resilience.py
+      - name: Validate and apply updated card and X image handling on Ubuntu
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in discord_v2.py resilience.py; do
+            scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_final_$f"
+          done
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,sys,xml.etree.ElementTree as ET
+          from PIL import Image
+          spec=importlib.util.spec_from_file_location("discord_v2_new","/tmp/abyss_final_discord_v2.py")
+          d=importlib.util.module_from_spec(spec);spec.loader.exec_module(d)
+          from creator_groups import CHZZK_GROUPS
+          for group,creator in (('hanayo','하나요 히요리'),('sakihane','사키하네 후야')):
+              for platform in ('chzzk','youtube','x','cafe'):
+                  p=d.alert(platform,creator,'https://example.com/banner.jpg',role_id='',
+                      url='https://chzzk.naver.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' if platform=='chzzk' else 'https://x.com/test/status/123',
+                      title='테스트',body='본문',avatar='https://example.com/avatar.jpg',ping=False)
+                  parts=p['components'][-1]['components']
+                  footer=next(i for i in parts if i.get('type')==10 and 'OFFICIAL LINKS' in i.get('content',''))
+                  assert 'H I Y O R I' not in footer['content'] and 'H U Y A' not in footer['content']
+                  assert any(i.get('type')==1 and any(b.get('label')=='CHZZK' for b in i.get('components',[])) for i in parts),(group,platform)
+          print('FINAL_LAYOUT_8_VARIANTS_TEST_OK')
+          PY
+          mkdir -p backups/layout-x-media
+          for f in discord_v2.py resilience.py; do
+            cp "$f" "backups/layout-x-media/$f"
+            cp "/tmp/abyss_final_$f" "$f"
+          done
+          "$PY" -m py_compile discord_v2.py resilience.py random_media.py
+          sudo systemctl restart chzzk-bot.service
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot.service || {
+            for f in discord_v2.py resilience.py; do cp "backups/layout-x-media/$f" "$f"; done
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          }
+          echo FINAL_LAYOUT_X_MEDIA_DEPLOY_OK
+          REMOTE
