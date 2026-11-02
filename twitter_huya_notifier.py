@@ -64,6 +64,10 @@ def _fetch_merged_posts():
     successes = 0
     with ThreadPoolExecutor(max_workers=min(3, len(FEEDS))) as pool:
         jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
+        from x_fx_feed import fetch_creator_originals
+        fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+        if feed_health.active(fx_url):
+            jobs[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, common), fx_url)] = fx_url
         for job in as_completed(jobs):
             try:
                 items = job.result()
