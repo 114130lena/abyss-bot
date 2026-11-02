@@ -1,0 +1,62 @@
+name: Deploy fanart URL random media
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] fanart-urls' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile fanart_url_media.py resilience.py
+      - name: Deploy URL randomizer to existing bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_url_key
+          chmod 600 ~/.ssh/fanart_url_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in fanart_url_media.py resilience.py; do
+            scp -i ~/.ssh/fanart_url_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_url_$f"
+          done
+          ssh -i ~/.ssh/fanart_url_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import sys
+          sys.path.insert(0,'/tmp')
+          from abyss_url_fanart_url_media import candidates
+          for group in ('hanayo','sakihane'):
+              count=len(candidates(group))
+              print('URL_CANDIDATES',group,count)
+              assert count>0
+          PY
+          BACKUP="backups/fanart-links-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$BACKUP"
+          cp resilience.py "$BACKUP/resilience.py"
+          cp -f /tmp/abyss_url_fanart_url_media.py fanart_url_media.py
+          cp -f /tmp/abyss_url_resilience.py resilience.py
+          "$PY" -m py_compile fanart_url_media.py resilience.py
+          "$PY" - <<'PY'
+          from pathlib import Path
+          p=Path('.env')
+          lines=[s for s in p.read_text().splitlines() if not s.startswith('ABYSS_FANART_URLS=')]
+          lines.append('ABYSS_FANART_URLS=1')
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo FANART_URL_DEPLOY_SUCCESS
+          REMOTE
