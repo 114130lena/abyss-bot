@@ -1,3 +1,4 @@
+import x_feed_health as feed_health
 """Poll a public Nitter RSS feed for new original X posts."""
 import json
 import logging
@@ -210,7 +211,7 @@ def _fetch_merged_posts(include_backups=True):
     if not feeds:
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
     with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
-        futures = {pool.submit(_fetch_posts, source): source for source in feeds}
+        futures = {pool.submit(feed_health.timed_fetch, _fetch_posts, source): source for source in feeds if feed_health.active(source)}
         for future in as_completed(futures):
             source = futures[future]
             try:
@@ -224,14 +225,7 @@ def _fetch_merged_posts(include_backups=True):
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
-    if any(not p.get("images") for p in posts_by_id.values()):
-        try:
-            fallback = _fx_image_map(USERNAME)
-            for post_id, post in posts_by_id.items():
-                if not post.get("images"):
-                    post["images"] = fallback.get(post_id, [])
-        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            logging.info("FxEmbed X image fallback unavailable: %s", type(exc).__name__)
+    # Do not block delivery on optional FxEmbed image lookups.
     return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
 
 def _post_latency(post):
