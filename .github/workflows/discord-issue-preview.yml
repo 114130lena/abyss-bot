@@ -950,3 +950,61 @@ jobs:
           echo 'AFTER_SHA:'; sha256sum discord_v2.py
           echo 'LATEST_LAYOUT_DEPLOY_SUCCESS'
           REMOTE
+
+  preview_four_platforms:
+    if: ${{ github.event.issue.title == '[abyss-test] four-platform-designs' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - name: SSH send four current live layouts to test thread
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          import os
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from banner_manager import get_banner
+          from creator_profiles import handle,avatar
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base)
+          q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          url=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          cases=[
+            ('chzzk','하나요 히요리','hanayo','[디자인 테스트 1/4] 치지직 방송 시작','Just Chatting',''),
+            ('youtube','사키하네 후야','sakihane','[디자인 테스트 2/4] 유튜브 새 영상','영상 업로드',''),
+            ('x','하나요 히요리','hanayo','[디자인 테스트 3/4] X 새 게시글','','X 본문 텍스트와 이미지 영역을 확인하는 테스트입니다.'),
+            ('cafe','사키하네 후야','sakihane','[디자인 테스트 4/4] 네이버 카페 새 공지','','카페 본문과 공식 링크 배치를 확인하는 테스트입니다.'),
+          ]
+          for platform,name,group,title,category,body in cases:
+              payload=alert(platform,name,banner=get_banner(group),role_id='',
+                  title=title,body=body,category=category,url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                  handle=handle(group),avatar=avatar(group),ping=False)
+              payload['allowed_mentions']={'parse':[]}
+              assert payload['flags']==32768
+              assert any(c.get('type')==9 for c in payload['components'][-1]['components'])
+              send_webhook(url,payload,attempts=1)
+              print('FOUR_PLATFORM_PREVIEW_SENT',platform,name)
+          PY
+          REMOTE
