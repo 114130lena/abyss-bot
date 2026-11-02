@@ -40,6 +40,6 @@ def apply(payload, group=None):
             gallery=parts[i+1]
             if gallery.get("type")==12:
                 gallery["items"]=[{"media":{"url":banner[0]},"description":"팬아트 원본 이미지 · "+banner[1]}]
-                part["content"]+="\\n-# 🎨 프로필 "+avatar[1]+" · [원본]("+avatar[2]+") | 배너 "+banner[1]+" · [원본]("+banner[2]+")"
+                part["content"]+=" | 🎨 🎨 프로필 "+avatar[1]+" · [원본]("+avatar[2]+") | 배너 "+banner[1]+" · [원본]("+banner[2]+")"
                 return out,{"group":group,"avatar":avatar,"banner":banner}
     return payload,None
