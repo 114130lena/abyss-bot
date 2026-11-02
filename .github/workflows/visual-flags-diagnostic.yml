@@ -1,0 +1,49 @@
+name: Inspect current Discord media flags
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] visual-flags' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect production flags and generated button counts
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/visual_key
+          chmod 600 ~/.ssh/visual_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/visual_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import os
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          from discord_v2 import alert
+          from random_media import _local_candidates
+          from fanart_url_media import candidates
+          for key in ('ABYSS_RANDOM_MEDIA','ABYSS_FANART_URLS','ABYSS_FANART_ENABLED'):
+              print('MEDIA_FLAG',key,os.getenv(key,'UNSET'))
+          for g,n in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              print('MEDIA_POOL',g,'profiles',len(_local_candidates(g,'profile')),'banners',len(_local_candidates(g,'banner')),'fanart',len(candidates(g)),'official_avatar',bool(avatar(g)),'official_banner',bool(get_banner(g)))
+              for platform in ('chzzk','youtube','x','cafe'):
+                  p=alert(platform,n,banner=get_banner(g),role_id='',title='검사',url='https://chzzk.naver.com/',avatar=avatar(g),handle=handle(g),ping=False)
+                  parts=[c for c in p.get('components',[]) if c.get('type')==17][-1]['components']
+                  buttons=[b['label'] for c in parts if c.get('type')==1 for b in c.get('components',[])]
+                  print('MEDIA_BUTTONS',g,platform,','.join(buttons))
+          PY
+          sudo systemctl is-active chzzk-bot.service
+          REMOTE
