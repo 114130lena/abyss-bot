@@ -157,12 +157,12 @@ def _fetch_posts(feed_url=None):
     posts = []
     for item in channel.findall("item"):
         post_id = (item.findtext("guid") or "").strip()
-        if not post_id.isdigit() or (not _original_post(item) and not __import__("x_repost_notifier").is_repost(item.findtext("title") or "")):
+        if not post_id.isdigit() or (not _original_post(item) and not __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")):
             continue
         text = _post_body(item)
         posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
                       "source": source, "pub_date": item.findtext("pubDate") or "",
-                      "images": _post_images(item), "rss_title": item.findtext("title") or ""})
+                      "images": _post_images(item), "rss_title": item.findtext("title") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")})
     return sorted(posts, key=lambda p: int(p["id"]))
 
 
@@ -198,7 +198,7 @@ def _fetch_merged_posts(include_backups=True):
                 successes += 1
                 for post in items:
                     previous = posts_by_id.get(post["id"])
-                    if previous is None or len(post.get("images", [])) > len(previous.get("images", [])):
+                    if previous is None or (post.get("repost"),len(post.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
                         posts_by_id[post["id"]] = post
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
@@ -248,10 +248,10 @@ def check_twitter():
         try:
             repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
         except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if is_repost(p.get("rss_title"))}
+            repost_seen={p["id"] for p in posts if p.get("repost") or is_repost(p.get("rss_title"))}
             repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
-            if is_repost(post.get("rss_title")):
+            if post.get("repost") or is_repost(post.get("rss_title")):
                 if post["id"] not in repost_seen:
                     notify_repost(X_GROUP,post,WEBHOOK_URL)
                     repost_seen.add(post["id"])
