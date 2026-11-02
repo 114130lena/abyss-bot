@@ -57,6 +57,33 @@ jobs:
           parsed=urlsplit(base);params=dict(parse_qsl(parsed.query,keep_blank_values=True))
           params['thread_id']='1566335914500816988'
           dest=urlunsplit((parsed.scheme,parsed.netloc,parsed.path,urlencode(params),parsed.fragment))
+          import requests
+          actual_post=requests.post
+          def inspect_payload(target,*args,**kwargs):
+              if 'thread_id=1566335914500816988' in target:
+                  wire=kwargs.get('json')
+                  if wire is None: wire=json.loads(kwargs['data']['payload_json'])
+                  boxes=[x for x in wire.get('components',[]) if x.get('type')==17]
+                  assert boxes
+                  parts=boxes[-1]['components']
+                  rows=[x for x in parts if x.get('type')==1]
+                  labels=[x['label'] for row in rows for x in row['components']]
+                  footer=' '.join(str(x.get('content','')) for x in parts if x.get('type')==10)
+                  section=next(x for x in parts if x.get('type')==9)
+                  picture=section['accessory']['media']['url']
+                  if variant in ('chzzk-live','x-no-photo'):
+                      assert labels==['원본 게시물','CHZZK','CAFE','X','YouTube'],(group,variant,labels)
+                      assert 'FAN ART' in footer,(group,variant,footer)
+                      assert picture.startswith('attachment://abyss_profile'),(group,variant,picture)
+                      uploaded=kwargs.get('files',{})
+                      assert any(k.startswith('files[') and v[0].startswith('abyss_profile') for k,v in uploaded.items()),(group,variant,list(uploaded))
+                  else:
+                      assert labels==['CHZZK','CAFE','X','YouTube'],(group,variant,labels)
+                      assert 'FAN ART' not in footer,(group,variant)
+                  print('DISCORD_PAYLOAD_VERIFIED',group,variant,'links',len(labels),
+                        'fanart',('FAN ART' in footer),'random_profile',picture.startswith('attachment://'),flush=True)
+              return actual_post(target,*args,**kwargs)
+          requests.post=inspect_payload
           sent=[]
           for group,name in (('hanayo','하나요 히요리'),('sakihane','사키하네 후야')):
               for variant in ('chzzk-live','youtube-official','x-no-photo'):
