@@ -79,12 +79,16 @@ def send_webhook(url, payload, attempts=3):
         url = url + separator + "with_components=true"
     for attempt in range(attempts):
         try:
-            prepared = payload
+            # Internal metadata is stripped before the Discord API request.
+            photo_unknown = bool(payload.get('_abyss_photo_unknown'))
+            prepared = dict(payload) if photo_unknown else payload
+            if photo_unknown:
+                prepared.pop('_abyss_photo_unknown', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
             # Skip randomized local attachments entirely for those notifications.
-            native_post_photo = False
+            native_post_photo = photo_unknown
             try:
                 from fanart_url_media import has_post_photos
                 native_post_photo = has_post_photos(payload)
@@ -98,7 +102,7 @@ def send_webhook(url, payload, attempts=3):
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
-            if os.getenv("ABYSS_FANART_URLS", "0") == "1":
+            if not photo_unknown and os.getenv("ABYSS_FANART_URLS", "0") == "1":
                 try:
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
