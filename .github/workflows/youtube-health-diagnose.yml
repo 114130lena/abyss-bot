@@ -1,0 +1,51 @@
+name: Diagnose YouTube notification health
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] youtube-health' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read only server YouTube status
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/yt_key
+          chmod 600 ~/.ssh/yt_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/yt_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          sudo systemctl is-active chzzk-bot.service
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import time,os,json
+          import youtube_notifier as yt
+          from pathlib import Path
+          print('YOUTUBE_INTERVAL',yt.INTERVAL,'CHANNELS',yt.load_channel_ids(),'WEBHOOK_PRESENT',bool(yt.WEBHOOK_URL),'YOUTUBE_THREAD',yt.YOUTUBE_THREAD_ID)
+          try: print('THREAD_URL_VALID',bool(yt.youtube_thread_webhook_url()))
+          except Exception as e:print('THREAD_URL_ERROR',type(e).__name__,str(e))
+          try: seen=yt._load_seen()
+          except Exception as e: print('SEEN_ERROR',str(e));seen={}
+          for cid in yt.load_channel_ids():
+              now=time.monotonic()
+              try:
+                  items=yt._fetch_uploads(cid)
+                  unposted=[v for v in items if v['id'] not in set(seen.get(cid,[]))]
+                  print('YT_CHANNEL',cid,'fetch_seconds',round(time.monotonic()-now,2),'items',len(items),'seen',len(seen.get(cid,[])),'unseen',len(unposted),'latest',[(x['id'],x.get('published','')) for x in items[-3:]],'unseen_ids',[x['id'] for x in unposted[:5]])
+              except Exception as e:print('YT_CHANNEL_ERROR',cid,round(time.monotonic()-now,2),type(e).__name__,str(e)[:200])
+          PY
+          echo RECENT_YOUTUBE_LOGS
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso | grep -Ei 'YouTube|WebSub|영상 업로드|youtube.*notification' | tail -n 95 || true
+          REMOTE
