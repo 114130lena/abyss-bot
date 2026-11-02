@@ -25,15 +25,32 @@ def candidates(group):
     return result
 
 def has_post_photos(payload):
+    """Detect post-specific media, never the footer banner or creator avatar.
+
+    Inspect the original Discord card, before any randomization changes it.
+    """
+    import re
     containers=[c for c in payload.get("components",[]) if c.get("type")==17]
     if not containers:return False
     parts=containers[-1].get("components",[])
     tag=" ".join(str(c.get("content","")) for c in parts if c.get("type")==10)
     if not ("𝕏 X" in tag or "NAVER CAFE" in tag):
         return False
-    footer=next((i for i,c in enumerate(parts) if c.get("type")==10 and
-                 "OFFICIAL LINKS" in c.get("content","")),len(parts))
-    return any(c.get("type")==12 and c.get("items") for c in parts[:footer])
+    # Locate the footer by its actual gallery rather than depending only
+    # on a mutable OFFICIAL LINKS caption.
+    footer=next((i for i,c in enumerate(parts)
+                 if c.get("type")==10 and ("OFFICIAL LINKS" in str(c.get("content",""))
+                   or "FAN ART" in str(c.get("content","")))),len(parts))
+    for c in parts[:footer]:
+        if c.get("type")==12 and c.get("items"):
+            return True
+        if c.get("type")==10:
+            content=str(c.get("content",""))
+            # RSS sometimes puts photos inline in the body rather than the
+            # image gallery, e.g. Markdown photos or direct X CDN URLs.
+            if re.search(r"https?://(?:pbs\\.twimg\\.com/media/|[^\\s)]+\\.(?:png|jpe?g|webp)(?:[?\\s)]|$))",content,re.I):
+                return True
+    return False
 
 
 def apply(payload, group=None):
