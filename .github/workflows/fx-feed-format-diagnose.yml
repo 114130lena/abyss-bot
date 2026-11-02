@@ -1,0 +1,43 @@
+name: Check FxTwitter feed item fields
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] fx-feed-format' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect metadata format
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fxfmt
+          chmod 600 ~/.ssh/fxfmt
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/fxfmt -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import requests,xml.etree.ElementTree as E,re
+          import twitter_notifier as t
+          for user in ['HanayoHiyori','SakihaneHuya']:
+              try:
+                  r=requests.get('https://fxtwitter.com/'+user+'/feed.xml',params={'count':30},timeout=8)
+                  print('FX_STATUS',user,r.status_code,len(r.content),flush=True)
+                  r.raise_for_status()
+                  root=E.fromstring(r.content)
+                  ch=root.find('channel')
+                  print('FX_CHANNEL',user,(ch.findtext('title') or '')[:120],flush=True)
+                  for item in ch.findall('item')[:3]:
+                      print('FX_ITEM',user,'guid',str(item.findtext('guid'))[:110],'link',str(item.findtext('link'))[:110],'title',str(item.findtext('title'))[:100],'photos',len(t._post_images(item)),'desc_len',len(item.findtext('description') or ''),flush=True)
+              except Exception as ex:print('FX_ERR',user,type(ex).__name__,str(ex)[:120],flush=True)
+          PY
+          REMOTE
