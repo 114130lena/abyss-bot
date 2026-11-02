@@ -48,7 +48,7 @@ def has_post_photos(payload):
             content=str(c.get("content",""))
             # RSS sometimes puts photos inline in the body rather than the
             # image gallery, e.g. Markdown photos or direct X CDN URLs.
-            if re.search(r"https?://(?:pbs\\.twimg\\.com/media/|[^\\s)]+\\.(?:png|jpe?g|webp)(?:[?\\s)]|$))",content,re.I):
+            if re.search(r"https?://(?:pbs[.]twimg[.]com/media/|[^ )]+[.](?:png|jpe?g|webp)(?:[? )]|$))",content,re.I):
                 return True
     return False
 
