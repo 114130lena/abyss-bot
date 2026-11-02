@@ -1,0 +1,80 @@
+name: Abyss production-path media and alert audit
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  audit:
+    if: ${{ github.event.issue.title == '[abyss-test] media-production-path' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Inspect real production logs and send isolated integration tests
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/media_audit_key
+          chmod 600 ~/.ssh/media_audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/media_audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,logging
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from discord_v2 import alert
+          import fanart_url_media as fanart, random_media
+          from banner_manager import get_banner
+          from creator_profiles import avatar,handle
+          from resilience import send_webhook
+          assert os.getenv('ABYSS_RANDOM_MEDIA')=='1'
+          assert os.getenv('ABYSS_FANART_URLS')=='1'
+          print('LIVE_MEDIA_FLAGS',os.getenv('ABYSS_RANDOM_MEDIA'),os.getenv('ABYSS_FANART_URLS'),flush=True)
+          for group in ('hanayo','sakihane'):
+              print('LIVE_MEDIA_POOL',group,'profiles',len(random_media._local_candidates(group,'profile')),
+                    'official_banners',len(random_media._local_candidates(group,'banner')),
+                    'fanart',len(fanart.candidates(group)),
+                    'used',len(fanart.read(fanart.HISTORY).get(group,{})),flush=True)
+          # Tests must NOT consume production fanart or random media history.
+          fanart.mark_delivered=lambda *args,**kwargs: None
+          random_media.mark_delivered=lambda *args,**kwargs: None
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          parsed=urlsplit(base);params=dict(parse_qsl(parsed.query,keep_blank_values=True))
+          params['thread_id']='1566335914500816988'
+          dest=urlunsplit((parsed.scheme,parsed.netloc,parsed.path,urlencode(params),parsed.fragment))
+          sent=[]
+          for group,name in (('hanayo','하나요 히요리'),('sakihane','사키하네 후야')):
+              for variant in ('chzzk-live','youtube-official','x-no-photo'):
+                  platform='youtube' if variant=='youtube-official' else 'x' if variant=='x-no-photo' else 'chzzk'
+                  card=alert(platform,name,banner=get_banner(group),role_id='',
+                     title='[운영경로 이미지 검증] '+variant,
+                     body='이미지 랜덤과 배너 버튼 통합 테스트',
+                     url='https://www.youtube.com/@HanayoHiyori',
+                     handle=handle(group),avatar=avatar(group),ping=False)
+                  card['allowed_mentions']={'parse':[]}
+                  # Confirm four standard buttons before media pipeline.
+                  rows=[x for outer in card['components'] for x in outer.get('components',[]) if x.get('type')==1]
+                  labels=[x.get('label') for row in rows for x in row.get('components',[])]
+                  assert labels==['CHZZK','CAFE','X','YouTube'],(group,variant,labels)
+                  # Verify same path that real alerts use, including attachment upload.
+                  send_webhook(dest,card,attempts=1)
+                  print('MEDIA_INTEGRATION_SENT',group,variant,flush=True)
+                  sent.append((group,variant))
+          assert len(sent)==6
+          print('MEDIA_INTEGRATION_SUCCESS',len(sent),flush=True)
+          PY
+          echo PRODUCTION_MEDIA_LOGS
+          sudo journalctl -u chzzk-bot.service --since '12 hours ago' --no-pager -o short-iso |
+            grep -Ei 'FANART_SELECTED|랜덤 이미지 준비 실패|팬아트 링크 선택 실패|팬아트 사용 기록 저장 실패|랜덤 이미지 기록 실패|Discord|YouTube notification sent|X 새 게시글 알림|후야 X 새 글 알림|CHZZK replay posted' |
+            tail -n 95 || true
+          REMOTE
