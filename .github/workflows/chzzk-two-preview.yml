@@ -1,0 +1,69 @@
+name: Abyss CHZZK two alert preview
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  preview:
+    if: ${{ github.event.issue.title == '[abyss-test] chzzk-two' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Send CHZZK live and replay to test thread only
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_two_key
+          chmod 600 ~/.ssh/abyss_two_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_two_key -o IdentitiesOnly=yes fanart_url_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_two_fanart.py"
+          ssh -i ~/.ssh/abyss_two_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,importlib.util
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          os.environ['ABYSS_FANART_URLS']='0'
+          os.environ['ABYSS_RANDOM_MEDIA']='0'
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          spec=importlib.util.spec_from_file_location('fanart_two','/tmp/abyss_two_fanart.py')
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base);q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          group='hanayo';name='하나요 히요리'
+          options=mod.candidates(group)
+          assert options
+          thumbnail=options[0][0]
+          for i,replay in enumerate((False,True),1):
+              payload=alert('chzzk',name,banner=get_banner(group),role_id='',
+                  title='[치지직 2종 테스트 '+str(i)+'/2] '+('다시보기' if replay else '라이브'),
+                  body='테스트 전용 알림입니다.',url='https://chzzk.naver.com/',
+                  media_url=thumbnail,avatar=avatar(group),handle=handle(group),
+                  replay=replay,ping=False)
+              prepared,selected=mod.apply(payload,group)
+              assert bool(selected)==(not replay)
+              prepared['allowed_mentions']={'parse':[]}
+              send_webhook(dest,prepared,attempts=1)
+              print('CHZZK_TWO_SENT',i,'replay',replay,'fanart',bool(selected),flush=True)
+          PY
+          REMOTE
