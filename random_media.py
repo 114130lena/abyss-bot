@@ -91,15 +91,16 @@ def _local_candidates(group, kind):
         if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp") or path.stat().st_size > 12*1024*1024:
             continue
         found.append((path, item.get("sha256", path.name)))
-    if kind == "banner" and os.getenv("ABYSS_FANART_ENABLED", "0") == "1":
+    if os.getenv("ABYSS_FANART_ENABLED", "0") == "1":
         fanart = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
         for item in fanart if isinstance(fanart, list) else []:
             if not isinstance(item, dict) or item.get("approved") is not True or item.get("permission_confirmed") is not True:
                 continue
             if item.get("hashtag") != ("#hiyoriart_" if group == "hanayo" else "#huyart"):
                 continue
-            rel = item.get("path", "")
-            if not isinstance(rel, str) or not (rel.startswith("fanart/") or rel.startswith("fanart_banners/")):
+            rel = item.get("profile_path" if kind == "profile" else "path", "")
+            allowed_prefix = ("fanart_profiles/",) if kind == "profile" else ("fanart/", "fanart_banners/")
+            if not isinstance(rel, str) or not rel.startswith(allowed_prefix):
                 continue
             path = (MEDIA_ROOT / rel).resolve()
             if MEDIA_ROOT.resolve() not in path.parents or not path.is_file() or path.stat().st_size > 12*1024*1024:
