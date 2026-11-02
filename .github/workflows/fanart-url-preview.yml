@@ -57,6 +57,16 @@ jobs:
                   body='원본 링크를 본문 대신 하단 첫 번째 버튼으로 표시합니다.',
                   url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
                   avatar=avatar(group),handle=handle(group),ping=False)
+              # X and Cafe posts with native attached photos must not add fanart.
+              for platform in ('x','cafe'):
+                  with_photo=alert(platform,name,banner=get_banner(group),role_id='',
+                      title='[테스트] 게시글 자체 이미지',body='게시글 이미지가 우선입니다.',
+                      url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                      avatar=avatar(group),handle=handle(group),ping=False,
+                      images=['https://pbs.twimg.com/media/test.jpg'])
+                  unchanged,art=mod.apply(with_photo,group)
+                  assert art is None and unchanged==with_photo, (group,platform)
+                  print('FANART_SUPPRESSED_FOR_POST_PHOTO',group,platform,flush=True)
               prepared,selected=mod.apply(payload,group)
               assert selected, 'No URL-based art available'
               parts=prepared['components'][-1]['components']
