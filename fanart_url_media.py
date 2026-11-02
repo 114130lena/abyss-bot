@@ -46,6 +46,10 @@ def apply(payload, group=None):
         group=("hanayo" if ("히요리" in signature or "hanayo" in signature) else
                "sakihane" if ("후야" in signature or "sakihane" in signature) else None)
     if not group or not section:return out,None
+    # YouTube uploads and CHZZK replays use the official YouTube banner.
+    tag=" ".join(str(c.get("content","")) for c in parts if c.get("type")==10)
+    if "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag):
+        return payload,None
     # Only X/Cafe post attachments suppress fanart. YouTube thumbnail galleries
     # are not post-body photos and CHZZK replay art is always eligible.
     if has_post_photos(payload):
