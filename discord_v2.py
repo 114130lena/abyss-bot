@@ -361,7 +361,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             from urllib.parse import urlparse
             parsed = urlparse(url)
             if parsed.hostname == "chzzk.naver.com":
-                chzzk = "https://chzzk.naver.com/" + parsed.path.strip("/").split("/")[0]
+                chzzk = url
         cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
         links = [("CHZZK", chzzk), ("CAFE", cafe),
                  ("X", twitter), ("YouTube", youtube)]
