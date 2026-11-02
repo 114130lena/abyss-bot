@@ -63,7 +63,7 @@ def apply(payload, group=None):
         fresh=[x for x in pool if x[2] not in used]
         if not fresh:return payload,None
         picked=random.SystemRandom().choice(fresh)
-    section["accessory"]["media"]["url"]=picked[0]
+    # Preserve the independently selected official/random creator profile.
     for i,part in enumerate(parts[:-1]):
         if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
             gallery=parts[i+1]
