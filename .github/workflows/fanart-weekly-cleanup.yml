@@ -1,0 +1,34 @@
+name: Abyss weekly fanart cache cleanup
+on:
+  schedule:
+    - cron: '30 18 * * 0'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Weekly candidate cache prune
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_prune_key
+          chmod 600 ~/.ssh/fanart_prune_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/fanart_prune_key -o IdentitiesOnly=yes fanart_weekly_cleanup.py "$SSH_USER@$SSH_HOST:/tmp/abyss_weekly_cleanup.py"
+          ssh -i ~/.ssh/fanart_prune_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" /tmp/abyss_weekly_cleanup.py
+          REMOTE
