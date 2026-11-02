@@ -158,11 +158,11 @@ def article_detail(article):
             raise ValueError("Public article HTML not available")
         parser = _CafeHtmlParser()
         parser.feed(html)
-        return parser.get_text() or fallback_text, (parser.images or fallback_images)[:4]
+        return parser.get_text() or fallback_text, (parser.images or fallback_images)[:4], True
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
         logging.info("카페 %s 상세 본문 접근 불가; 목록 미리보기 사용: %s",
                      article.get("id"), type(exc).__name__)
-        return fallback_text, fallback_images
+        return fallback_text, fallback_images, bool(fallback_images)
 
 
 def load_seen(path):
@@ -184,7 +184,7 @@ def notify(article, role_id, menu_id, group):
     role_id = role_for(group)
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     title = " ".join(article["title"].split())[:300]
-    summary, images = article_detail(article)
+    summary, images, photo_known = article_detail(article)
     payload = unified_alert(
         "cafe", creator, get_banner(group), role_id,
         title=title, body=summary,
@@ -192,6 +192,8 @@ def notify(article, role_id, menu_id, group):
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
         date=article.get("date", ""), images=images,
         handle=creator_handle(group), avatar=creator_avatar(group))
+    if not photo_known:
+        payload['_abyss_photo_unknown'] = True
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
