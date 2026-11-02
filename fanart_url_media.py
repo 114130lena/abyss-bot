@@ -1,8 +1,13 @@
 """Select public X media URLs for Discord V2 cards without re-uploading image bytes."""
-import copy,json,os,random
+import copy,json,os,random,threading
+from datetime import datetime,timezone
 from urllib.parse import urlsplit
 from pathlib import Path
-from fanart_discovery import BASE, QUEUE, read
+from fanart_discovery import BASE, QUEUE, read, write
+
+HISTORY=BASE/'fanart_url_used.json'
+LOCK=threading.RLock()
+
 
 def _usable(url):
     p=urlsplit(str(url or ""))
@@ -31,8 +36,13 @@ def apply(payload, group=None):
     if not group or not section:return out,None
     pool=candidates(group)
     if not pool:return out,None
-    # One artwork for both locations means one clear source button and attribution.
-    picked=random.SystemRandom().choice(pool)
+    # Never repeat an already delivered fanart, even after weekly cache cleanup.
+    with LOCK:
+        used=read(HISTORY).get(group,{})
+        if not isinstance(used,dict):used={}
+        fresh=[x for x in pool if x[2] not in used]
+        if not fresh:return payload,None
+        picked=random.SystemRandom().choice(fresh)
     section["accessory"]["media"]["url"]=picked[0]
     for i,part in enumerate(parts[:-1]):
         if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
@@ -55,3 +65,16 @@ def apply(payload, group=None):
                 return payload,None
             return out,{"group":group,"avatar":picked,"banner":picked}
     return payload,None
+
+
+def mark_delivered(selection):
+    """Persist only after Discord accepts the alert, never during preview selection."""
+    if not isinstance(selection,dict):return
+    group=selection.get("group")
+    item=selection.get("banner")
+    if group not in ("hanayo","sakihane") or not item:return
+    with LOCK:
+        history=read(HISTORY)
+        used=history.setdefault(group,{})
+        used[item[2]]=datetime.now(timezone.utc).isoformat()
+        write(HISTORY,history)
