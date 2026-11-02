@@ -91,7 +91,7 @@ def send_webhook(url, payload, attempts=3):
             native_post_photo = photo_unknown
             try:
                 from fanart_url_media import has_post_photos
-                native_post_photo = has_post_photos(payload)
+                native_post_photo = native_post_photo or has_post_photos(payload)
                 tag = " ".join(c.get("content","") for box in payload.get("components",[]) if box.get("type")==17 for c in box.get("components",[]) if c.get("type")==10)
                 native_post_photo = native_post_photo or "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag)
             except Exception as exc:
@@ -102,7 +102,7 @@ def send_webhook(url, payload, attempts=3):
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
-            if not photo_unknown and os.getenv("ABYSS_FANART_URLS", "0") == "1":
+            if not native_post_photo and os.getenv("ABYSS_FANART_URLS", "0") == "1":
                 try:
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
