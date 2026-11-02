@@ -75,6 +75,14 @@ def _fetch_merged_posts():
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
     if successes == 0:
         raise ValueError("All Huya X RSS sources failed")
+    if any(not p.get("images") for p in posts.values()):
+        try:
+            fallback = common._fx_image_map(USERNAME)
+            for post_id, post in posts.items():
+                if not post.get("images"):
+                    post["images"] = fallback.get(post_id, [])
+        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+            logging.info("Huya FxEmbed image fallback unavailable: %s", type(exc).__name__)
     return sorted(posts.values(), key=lambda item: int(item["id"]))
 
 
