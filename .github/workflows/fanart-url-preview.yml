@@ -1,0 +1,73 @@
+name: Fanart URL-only Discord preview
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  preview:
+    if: ${{ github.event.issue.title == '[abyss-test] fanart-url-preview' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Preview original image URLs only, never publish to production
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_url_key
+          chmod 600 ~/.ssh/fanart_url_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/fanart_url_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,random,requests
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from fanart_discovery import read,QUEUE
+          from discord_v2 import alert
+          from banner_manager import get_banner
+          from creator_profiles import avatar,handle
+          from resilience import send_webhook
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://'), 'Missing webhook'
+          p=urlsplit(base)
+          q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          all_items=read(QUEUE)
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              options=[x for x in all_items.values() if x.get('group')==group and x.get('review_status')!='blocked' and x.get('image_urls')]
+              random.SystemRandom().shuffle(options)
+              chosen=None
+              for x in options[:20]:
+                  for url in x['image_urls']:
+                      if urlsplit(url).hostname!='pbs.twimg.com': continue
+                      try:
+                          res=requests.get(url,stream=True,timeout=7,allow_redirects=False)
+                          good=res.status_code==200 and res.headers.get('Content-Type','').startswith('image/')
+                          res.close()
+                          if good:chosen=(x,url);break
+                      except requests.RequestException:pass
+                  if chosen:break
+              assert chosen, 'No publicly accessible image URL for '+group
+              item,url=chosen
+              payload=alert('x',name,banner=url,role_id='',title='[테스트] 팬아트 URL 직접 표시 · '+name,
+                  body='원본 이미지 URL을 이용한 미리보기입니다. 실제 운영 알림에는 적용하지 않았습니다.',
+                  url=item['post_url'],avatar=url,handle=handle(group),ping=False)
+              parts=payload['components'][-1]['components']
+              signature=next((x for x in parts if x.get('type')==10 and 'OFFICIAL LINKS' in x.get('content','')),None)
+              if signature:signature['content']='-# 🎨 X 팬아트 URL 테스트 · '+item['artist']+' · [원본 게시물]('+item['post_url']+')'
+              payload['allowed_mentions']={'parse':[]}
+              assert url in json.dumps(payload,ensure_ascii=False)
+              send_webhook(dest,payload,attempts=1)
+              print('FANART_URL_TEST_SENT',group,item['post_url'],'image_url_host',urlsplit(url).hostname,flush=True)
+          PY
+          REMOTE
