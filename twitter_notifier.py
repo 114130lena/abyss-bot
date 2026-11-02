@@ -182,6 +182,26 @@ def _notify(post):
         logging.exception("히요리 X 일정 추적 오류(알림은 정상 전송)")
 
 
+def _fx_image_map(username):
+    """Fallback account RSS media, matched by exact post ID."""
+    feed = "https://fxtwitter.com/" + username + "/feed.xml"
+    response = requests.get(feed, timeout=12, params={"count": 100},
+                            headers={"User-Agent": "abyss-bot/1.0 (RSS)"})
+    response.raise_for_status()
+    if len(response.content) > 5_000_000:
+        raise ValueError("Oversize RSS")
+    root = ET.fromstring(response.content)
+    found = {}
+    for item in root.findall("./channel/item"):
+        link = (item.findtext("link") or item.findtext("guid") or "").strip()
+        match = re.search(r"/status/([0-9]+)", link)
+        if match:
+            images = _post_images(item)
+            if images:
+                found[match.group(1)] = images
+    return found
+
+
 def _fetch_merged_posts(include_backups=True):
     """Poll all configured RSS sources concurrently and deduplicate post IDs."""
     posts_by_id = {}
@@ -204,6 +224,14 @@ def _fetch_merged_posts(include_backups=True):
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
+    if any(not p.get("images") for p in posts_by_id.values()):
+        try:
+            fallback = _fx_image_map(USERNAME)
+            for post_id, post in posts_by_id.items():
+                if not post.get("images"):
+                    post["images"] = fallback.get(post_id, [])
+        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+            logging.info("FxEmbed X image fallback unavailable: %s", type(exc).__name__)
     return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
 
 def _post_latency(post):
