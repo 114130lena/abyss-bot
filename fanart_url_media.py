@@ -1,5 +1,5 @@
 """Select public X media URLs for Discord V2 cards without re-uploading image bytes."""
-import copy,json,os,random,threading
+import copy,json,logging,os,random,threading
 from datetime import datetime,timezone
 from urllib.parse import urlsplit
 from pathlib import Path
@@ -19,8 +19,9 @@ def candidates(group):
         if not isinstance(item,dict) or item.get("group")!=group or item.get("review_status")=="blocked":
             continue
         for url in item.get("image_urls",[])[:4]:
-            if _usable(url):
-                result.append((url,item.get("artist",""),item.get("post_url","")))
+            source=item.get("post_url","")
+            if _usable(url) and isinstance(source,str) and source.startswith("https://x.com/"):
+                result.append((url,item.get("artist",""),source))
     return result
 
 def has_post_photos(payload):
@@ -55,14 +56,23 @@ def apply(payload, group=None):
     if has_post_photos(payload):
         return payload,None
     pool=candidates(group)
-    if not pool:return out,None
-    # Never repeat an already delivered fanart, even after weekly cache cleanup.
+    if not pool:
+        logging.warning("FANART_FALLBACK group=%s reason=no_eligible_candidates",group)
+        return out,None
+    # Unused artworks first; after exhaustion recycle the least recently used.
+    # Preserve history across restarts, and never fall back merely because all were shown.
     with LOCK:
         used=read(HISTORY).get(group,{})
         if not isinstance(used,dict):used={}
         fresh=[x for x in pool if x[2] not in used]
-        if not fresh:return payload,None
-        picked=random.SystemRandom().choice(fresh)
+        if fresh:
+            picked=random.SystemRandom().choice(fresh)
+            cycle="fresh"
+        else:
+            oldest=min(str(used.get(x[2],"")) for x in pool)
+            picked=random.SystemRandom().choice([x for x in pool if str(used.get(x[2],""))==oldest])
+            cycle="recycled"
+    logging.info("FANART_PICK group=%s mode=%s available=%d unused=%d",group,cycle,len(pool),len(fresh))
     # Preserve the independently selected official/random creator profile.
     for i,part in enumerate(parts[:-1]):
         if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
@@ -81,13 +91,16 @@ def apply(payload, group=None):
             # permanent platform links or silently trim the last button.
             required=("CHZZK","CAFE","X","YouTube")
             if not row:
+                logging.warning("FANART_FALLBACK group=%s reason=missing_button_row",group)
                 return payload,None
             base_buttons=[x for x in row["components"] if x.get("label")!="원본 게시물"]
             if tuple(x.get("label") for x in base_buttons)!=required:
+                logging.warning("FANART_FALLBACK group=%s reason=footer_buttons_invalid",group)
                 return payload,None
             row["components"]=[button]+base_buttons
             assert len(row["components"])==5
             return out,{"group":group,"avatar":picked,"banner":picked}
+    logging.warning("FANART_FALLBACK group=%s reason=no_footer_gallery",group)
     return payload,None
 
 
