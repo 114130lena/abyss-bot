@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
       - name: Preview original image URLs only, never publish to production
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -22,6 +26,7 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_url_key
           chmod 600 ~/.ssh/fanart_url_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/fanart_url_key -o IdentitiesOnly=yes fanart_url_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_preview_fanart_url_media.py"
           ssh -i ~/.ssh/fanart_url_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
@@ -42,32 +47,26 @@ jobs:
           q=dict(parse_qsl(p.query,keep_blank_values=True))
           q['thread_id']='1566335914500816988'
           dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
-          all_items=read(QUEUE)
+          import importlib.util
+          spec=importlib.util.spec_from_file_location('fanart_url_preview','/tmp/abyss_preview_fanart_url_media.py')
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
           for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
-              options=[x for x in all_items.values() if x.get('group')==group and x.get('review_status')!='blocked' and x.get('image_urls')]
-              random.SystemRandom().shuffle(options)
-              chosen=None
-              for x in options[:20]:
-                  for url in x['image_urls']:
-                      if urlsplit(url).hostname!='pbs.twimg.com': continue
-                      try:
-                          res=requests.get(url,stream=True,timeout=7,allow_redirects=False)
-                          good=res.status_code==200 and res.headers.get('Content-Type','').startswith('image/')
-                          res.close()
-                          if good:chosen=(x,url);break
-                      except requests.RequestException:pass
-                  if chosen:break
-              assert chosen, 'No publicly accessible image URL for '+group
-              item,url=chosen
-              payload=alert('x',name,banner=url,role_id='',title='[테스트] 팬아트 URL 직접 표시 · '+name,
-                  body='원본 이미지 URL을 이용한 미리보기입니다. 실제 운영 알림에는 적용하지 않았습니다.',
-                  url=item['post_url'],avatar=url,handle=handle(group),ping=False)
-              parts=payload['components'][-1]['components']
-              signature=next((x for x in parts if x.get('type')==10 and 'OFFICIAL LINKS' in x.get('content','')),None)
-              if signature:signature['content']='-# 🎨 X 팬아트 URL 테스트 · '+item['artist']+' · [원본 게시물]('+item['post_url']+')'
-              payload['allowed_mentions']={'parse':[]}
-              assert url in json.dumps(payload,ensure_ascii=False)
-              send_webhook(dest,payload,attempts=1)
-              print('FANART_URL_TEST_SENT',group,item['post_url'],'image_url_host',urlsplit(url).hostname,flush=True)
+              payload=alert('x',name,banner=get_banner(group),role_id='',
+                  title='[테스트] 팬아트 원본 버튼 · '+name,
+                  body='원본 링크를 본문 대신 하단 첫 번째 버튼으로 표시합니다.',
+                  url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                  avatar=avatar(group),handle=handle(group),ping=False)
+              prepared,selected=mod.apply(payload,group)
+              assert selected, 'No URL-based art available'
+              parts=prepared['components'][-1]['components']
+              row=next(x for x in parts if x.get('type')==1)
+              assert row['components'][0]['label']=='원본 게시물'
+              assert len(row['components'])<=5
+              assert '원본 게시물](' not in json.dumps(prepared,ensure_ascii=False)
+              prepared['allowed_mentions']={'parse':[]}
+              send_webhook(dest,prepared,attempts=1)
+              print('FANART_BUTTON_TEST_SENT',group,selected['banner'][2],
+                    'buttons',[x['label'] for x in row['components']],flush=True)
           PY
           REMOTE
