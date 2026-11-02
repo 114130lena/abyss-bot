@@ -1,0 +1,60 @@
+name: Deploy X image-aware fanart guard
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-image-aware-guard' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate updated media routing
+        run: |
+          python -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py resilience.py
+          python - <<'PY'
+          import ast
+          src=open('resilience.py').read()
+          assert 'photo_unknown' in src and "prepared.pop('_abyss_photo_unknown', None)" in src
+          for file in ('twitter_notifier.py','twitter_huya_notifier.py'):
+              assert 'resolve_images(post, USERNAME)' in open(file).read()
+          print('X_PHOTO_GUARD_TEST_OK')
+          PY
+      - name: Deploy only X photo guard and transport
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/xguard
+          chmod 600 ~/.ssh/xguard
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in x_post_media.py twitter_notifier.py twitter_huya_notifier.py resilience.py; do
+            scp -i ~/.ssh/xguard -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_guard_$f"
+          done
+          ssh -i ~/.ssh/xguard -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          mkdir -p backups/x-image-guard
+          for f in twitter_notifier.py twitter_huya_notifier.py resilience.py; do cp "$f" "backups/x-image-guard/$f"; done
+          for f in x_post_media.py twitter_notifier.py twitter_huya_notifier.py resilience.py; do cp "/tmp/abyss_guard_$f" "$f"; done
+          "$PY" -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py resilience.py
+          "$PY" - <<'PY'
+          from x_post_media import resolve_images
+          for name,number in [('SakihaneHuya','2117264651247649266'),('SakihaneHuya','2117171493247610968')]:
+              images,known=resolve_images({'id':number,'images':[]},name)
+              print('LIVE_PHOTO_STATUS',name,number,'known',known,'images',len(images),flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo X_IMAGE_GUARD_DEPLOY_SUCCESS
+          REMOTE
