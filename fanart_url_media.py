@@ -34,6 +34,12 @@ def apply(payload, group=None):
         group=("hanayo" if ("히요리" in signature or "hanayo" in signature) else
                "sakihane" if ("후야" in signature or "sakihane" in signature) else None)
     if not group or not section:return out,None
+    # X / Naver Cafe alerts with their own post photos keep the post visuals.
+    # The footer banner always follows OFFICIAL LINKS, so it is not post media.
+    footer_index=next((i for i,x in enumerate(parts)
+                       if x.get("type")==10 and "OFFICIAL LINKS" in x.get("content","")),len(parts))
+    if any(x.get("type")==12 and x.get("items") for x in parts[:footer_index]):
+        return payload,None
     pool=candidates(group)
     if not pool:return out,None
     # Never repeat an already delivered fanart, even after weekly cache cleanup.
