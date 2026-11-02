@@ -1283,3 +1283,59 @@ jobs:
           }
           echo FINAL_LAYOUT_X_MEDIA_DEPLOY_OK
           REMOTE
+
+  test_real_x_photo:
+    if: ${{ github.event.issue.title == '[abyss-test] real-x-photo-attachment' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify repository owner
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - name: Test actual media byte-attachment in test thread, no pings
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from discord_v2 import alert
+          from resilience import send_webhook,_collect_x_image_attachments
+          from banner_manager import get_banner
+          from creator_profiles import handle,avatar
+          original='https://pbs.twimg.com/media/HWDO3lwaUAAStDp.jpg'
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          p=urlsplit(base)
+          q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          target=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          payload=alert('x','하나요 히요리',get_banner('hanayo'),role_id='',
+              title='[X 실사진 첨부 테스트] 본문 이미지 확인',
+              body='X 이미지 주소를 실제 파일로 첨부하는지 검사합니다. 멘션 없음.',
+              url='https://x.com/HanayoHiyori',images=[original],
+              handle=handle('hanayo'),avatar=avatar('hanayo'),ping=False)
+          import copy
+          candidates=_collect_x_image_attachments(copy.deepcopy(payload))
+          print('X_PHOTO_ATTACHMENT_CANDIDATES',len(candidates),flush=True)
+          if not candidates:
+              raise AssertionError('Image could not be retrieved from server')
+          payload['allowed_mentions']={'parse':[]}
+          send_webhook(target,payload,attempts=1)
+          print('X_REAL_PHOTO_DISCORD_SENT',flush=True)
+          PY
+          REMOTE
