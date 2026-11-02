@@ -46,6 +46,6 @@ jobs:
                   print('YT_CHANNEL',cid,'fetch_seconds',round(time.monotonic()-now,2),'items',len(items),'seen',len(seen.get(cid,[])),'unseen',len(unposted),'latest',[(x['id'],x.get('published','')) for x in items[-3:]],'unseen_ids',[x['id'] for x in unposted[:5]])
               except Exception as e:print('YT_CHANNEL_ERROR',cid,round(time.monotonic()-now,2),type(e).__name__,str(e)[:200])
           PY
-          echo RECENT_YOUTUBE_LOGS
+          echo RECENT_ALL_BOT_LOGS\n          sudo journalctl -u chzzk-bot.service --since '25 minutes ago' --no-pager -o short-iso | tail -n 100 || true\n          echo RECENT_YOUTUBE_LOGS
           sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso | grep -Ei 'YouTube|WebSub|영상 업로드|youtube.*notification' | tail -n 95 || true
           REMOTE
