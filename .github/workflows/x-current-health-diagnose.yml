@@ -1,0 +1,55 @@
+name: Diagnose X posts and repost activity
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] x-current-health' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read only production X alert status
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/xhealth_key
+          chmod 600 ~/.ssh/xhealth_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/xhealth_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,time,json
+          from datetime import datetime,timezone
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import twitter_notifier as hi,twitter_huya_notifier as fu,x_repost_notifier as rp
+          print('REPOST_THREAD',rp.THREAD_ID,'X_INTERVAL',hi.INTERVAL,fu.INTERVAL)
+          for label,mod,fn in [('hanayo',hi,hi._fetch_merged_posts),('sakihane',fu,fu._fetch_merged_posts)]:
+              t=time.monotonic()
+              try:
+                  posts=fn()
+                  print('RSS_CHECK',label,'seconds',round(time.monotonic()-t,2),'posts',len(posts),'reposts',sum(bool(x.get('repost')) for x in posts),'latest',[(x['id'],x.get('pub_date'),x.get('repost')) for x in posts[-4:]])
+              except Exception as exc:
+                  print('RSS_ERROR',label,type(exc).__name__,str(exc)[:180])
+          from pathlib import Path
+          for f in ['x_repost_seen_posts.json','x_huya_repost_seen_posts.json','x_seen_posts.json','x_huya_seen_posts.json']:
+              p=Path(f)
+              try:
+                  data=json.loads(p.read_text())
+                  print('SEEN_RECORD',f,'count',len(data),'recent_ids',sorted((str(x) for x in data),key=lambda x:int(x) if x.isdigit() else 0)[-3:])
+              except Exception as e:print('SEEN_ERROR',f,type(e).__name__)
+          PY
+          echo RECENT_X_EVENTS
+          sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o short-iso | grep -Ei 'X 새 게시글 알림|후야 X 새 글 알림|리트윗|repost|X_RSS_FETCH|X_SOURCE_BACKOFF|X.*429|X.*failure|X.*502|X.*404' | tail -n 80 || true
+          echo SERVICE
+          sudo systemctl is-active chzzk-bot.service
+          REMOTE
