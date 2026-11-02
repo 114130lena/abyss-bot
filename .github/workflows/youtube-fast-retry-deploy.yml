@@ -1,0 +1,56 @@
+name: Deploy YouTube faster retry
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] youtube-fast-retry' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile youtube_notifier.py
+      - name: Install notifier with rollback and verify service
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ytretry_key
+          chmod 600 ~/.ssh/ytretry_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/ytretry_key -o IdentitiesOnly=yes youtube_notifier.py "$SSH_USER@$SSH_HOST:/tmp/abyss_youtube_fast_retry.py"
+          ssh -i ~/.ssh/ytretry_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p backups/youtube-fast-retry
+          cp youtube_notifier.py backups/youtube-fast-retry/youtube_notifier.py
+          cp /tmp/abyss_youtube_fast_retry.py youtube_notifier.py
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile youtube_notifier.py
+          "$PY" - <<'PY'
+          import youtube_notifier as yt
+          assert yt.INTERVAL == 60
+          assert yt.youtube_thread_webhook_url().startswith('https://')
+          print('YOUTUBE_RETRY_CONFIG_OK',yt.INTERVAL,len(yt.load_channel_ids()))
+          for cid in yt.load_channel_ids():
+              import time
+              start=time.monotonic()
+              try:
+                  v=yt._fetch_uploads(cid)
+                  print('YOUTUBE_FEED_OK',cid,len(v),round(time.monotonic()-start,2))
+              except Exception as e:
+                  print('YOUTUBE_FEED_TRANSIENT_ERROR',cid,type(e).__name__,str(e)[:120])
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo YOUTUBE_FAST_RETRY_DEPLOY_SUCCESS
+          REMOTE
