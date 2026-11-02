@@ -1,0 +1,65 @@
+name: Deploy post-photo fanart exclusion
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] photo-fanart-exclusion' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Verify photo detection and safe footer behavior
+        run: |
+          python -m py_compile fanart_url_media.py
+          python - <<'PY'
+          import sys,types,copy
+          mod=types.ModuleType('fanart_discovery')
+          mod.BASE=__import__('pathlib').Path('/tmp')
+          mod.QUEUE=mod.BASE/'empty.json'
+          mod.read=lambda _: {}
+          mod.write=lambda *_: None
+          sys.modules['fanart_discovery']=mod
+          from fanart_url_media import has_post_photos
+          base={'components':[{'type':17,'components':[
+            {'type':10,'content':'𝕏 X'},
+            {'type':12,'items':[{'media':{'url':'https://pbs.twimg.com/media/photo.jpg'}}]},
+            {'type':10,'content':'-# 공식 채널 · OFFICIAL LINKS'},
+            {'type':12,'items':[{'media':{'url':'https://youtube.com/banner.jpg'}}]}]}]}
+          assert has_post_photos(base)
+          base['components'][0]['components'].pop(1)
+          assert not has_post_photos(base)
+          base['components'][0]['components'].insert(1,{'type':10,'content':'Image: https://pbs.twimg.com/media/photo.jpg'})
+          assert has_post_photos(base)
+          print('PHOTO_DETECTION_TESTS_PASSED')
+          PY
+      - name: Deploy only image classification module
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/photo_key
+          chmod 600 ~/.ssh/photo_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/photo_key -o IdentitiesOnly=yes fanart_url_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_photo_fanart.py"
+          ssh -i ~/.ssh/photo_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/abyss_photo_fanart.py
+          mkdir -p backups/photo-fanart-exclusion
+          cp fanart_url_media.py backups/photo-fanart-exclusion/fanart_url_media.py
+          cp /tmp/abyss_photo_fanart.py fanart_url_media.py
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo PHOTO_FANART_EXCLUSION_DEPLOY_SUCCESS
+          REMOTE
