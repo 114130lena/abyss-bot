@@ -222,9 +222,9 @@ def _creator_theme(creator, handle):
     """Cosmetic only: do not change role IDs or platform color accents."""
     identity = (str(creator) + " " + str(handle)).casefold()
     if "히요리" in identity or "hanayo" in identity:
-        return "🌸 H I Y O R I"
+        return "🌸 HIYORI"
     if "후야" in identity or "sakihane" in identity:
-        return "💜🐲 H U Y A"
+        return "💜🐲 HUYA"
     return ""
 
 
@@ -357,6 +357,11 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
+        if not _valid_url(chzzk) and platform == "chzzk" and _valid_url(url):
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.hostname == "chzzk.naver.com":
+                chzzk = "https://chzzk.naver.com/" + parsed.path.strip("/").split("/")[0]
         cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
         links = [("CHZZK", chzzk), ("CAFE", cafe),
                  ("X", twitter), ("YouTube", youtube)]
