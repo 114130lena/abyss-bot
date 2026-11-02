@@ -38,6 +38,11 @@ jobs:
           from resilience import send_webhook
           assert os.getenv('ABYSS_RANDOM_MEDIA')=='1'
           assert os.getenv('ABYSS_FANART_URLS')=='1'
+          from creator_groups import CHZZK_GROUPS
+          from pathlib import Path
+          channels=Path('channels.txt')
+          monitored=[x.split('#',1)[0].strip().lower() for x in channels.read_text().splitlines() if x.split('#',1)[0].strip()] if channels.exists() else []
+          print('CHZZK_MONITORED',[(x,CHZZK_GROUPS.get(x,'hanayo')) for x in monitored],flush=True)
           print('LIVE_MEDIA_FLAGS',os.getenv('ABYSS_RANDOM_MEDIA'),os.getenv('ABYSS_FANART_URLS'),flush=True)
           for group in ('hanayo','sakihane'):
               print('LIVE_MEDIA_POOL',group,'profiles',len(random_media._local_candidates(group,'profile')),
