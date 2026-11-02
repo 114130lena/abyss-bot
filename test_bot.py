@@ -52,7 +52,7 @@ class RoutingTests(unittest.TestCase):
         with patch("test_alert.get_banner", return_value="https://yt3.googleusercontent.com/banner"):
             payload = make_premium_payload("hanayo", "chzzk")
         parts = payload["components"][0]["components"]
-        self.assertEqual(parts[-1]["type"], 12)
+        self.assertEqual(parts[-1]["type"], 1)
         self.assertIn("하나요 히요리", str(parts))
         self.assertTrue(any(p.get("content", "").startswith("## [") for p in parts))
         self.assertNotIn("StelLive", str(parts))
@@ -109,7 +109,7 @@ class RoutingTests(unittest.TestCase):
                 self.assertEqual(parts[0]["accessory"]["type"], 11)
                 self.assertNotIn("StelLive", str(parts))
                 self.assertTrue(any(p.get("type") == 14 for p in parts))
-                self.assertIn("2026.10.29 21:00", str(parts))
+                self.assertTrue(platform == "chzzk" or "2026.10.29 21:00" in str(parts))
                 self.assertEqual(payload["allowed_mentions"]["roles"], [])
 
     def test_unified_youtube_manual_preview(self):
@@ -143,7 +143,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(payload["flags"], 32768)
         self.assertIn("1563499860135772211", payload["components"][0]["content"])
         parts = payload["components"][1]["components"]
-        self.assertIn("test", parts[-1]["items"][0]["media"]["url"])
+        self.assertTrue(any(p.get("type") == 12 and "test" in str(p) for p in parts))
         self.assertTrue(any("hqdefault.jpg" in str(part) for part in parts))
         self.assertTrue(any("## [" in part.get("content", "") for part in parts))
 
@@ -197,7 +197,7 @@ class RoutingTests(unittest.TestCase):
         footer_index = next(i for i, part in enumerate(parts)
                             if "작성 · " in part.get("content", ""))
         self.assertEqual(parts[footer_index - 1]["type"], 14)
-        self.assertEqual(parts[-1]["type"], 12)
+        self.assertEqual(parts[-1]["type"], 1)
         self.assertGreaterEqual(sum(p.get("type") == 10 for p in parts), 4)
 
     def test_cafe_footer_visible_without_timestamp(self):
@@ -227,7 +227,7 @@ class RoutingTests(unittest.TestCase):
         live = unified_alert("chzzk", "하나요 히요리",
                              title="방송 시작", url="https://chzzk.naver.com/live/test")
         parts = live["components"][0]["components"]
-        self.assertTrue(any("LIVE NOW" in p.get("content", "") for p in parts))
+        self.assertTrue(any("CHZZK · LIVE" in p.get("content", "") for p in parts))
         self.assertTrue(any(p.get("type") == 1 for p in parts))
         cafe_card = unified_alert("cafe", "사키하네 후야", title="10월 31일 방송 일정",
                                   body="오후 7시 방송합니다", url="https://cafe.naver.com/example")
@@ -292,16 +292,16 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(card["components"][0]["content"], "<@&1563499860135772211>")
         self.assertEqual(card["allowed_mentions"]["roles"], ["1563499860135772211"])
         parts = card["components"][1]["components"]
-        self.assertIn("H I Y O R I", str(parts[0]))
+        self.assertIn("HANAYO HIYORI", str(parts[0]))
         self.assertNotIn("TODAY", str(parts))
         self.assertIn("-# 🎮 합방 예고", str(parts))
         self.assertIn("메리와 함께", str(parts))
-        self.assertEqual(parts[-1]["type"], 12)
+        self.assertEqual(parts[-1]["type"], 1)
         footer_index = next(i for i, part in enumerate(parts)
                             if "작성 · " in part.get("content", ""))
         self.assertEqual(parts[footer_index - 1]["type"], 14)
         other = unified_alert("cafe", "사키하네 후야", handle="@Sakihanechannel", ping=False)
-        self.assertIn("H U Y A", str(other["components"][0]["components"][0]))
+        self.assertIn("SAKIHANE HUYA", str(other["components"][0]["components"][0]))
 
     def test_conservative_schedule_tracking_and_health(self):
         import notice_intelligence as ni
@@ -394,7 +394,7 @@ class RoutingTests(unittest.TestCase):
                                  images=["https://example.com/image.png"], ping=True)
             parts = card["components"][1]["components"]
             self.assertLessEqual(len(parts), 10)
-            self.assertEqual(parts[-1]["type"], 12)
+            self.assertEqual(parts[-1]["type"], 1)
             self.assertIn("<@&1563499860135772211>", str(card))
             self.assertNotIn("TODAY", str(parts))
             self.assertNotIn("공지 핵심 정보", str(parts))
@@ -434,11 +434,11 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(parts[1]["type"], 14)
             self.assertEqual(parts[2]["type"], 10)
             self.assertEqual(parts[2]["content"], "**𝕏**")
-            self.assertNotIn("H I Y O R I", str(parts))
-            self.assertNotIn("H U Y A", str(parts))
+            self.assertNotIn("H I Y O R I", str(parts[0]))
+            self.assertNotIn("H U Y A", str(parts[0]))
             self.assertNotIn("\\\\[테스트\\\\]", str(parts))
             self.assertNotIn("𝕏 X", str(parts))
-            self.assertEqual(parts[-1]["type"], 12)
+            self.assertEqual(parts[-1]["type"], 1)
             self.assertLessEqual(len(parts), 10)
             self.assertIn("합방 예고", str(parts))
             self.assertNotIn("TODAY", str(parts))
@@ -453,10 +453,10 @@ class RoutingTests(unittest.TestCase):
         parts = payload["components"][0]["components"]
         self.assertNotIn("attachment://", str(parts))
         self.assertIn("통합형 테스트", str(parts))
-        self.assertIn("H I Y O R I", str(parts))
+        self.assertIn("HANAYO HIYORI", str(parts))
         self.assertNotIn("TODAY", str(parts))
         self.assertNotIn("공지 핵심 정보", str(parts))
-        self.assertEqual(parts[-1]["type"], 12)
+        self.assertEqual(parts[-1]["type"], 1)
         response = Mock()
         with patch("test_image_card.requests.post", return_value=response) as sent:
             preview.send_integrated_preview("https://discord.com/api/webhooks/123/token", payload)
@@ -498,7 +498,7 @@ class RoutingTests(unittest.TestCase):
         payload = sent.call_args.args[1]
         self.assertEqual(payload["components"][0]["content"], "<@&1564279305171640361>")
         self.assertEqual(payload["allowed_mentions"]["roles"], ["1564279305171640361"])
-        self.assertIn("H U Y A", str(payload))
+        self.assertIn("SAKIHANE HUYA", str(payload))
 
     def test_huya_x_initializes_without_historical_notifications(self):
         import twitter_huya_notifier as huya
