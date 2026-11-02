@@ -238,7 +238,7 @@ def _link_button(url, platform, replay=False):
 def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
           author="", board="", replay=False, ping=True, username="정덕삼",
-          handle="", avatar=""):
+          handle="", avatar="", chzzk_channel_id=""):
     """Unified V2 card: creator, platform, title/media, date, final banner."""
     creator = str(creator or "알 수 없음")
     tag = {
@@ -355,8 +355,38 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         twitter = ("https://x.com/HanayoHiyori" if group == "hanayo"
                    else "https://x.com/SakihaneHuya")
         chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
+        if not _valid_url(chzzk) and platform == "chzzk":
+            import re
+            if re.fullmatch(r"[a-fA-F0-9]{32}", str(chzzk_channel_id or "")):
+                chzzk = "https://chzzk.naver.com/" + chzzk_channel_id
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
+        if not _valid_url(chzzk) and group == "hanayo":
+            # Prefer the actual configured monitored CHZZK channel over stale
+            # IDs left in historical live_state.json.
+            import re
+            from pathlib import Path
+            base = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
+            for channel_file in (base / "channels.txt", Path(__file__).resolve().parent / "channels.txt"):
+                try:
+                    ids = [
+                        line.split("#", 1)[0].strip().lower()
+                        for line in channel_file.read_text(encoding="utf-8").splitlines()
+                    ]
+                except OSError:
+                    continue
+                verified = [cid for cid in ids
+                            if re.fullmatch(r"[0-9a-f]{32}", cid)
+                            and cid not in CHZZK_GROUPS]
+                verified = list(dict.fromkeys(verified))
+                if len(verified) == 1:
+                    chzzk = "https://chzzk.naver.com/" + verified[0]
+                    break
+        if not _valid_url(chzzk) and platform == "chzzk" and _valid_url(url):
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.hostname == "chzzk.naver.com":
+                chzzk = url
         cafe = os.getenv("STELLIVE_CAFE_URL", "https://cafe.naver.com/f-e/cafes/29424353").strip()
         links = [("CHZZK", chzzk), ("CAFE", cafe),
                  ("X", twitter), ("YouTube", youtube)]
