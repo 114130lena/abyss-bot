@@ -1,0 +1,36 @@
+name: Inspect production code overwrite
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] overwritten-media' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect systemd and code without mutations
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key "$USER@$HOST" 'bash -s' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          echo SERVICE_UNIT
+          sudo systemctl cat chzzk-bot.service | head -n 100
+          echo FILE_DATES
+          stat -c '%n %y %s' resilience.py discord_v2.py creator_groups.py
+          echo CODE_MARKERS
+          grep -n 'ABYSS_FANART_URLS\|def send_webhook' resilience.py | head -n 10 || true
+          grep -n '49d2c3cf8f0b2843d934ec15e82bb54c' creator_groups.py || true
+          echo GIT_STATUS
+          git status --short 2>/dev/null | head -n 35 || true
+          echo RECENT_RESTART
+          sudo journalctl -u chzzk-bot.service --since '20 minutes ago' --no-pager -o short-iso | grep -Ei 'git|pull|checkout|reset|overwrite|started|restarting' | tail -n 40 || true
+          REMOTE
