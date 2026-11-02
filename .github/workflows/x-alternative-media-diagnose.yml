@@ -1,0 +1,47 @@
+name: Inspect X alternative photo sources
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] x-alternative-media' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect public X mirror endpoints
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/x_alt_key
+          chmod 600 ~/.ssh/x_alt_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/x_alt_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import requests,time
+          import xml.etree.ElementTree as ET
+          targets=['https://fxtwitter.com/HanayoHiyori/feed.xml','https://fxtwitter.com/SakihaneHuya/feed.xml','https://api.fxtwitter.com/HanayoHiyori/status/2117206484241248457']
+          for url in targets:
+              start=time.monotonic()
+              try:
+                  r=requests.get(url,timeout=5,headers={'User-Agent':'abyss-bot/1.0'})
+                  print('ALT',url.split('/')[2],url.split('/')[3],r.status_code,round(time.monotonic()-start,2),r.headers.get('Content-Type','')[:65],'bytes',len(r.content),flush=True)
+                  if r.ok and 'feed.xml' in url:
+                      root=ET.fromstring(r.content)
+                      print('ALT_RSS_ITEMS',root.tag,len(root.findall('./channel/item')),flush=True)
+                  if r.ok and 'api.fxtwitter' in url:
+                      data=r.json()
+                      tweet=data.get('tweet',{})
+                      media=tweet.get('media',{})
+                      print('ALT_TWEET',data.get('code'),tweet.get('id'),list(media.keys()) if isinstance(media,dict) else type(media).__name__,len(media.get('photos',[])) if isinstance(media,dict) else 0,flush=True)
+              except Exception as e: print('ALT_ERROR',url.split('/')[2],type(e).__name__,str(e)[:120],flush=True)
+          PY
+          REMOTE
