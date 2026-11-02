@@ -1,0 +1,89 @@
+name: End to end production media route test
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  test:
+    if: ${{ github.event.issue.title == '[abyss-test] production-media-routing' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Validate real server media routing and send two mention-free previews
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/media_key
+          chmod 600 ~/.ssh/media_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/media_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,copy,time,requests
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import random_media,fanart_url_media
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from collect_creator_media import read_index
+          from fanart_discovery import read
+          assert os.getenv('ABYSS_RANDOM_MEDIA')=='1'
+          assert os.getenv('ABYSS_FANART_URLS')=='1'
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          parsed=urlsplit(base)
+          query=dict(parse_qsl(parsed.query,keep_blank_values=True))
+          query['thread_id']='1566335914500816988'
+          dest=urlunsplit((parsed.scheme,parsed.netloc,parsed.path,urlencode(query),parsed.fragment))
+          os.environ['ABYSS_RANDOM_MEDIA']='1'
+          os.environ['ABYSS_FANART_URLS']='1'
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              profiles=random_media._local_candidates(group,'profile')
+              banners=random_media._local_candidates(group,'banner')
+              arts=fanart_url_media.candidates(group)
+              print('MEDIA_POOLS',group,'profiles',len(profiles),'banners',len(banners),'fanart',len(arts),flush=True)
+              assert len(profiles)>=2 and banners and arts
+              for platform,kwargs,should_fanart in [
+                  ('chzzk',{},True),
+                  ('x',{},True),
+                  ('cafe',{},True),
+                  ('youtube',{},False),
+                  ('chzzk',{'replay':True},False),
+                  ('x',{'images':['https://pbs.twimg.com/media/test.jpg']},False)
+              ]:
+                  p=alert(platform,name,banner=get_banner(group),role_id='',title='테스트: 이미지 분리 검사',
+                    url='https://chzzk.naver.com/',avatar=avatar(group),handle=handle(group),ping=False,**kwargs)
+                  randomized,selection=random_media.prepare_payload(p)
+                  assert selection,(group,platform,'profile selection failed')
+                  linked,art=fanart_url_media.apply(randomized)
+                  actual=bool(art)
+                  assert actual==should_fanart,(group,platform,should_fanart,actual)
+                  section=next(x for x in linked['components'][0]['components'] if x.get('type')==9)
+                  aurl=section['accessory']['media']['url']
+                  assert aurl.startswith('attachment://abyss_profile'),(group,platform,aurl)
+                  buttons=[b['label'] for x in linked['components'][0]['components'] if x.get('type')==1 for b in x['components']]
+                  required=['원본 게시물','CHZZK','CAFE','X','YouTube'] if actual else ['CHZZK','CAFE','X','YouTube']
+                  assert buttons[-len(required):]==required,(group,platform,buttons)
+                  print('ROUTE_OK',group,platform,'fanart',actual,'profile_attachment',aurl,'buttons',buttons,flush=True)
+              # Actual production send_webhook, but deliver ONLY to isolated test thread.
+              p=alert('chzzk',name,banner=get_banner(group),role_id='',title='[실제 경로 테스트] 팬아트 + 공식 프로필',
+                 url='https://chzzk.naver.com/',avatar=avatar(group),handle=handle(group),ping=False)
+              p['allowed_mentions']={'parse':[]}
+              send_webhook(dest,p)
+              print('LIVE_PREVIEW_SENT',group,flush=True)
+          PY
+          echo PRODUCTION_MEDIA_TEST_COMPLETE
+          echo RECENT_PRODUCTION_MEDIA_LOGS
+          sudo journalctl -u chzzk-bot.service --since '5 hours ago' --no-pager -o cat | grep -E 'FANART_SELECTED|랜덤 이미지 준비 실패|팬아트 링크 선택 실패|프로필|Discord response timed out|전송 실패' | tail -n 35 || true
+          REMOTE
