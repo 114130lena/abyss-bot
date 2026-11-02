@@ -8,9 +8,21 @@ from creator_profiles import handle,avatar
 
 THREAD_ID="1566509366591627344"
 
-def is_repost(title):
+def is_repost(title, description="", source=""):
+    """Recognize repost labels used by Nitter, FxEmbed and RSS mirrors."""
     import re
-    return bool(re.match(r"^(?:RT by|Retweeted by)\s+@?[^:]+:",str(title or ""),re.I))
+    t=str(title or "").strip()
+    d=str(description or "")
+    if re.search(r"^(?:RT by|Retweeted by|Reposted by|Boosted by)\b", t, re.I):
+        return True
+    if re.search(r"^(?:RT|Retweet|Repost)\s*[:：]", t, re.I):
+        return True
+    if re.search(r"\b(?:retweeted|reposted)\s+by\b", t[:180], re.I):
+        return True
+    if re.search(r"\b(?:retweeted|reposted)\s+by\b", d[:250], re.I):
+        return True
+    return False
+
 
 def thread_url(webhook):
     p=urlsplit(webhook)
