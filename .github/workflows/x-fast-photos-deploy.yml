@@ -1,0 +1,61 @@
+name: Deploy X creator-only fast photo fallback
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-fast-photos' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Test creator-only feed and safe old-post suppression
+        run: |
+          python -m py_compile x_fx_feed.py twitter_notifier.py twitter_huya_notifier.py
+      - name: Stage, verify and install X feed fallback
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/xfast_key
+          chmod 600 ~/.ssh/xfast_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in x_fx_feed.py twitter_notifier.py twitter_huya_notifier.py; do
+            scp -i ~/.ssh/xfast_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_fast_$f"
+          done
+          ssh -i ~/.ssh/xfast_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/abyss_fast_x_fx_feed.py /tmp/abyss_fast_twitter_notifier.py /tmp/abyss_fast_twitter_huya_notifier.py
+          mkdir -p backups/x-fast-photos
+          for f in twitter_notifier.py twitter_huya_notifier.py; do cp "$f" "backups/x-fast-photos/$f"; done
+          for f in x_fx_feed.py twitter_notifier.py twitter_huya_notifier.py; do
+            cp "/tmp/abyss_fast_$f" "$f"
+          done
+          "$PY" - <<'PY'
+          import twitter_notifier as h,twitter_huya_notifier as f
+          for name,mod in [('hanayo',h),('sakihane',f)]:
+              try:
+                  posts=mod._fetch_merged_posts()
+                  fx=[p for p in posts if 'fxtwitter.com' in p.get('source','')]
+                  photos=sum(bool(p.get('images')) for p in posts)
+                  print('X_FAST_VERIFY',name,'total',len(posts),'fx_posts',len(fx),'with_photos',photos,flush=True)
+                  assert len(posts)<200
+              except Exception as e:
+                  # RSS outage may be temporary, retain existing worker and let it retry.
+                  print('X_FAST_SOURCE_WARNING',name,type(e).__name__,str(e)[:100],flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo X_FAST_PHOTOS_DEPLOY_SUCCESS
+          REMOTE
