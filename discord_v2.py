@@ -362,18 +362,36 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
         if not _valid_url(chzzk) and group == "hanayo":
-            # The live monitor stores both channel IDs in channels.txt, whereas
-            # only Sakihane is explicitly mapped in CHZZK_GROUPS.
-            from pathlib import Path
+            # Resolve Hiyori consistently for both CHZZK and X notifications.
+            # CHZZK_GROUPS explicitly lists Fuya; the other monitored channel
+            # belongs to Hiyori. Never guess when multiple IDs are unknown.
+            import json
             import re
-            channels = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot")) / "channels.txt"
+            from pathlib import Path
+            from creator_groups import CHZZK_GROUPS
+            base = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
+            candidates = set()
+            channel_files = (base / "channels.txt", Path(__file__).resolve().parent / "channels.txt")
+            for channel_file in channel_files:
+                try:
+                    for line in channel_file.read_text(encoding="utf-8").splitlines():
+                        cid = line.strip().lower()
+                        if re.fullmatch(r"[0-9a-f]{32}", cid) and cid not in CHZZK_GROUPS:
+                            candidates.add(cid)
+                except OSError:
+                    pass
+            # The live state also retains the channel IDs across restarts.
             try:
-                matches = [line.strip() for line in channels.read_text(encoding="utf-8").splitlines()
-                           if re.fullmatch(r"[0-9a-f]{32}",line.strip()) and line.strip() not in CHZZK_GROUPS]
-                if len(matches) == 1:
-                    chzzk = "https://chzzk.naver.com/" + matches[0]
-            except OSError:
+                state = json.loads((base / "live_state.json").read_text(encoding="utf-8"))
+                if isinstance(state, dict):
+                    for key in state:
+                        cid = str(key).lower()
+                        if re.fullmatch(r"[0-9a-f]{32}", cid) and cid not in CHZZK_GROUPS:
+                            candidates.add(cid)
+            except (OSError, ValueError, TypeError):
                 pass
+            if len(candidates) == 1:
+                chzzk = "https://chzzk.naver.com/" + next(iter(candidates))
         if not _valid_url(chzzk) and platform == "chzzk" and _valid_url(url):
             from urllib.parse import urlparse
             parsed = urlparse(url)
