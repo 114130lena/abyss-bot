@@ -38,5 +38,7 @@ def notify(group,post,webhook):
     payload=alert("x",creator,get_banner(group),role_id="",title="🔁 X 리트윗 · "+title[:160],
         body=body,url=post["url"],images=post.get("images",[]),date=post.get("pub_date",""),
         handle=handle(group),avatar=avatar(group),ping=False)
+    if not post.get("images"):
+        payload["_abyss_photo_unknown"] = True
     payload["allowed_mentions"]={"parse":[]}
     send_webhook(thread_url(webhook),payload)
