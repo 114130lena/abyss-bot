@@ -1126,6 +1126,7 @@ jobs:
                   from random_media import _local_candidates
                   print('DIAG_PARTS',platform,[{'type':a.get('type'),'content':str(a.get('content',''))[:90],'accessory':a.get('accessory',{}).get('type')} for a in payload['components'][-1]['components']],flush=True)
                   print('DIAG_FILES',group,[(k,[str(q[0]) for q in _local_candidates(group,k)]) for k in ('profile','banner')],flush=True)
+              print('RANDOM_DEBUG',group,platform,'selection',bool(selected),'parts',[(v.get('type'),str(v.get('content',''))[:55]) for v in payload['components'][-1]['components']],'candidates',[(k,len(__import__('random_media')._local_candidates(group,k))) for k in ('profile','banner')],flush=True)
               assert selected and selected[0]==group,(platform,group,selected)
               assert all(selected[1][kind][0].is_file() for kind in ('profile','banner'))
               assert any(i.get('type')==9 for i in prepared['components'][-1]['components'])
