@@ -549,7 +549,7 @@ jobs:
         with:
           ref: test/compact-footer-four-links
           persist-credentials: false
-      - run: python -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py random_media.py
+      - run: python -m py_compile collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py fanart_candidate_cache.py random_media.py
       - name: Install collector and six-hour timer on existing Ubuntu host
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -569,13 +569,14 @@ jobs:
           set -eu
           cd /home/ubuntu/chzzk-bot
           mkdir -p backups/media-refresh
-          for f in random_media.py collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py; do
+          for f in random_media.py collect_creator_media.py fanart_library.py fanart_discovery.py fanart_fx_rss.py fanart_candidate_cache.py; do
             if [ -f "$f" ]; then cp "$f" "backups/media-refresh/$f"; fi
           done
           cp /tmp/abyss_refresh_collect_creator_media.py collect_creator_media.py
           cp /tmp/abyss_refresh_fanart_library.py fanart_library.py
           cp /tmp/abyss_refresh_fanart_discovery.py fanart_discovery.py
           cp /tmp/abyss_refresh_fanart_fx_rss.py fanart_fx_rss.py
+          cp /tmp/abyss_refresh_fanart_candidate_cache.py fanart_candidate_cache.py
           cp /tmp/abyss_refresh_random_media.py random_media.py
           bash /tmp/abyss_install_refresh.sh
           REMOTE
