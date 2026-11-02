@@ -1,0 +1,75 @@
+name: Verify official profile rotation in isolated Discord tests
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  verify:
+    if: ${{ github.event.issue.title == '[abyss-test] official-profile-rotation' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Validate service and send isolated random-profile samples
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/profile_verify_key
+          chmod 600 ~/.ssh/profile_verify_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/profile_verify_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          sudo systemctl is-active --quiet chzzk-bot.service
+          sudo systemctl is-active --quiet abyss-official-profiles.timer
+          sudo systemctl is-active --quiet abyss-media-refresh.timer
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,random
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from random_media import _local_candidates
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          from collect_creator_media import read_index
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base);q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          index=read_index()
+          os.environ['ABYSS_RANDOM_MEDIA']='0'
+          os.environ['ABYSS_FANART_URLS']='0'
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              choices=_local_candidates(group,'profile')
+              assert len(choices)>=2,(group,len(choices))
+              assert all('/fanart' not in str(path) for path,_ in choices)
+              sources={x['sha256']:x.get('source','') for x in index[group]['profile']}
+              order=random.SystemRandom().sample(choices,min(3,len(choices)))
+              for i,(path,digest) in enumerate(order,1):
+                  from pathlib import Path
+                  from contextlib import ExitStack
+                  import requests,json
+                  url='attachment://abyss_official_profile'+path.suffix
+                  card=alert('chzzk',name,banner=get_banner(group),role_id='',
+                      title='[공식 프로필 랜덤 테스트 '+str(i)+'/3] '+name,
+                      url='https://chzzk.naver.com/',avatar=url,
+                      handle=handle(group),ping=False)
+                  card['allowed_mentions']={'parse':[]}
+                  endpoint=dest+('&' if '?' in dest else '?')+'with_components=true'
+                  mime='image/png' if path.suffix.lower()=='.png' else 'image/webp' if path.suffix.lower()=='.webp' else 'image/jpeg'
+                  with open(path,'rb') as f:
+                      response=requests.post(endpoint,data={'payload_json':json.dumps(card,ensure_ascii=False)},
+                          files={'files[0]':('abyss_official_profile'+path.suffix,f,mime)},timeout=30)
+                  response.raise_for_status()
+                  print('PROFILE_ROTATION_SENT',group,i,sources.get(digest),digest[:12],flush=True)
+          PY
+          REMOTE
