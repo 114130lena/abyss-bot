@@ -102,12 +102,21 @@ def _save_seen(ids):
 
 
 def _notify(post):
+    from x_post_media import resolve_images
+    photo_urls, photo_known = resolve_images(post, USERNAME)
+    if photo_urls:
+        post = dict(post, images=photo_urls)
+    # Preserve safety if metadata is unavailable: never mislabel a potentially
+    # illustrated X post as confirmed text-only and display unrelated fanart.
+    uncertain_photo = not photo_known
     payload = unified_alert(
         "x", "사키하네 후야", get_banner(GROUP), ROLE,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
         images=post.get("images", []),
         handle=creator_handle(GROUP), avatar=creator_avatar(GROUP))
+    if uncertain_photo:
+        payload["_abyss_photo_unknown"] = True
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
