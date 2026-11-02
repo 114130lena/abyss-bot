@@ -212,6 +212,10 @@ def _fetch_merged_posts(include_backups=True):
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
     with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
         futures = {pool.submit(feed_health.timed_fetch, _fetch_posts, source): source for source in feeds if feed_health.active(source)}
+        from x_fx_feed import fetch_creator_originals
+        fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+        if feed_health.active(fx_url):
+            futures[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, __import__("sys").modules[__name__]), fx_url)] = fx_url
         for future in as_completed(futures):
             source = futures[future]
             try:
