@@ -14,6 +14,7 @@ def cleanup(now=None):
     for item in queue.values():
         if not isinstance(item,dict):continue
         kept=[]
+        expired=False
         for rel in item.get("cached_files",[]):
             if not isinstance(rel,str):continue
             p=(BASE/rel).resolve()
@@ -22,8 +23,10 @@ def cleanup(now=None):
                 bytes_freed+=p.stat().st_size
                 p.unlink()
                 removed+=1
+                expired=True
             else:kept.append(rel)
         item["cached_files"]=kept
+        if expired and not kept:item["cache_retired"]=True
     write(QUEUE,queue)
     print(json.dumps({"deleted_cache_files":removed,"freed_bytes":bytes_freed,
                       "metadata_kept":len(queue)},ensure_ascii=False))
