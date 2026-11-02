@@ -81,6 +81,7 @@ def send_webhook(url, payload, attempts=3):
         try:
             prepared = payload
             chosen = None
+            selected_urls = None
             if os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
                 try:
                     from random_media import prepare_payload
@@ -124,6 +125,12 @@ def send_webhook(url, payload, attempts=3):
                 response = requests.post(url, json=prepared, timeout=12)
             if response.status_code not in (429, 500, 502, 503, 504):
                 response.raise_for_status()
+                if selected_urls:
+                    try:
+                        from fanart_url_media import mark_delivered as mark_fanart_delivered
+                        mark_fanart_delivered(selected_urls)
+                    except Exception as exc:
+                        logging.warning("팬아트 사용 기록 저장 실패: %s", exc)
                 if chosen:
                     try:
                         from random_media import mark_delivered
