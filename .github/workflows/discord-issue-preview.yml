@@ -1008,3 +1008,62 @@ jobs:
               print('FOUR_PLATFORM_PREVIEW_SENT',platform,name)
           PY
           REMOTE
+
+  preview_five_platforms:
+    if: ${{ github.event.issue.title == '[abyss-test] five-platform-layout' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Owner only
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - name: Send all five production designs with no mentions
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          import os
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from banner_manager import get_banner
+          from creator_profiles import handle,avatar
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base);q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          cases=[
+            ('chzzk','하나요 히요리','hanayo','[최신 디자인 1/5] 치지직 LIVE','Just Chatting',''),
+            ('youtube','사키하네 후야','sakihane','[최신 디자인 2/5] 유튜브 업로드','영상',''),
+            ('x','하나요 히요리','hanayo','[최신 디자인 3/5] X 일반 게시글','','X 본문 사진과 텍스트가 표시되는 영역입니다.'),
+            ('cafe','사키하네 후야','sakihane','[최신 디자인 4/5] 카페 게시글','','카페 공지 본문 영역 테스트입니다.'),
+            ('x','사키하네 후야','sakihane','[최신 디자인 5/5] X 리트윗','','리트윗 본문입니다. 별도 스레드 라우팅은 운영 설정을 유지합니다.'),
+          ]
+          for platform,name,group,title,category,body in cases:
+              data=alert(platform,name,get_banner(group),role_id='',title=title,
+                  category=category,body=body,url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                  handle=handle(group),avatar=avatar(group),ping=False)
+              data['allowed_mentions']={'parse':[]}
+              assert data['flags']==32768
+              assert not data['allowed_mentions']['parse']
+              assert any(c.get('type')==9 for c in data['components'][-1]['components'])
+              send_webhook(dest,data,attempts=1)
+              print('FIVE_DESIGN_SENT',platform,group,title)
+          PY
+          REMOTE
