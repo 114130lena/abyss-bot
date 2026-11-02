@@ -1,0 +1,63 @@
+name: Deploy verified Hiyori CHZZK channel mapping
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] fix-hiyori-buttons' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - run: python -m py_compile creator_groups.py discord_v2.py fanart_url_media.py resilience.py
+      - name: Deploy mapping and verify all four plus fanart fifth button
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/linkkey
+          chmod 600 ~/.ssh/linkkey
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/linkkey -o IdentitiesOnly=yes creator_groups.py "$SSH_USER@$SSH_HOST:/tmp/abyss_verified_creator_groups.py"
+          ssh -i ~/.ssh/linkkey -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          cp creator_groups.py /tmp/abyss_creator_groups_pre_mapping.py
+          cp /tmp/abyss_verified_creator_groups.py creator_groups.py
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from discord_v2 import alert
+          from fanart_url_media import apply
+          from banner_manager import get_banner
+          from creator_profiles import avatar,handle
+          for group,name in (('hanayo','하나요 히요리'),('sakihane','사키하네 후야')):
+              for plat in ('chzzk','youtube','x','cafe'):
+                  card=alert(plat,name,banner=get_banner(group),role_id='',title='test',url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),ping=False)
+                  row=[c for box in card['components'] for c in box.get('components',[]) if c.get('type')==1][0]
+                  labels=[x['label'] for x in row['components']]
+                  assert labels==['CHZZK','CAFE','X','YouTube'],(group,plat,labels)
+                  print('FOUR_CONFIRMED',group,plat,labels)
+              card=alert('chzzk',name,banner=get_banner(group),role_id='',title='LIVE',url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),ping=False)
+              result,selected=apply(card,group)
+              assert selected,(group,'fanart not selected')
+              row=[c for box in result['components'] for c in box.get('components',[]) if c.get('type')==1][0]
+              labels=[x['label'] for x in row['components']]
+              assert labels==['원본 게시물','CHZZK','CAFE','X','YouTube'],(group,labels)
+              print('FIVE_CONFIRMED',group,labels)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo Hiyori_CHZZK_MAPPING_DEPLOY_SUCCESS
+          REMOTE
