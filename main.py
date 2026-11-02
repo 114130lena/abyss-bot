@@ -19,6 +19,7 @@ from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import chzzk_group, role_for
 from resilience import load_json, save_json, send_webhook, warn_failure
+from platform_self_heal import Supervisor
 
 load_dotenv()
 
@@ -138,8 +139,10 @@ def check_chzzk_once(state):
 
 def run_worker(name, checker, interval):
     failures = 0
+    supervisor = WORKER_HEALTH
     while True:
         started = time.monotonic()
+        supervisor.begin(name)
         try:
             checker()
             failures = 0
@@ -152,7 +155,12 @@ def run_worker(name, checker, interval):
                 except Exception:
                     logging.exception("카페 수집 장애 기록 실패")
             warn_failure(name, failures, exc)
+        finally:
+            supervisor.finish(name)
         time.sleep(max(1, interval - (time.monotonic() - started)))
+
+
+WORKER_HEALTH = Supervisor()
 
 
 def main():
@@ -173,11 +181,13 @@ def main():
         ("치지직 다시보기", check_replays),
     ]
     for name, checker in workers:
+        WORKER_HEALTH.register(name)
         thread = threading.Thread(
             target=run_worker, args=(name, checker, 5), name=name, daemon=True
         )
         thread.start()
-    logging.info("어비스봇 시작: 독립 알림 작업 5개 실행")
+    WORKER_HEALTH.start_watchdog()
+    logging.info("어비스봇 시작: 독립 알림 작업 %d개 실행", len(workers))
     failures = 0
     while True:
         started = time.monotonic()
