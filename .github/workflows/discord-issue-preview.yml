@@ -823,3 +823,62 @@ jobs:
           }
           echo REPOST_FIX_DEPLOY_SUCCESS
           REMOTE
+
+  verify_repost_thread:
+    if: ${{ github.event.issue.title == '[abyss-test] repost-thread-route' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Owner only
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: test "$AUTHOR" = "$OWNER"
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Check real RSS titles and send harmless test message
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
+          chmod 600 ~/.ssh/abyss_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          import os,requests,xml.etree.ElementTree as ET
+          from x_repost_notifier import thread_url,is_repost
+          for username in ('HanayoHiyori','SakihaneHuya'):
+              try:
+                  url='https://fxtwitter.com/'+username+'/feed.xml'
+                  r=requests.get(url,timeout=12)
+                  r.raise_for_status()
+                  root=ET.fromstring(r.content)
+                  samples=[]
+                  for item in root.findall('./channel/item')[:30]:
+                      title=(item.findtext('title') or '')[:120]
+                      samples.append((is_repost(title,item.findtext('description') or ''),title))
+                  print('RSS_REAL_TITLES',username,repr(samples[:8]))
+              except Exception as e:print('RSS_DIAGNOSTIC_UNAVAILABLE',username,type(e).__name__)
+          url=os.getenv('DISCORD_WEBHOOK_URL','')
+          assert url.startswith('https://')
+          payload={'content':'[어비스봇 테스트] 🔁 리트윗 전용 스레드 라우팅 확인 (멘션 없음)',
+                   'allowed_mentions':{'parse':[]}}
+          response=requests.post(thread_url(url),json=payload,timeout=15)
+          print('THREAD_SEND_HTTP_STATUS',response.status_code)
+          if response.status_code>=400:
+              print('THREAD_SEND_ERROR_CATEGORY',response.status_code,response.text[:400])
+          response.raise_for_status()
+          print('THREAD_ROUTE_CONFIRMED')
+          PY
+          REMOTE
