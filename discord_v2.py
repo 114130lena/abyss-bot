@@ -238,7 +238,7 @@ def _link_button(url, platform, replay=False):
 def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
           author="", board="", replay=False, ping=True, username="정덕삼",
-          handle="", avatar=""):
+          handle="", avatar="", chzzk_channel_id=""):
     """Unified V2 card: creator, platform, title/media, date, final banner."""
     creator = str(creator or "알 수 없음")
     tag = {
@@ -355,6 +355,10 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         twitter = ("https://x.com/HanayoHiyori" if group == "hanayo"
                    else "https://x.com/SakihaneHuya")
         chzzk = os.getenv(group.upper() + "_CHZZK_URL", "").strip()
+        if not _valid_url(chzzk) and platform == "chzzk":
+            import re
+            if re.fullmatch(r"[a-fA-F0-9]{32}", str(chzzk_channel_id or "")):
+                chzzk = "https://chzzk.naver.com/" + chzzk_channel_id
         if not _valid_url(chzzk) and chzzk_id:
             chzzk = "https://chzzk.naver.com/" + chzzk_id
         if not _valid_url(chzzk) and group == "hanayo":
