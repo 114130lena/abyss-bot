@@ -23,6 +23,18 @@ def candidates(group):
                 result.append((url,item.get("artist",""),item.get("post_url","")))
     return result
 
+def has_post_photos(payload):
+    containers=[c for c in payload.get("components",[]) if c.get("type")==17]
+    if not containers:return False
+    parts=containers[-1].get("components",[])
+    tag=" ".join(str(c.get("content","")) for c in parts if c.get("type")==10)
+    if not ("𝕏 X" in tag or "NAVER CAFE" in tag):
+        return False
+    footer=next((i for i,c in enumerate(parts) if c.get("type")==10 and
+                 "OFFICIAL LINKS" in c.get("content","")),len(parts))
+    return any(c.get("type")==12 and c.get("items") for c in parts[:footer])
+
+
 def apply(payload, group=None):
     out=copy.deepcopy(payload)
     containers=[c for c in out.get("components",[]) if c.get("type")==17]
@@ -34,11 +46,9 @@ def apply(payload, group=None):
         group=("hanayo" if ("히요리" in signature or "hanayo" in signature) else
                "sakihane" if ("후야" in signature or "sakihane" in signature) else None)
     if not group or not section:return out,None
-    # X / Naver Cafe alerts with their own post photos keep the post visuals.
-    # The footer banner always follows OFFICIAL LINKS, so it is not post media.
-    footer_index=next((i for i,x in enumerate(parts)
-                       if x.get("type")==10 and "OFFICIAL LINKS" in x.get("content","")),len(parts))
-    if any(x.get("type")==12 and x.get("items") for x in parts[:footer_index]):
+    # Only X/Cafe post attachments suppress fanart. YouTube thumbnail galleries
+    # are not post-body photos and CHZZK replay art is always eligible.
+    if has_post_photos(payload):
         return payload,None
     pool=candidates(group)
     if not pool:return out,None
