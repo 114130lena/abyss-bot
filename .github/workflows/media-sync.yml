@@ -1,0 +1,60 @@
+name: Sync live media code
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+jobs:
+  sync:
+    if: ${{ github.event.issue.title == '[abyss-deploy] media-sync' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+      - run: python -m py_compile resilience.py discord_v2.py fanart_url_media.py random_media.py creator_groups.py
+      - name: Sync verified media pipeline
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/key resilience.py discord_v2.py fanart_url_media.py random_media.py creator_groups.py "$USER@$HOST:/tmp/"
+          ssh -i ~/.ssh/key "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p backups/media-sync
+          for f in resilience.py discord_v2.py fanart_url_media.py random_media.py creator_groups.py; do
+            cp "$f" "backups/media-sync/$f"
+            cp "/tmp/$f" "$f"
+          done
+          .venv/bin/python -m py_compile resilience.py discord_v2.py fanart_url_media.py random_media.py creator_groups.py
+          .venv/bin/python - <<'PY'
+          import inspect,resilience
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from discord_v2 import alert
+          from fanart_url_media import apply
+          from random_media import prepare_payload
+          from banner_manager import get_banner
+          from creator_profiles import avatar,handle
+          assert 'ABYSS_FANART_URLS' in inspect.getsource(resilience.send_webhook)
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              card=alert('chzzk',name,banner=get_banner(group),role_id='',title='test',url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),ping=False)
+              randomized,chosen=prepare_payload(card)
+              assert chosen
+              result,art=apply(randomized,group)
+              assert art
+              row=[c for box in result['components'] for c in box['components'] if c.get('type')==1][0]
+              assert [x['label'] for x in row['components']]==['원본 게시물','CHZZK','CAFE','X','YouTube']
+              print('MEDIA_SYNC_VERIFIED',group,flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo MEDIA_SYNC_SUCCESS
+          REMOTE
