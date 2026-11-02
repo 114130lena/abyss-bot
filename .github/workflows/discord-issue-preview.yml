@@ -1229,10 +1229,11 @@ jobs:
           persist-credentials: false
       - name: Compile and check changed components
         run: |
-          python -m py_compile discord_v2.py resilience.py random_media.py
+          python -m py_compile discord_v2.py resilience.py random_media.py main.py
           grep -q '🌸 HIYORI' discord_v2.py
           grep -q '💜🐲 HUYA' discord_v2.py
           grep -q '_collect_x_image_attachments' resilience.py
+          grep -q 'chzzk_channel_id=live' main.py
       - name: Validate and apply updated card and X image handling on Ubuntu
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -1244,7 +1245,7 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_key
           chmod 600 ~/.ssh/abyss_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          for f in discord_v2.py resilience.py; do
+          for f in discord_v2.py resilience.py main.py; do
             scp -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_final_$f"
           done
           ssh -i ~/.ssh/abyss_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
@@ -1266,18 +1267,20 @@ jobs:
                   footer=next(i for i in parts if i.get('type')==10 and 'OFFICIAL LINKS' in i.get('content',''))
                   assert 'H I Y O R I' not in footer['content'] and 'H U Y A' not in footer['content']
                   assert any(i.get('type')==1 and any(b.get('label')=='CHZZK' for b in i.get('components',[])) for i in parts),(group,platform)
+          p=d.alert('chzzk','하나요 히요리','https://example.com/banner.jpg',role_id='',title='test',url='https://chzzk.naver.com/live/999',chzzk_channel_id='a'*32,ping=False)
+          assert any(b.get('url')=='https://chzzk.naver.com/'+'a'*32 for c in p['components'][-1]['components'] if c.get('type')==1 for b in c.get('components',[]))
           print('FINAL_LAYOUT_8_VARIANTS_TEST_OK')
           PY
           mkdir -p backups/layout-x-media
-          for f in discord_v2.py resilience.py; do
+          for f in discord_v2.py resilience.py main.py; do
             cp "$f" "backups/layout-x-media/$f"
             cp "/tmp/abyss_final_$f" "$f"
           done
-          "$PY" -m py_compile discord_v2.py resilience.py random_media.py
+          "$PY" -m py_compile discord_v2.py resilience.py random_media.py main.py
           sudo systemctl restart chzzk-bot.service
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot.service || {
-            for f in discord_v2.py resilience.py; do cp "backups/layout-x-media/$f" "$f"; done
+            for f in discord_v2.py resilience.py main.py; do cp "backups/layout-x-media/$f" "$f"; done
             sudo systemctl restart chzzk-bot.service
             exit 1
           }
