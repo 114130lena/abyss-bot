@@ -1,0 +1,43 @@
+name: Abyss operational audit
+on:
+  issues:
+    types: [opened]
+  schedule:
+    - cron: '17 */6 * * *'
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: abyss-operational-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: ${{ github.event_name == 'schedule' || (github.event.issue.title == '[abyss-audit] run' && github.event.issue.user.login == github.repository_owner) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate audit script
+        run: python -m py_compile scripts/operational_audit.py
+      - name: Check bot, media timer, disk and safe cache cleanup
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_audit_key
+          chmod 600 ~/.ssh/abyss_audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_audit_key -o IdentitiesOnly=yes scripts/operational_audit.py "$SSH_USER@$SSH_HOST:/tmp/abyss_operational_audit.py"
+          ssh -i ~/.ssh/abyss_audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" /tmp/abyss_operational_audit.py --prune
+          REMOTE
