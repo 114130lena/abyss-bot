@@ -82,7 +82,15 @@ def send_webhook(url, payload, attempts=3):
             prepared = payload
             chosen = None
             selected_urls = None
-            if os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
+            # X/Cafe posts with their own photos keep the original official banner.
+            # Skip randomized local attachments entirely for those notifications.
+            native_post_photo = False
+            try:
+                from fanart_url_media import has_post_photos
+                native_post_photo = has_post_photos(payload)
+            except Exception as exc:
+                logging.warning("게시글 이미지 확인 실패: %s", exc)
+            if not native_post_photo and os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
                 try:
                     from random_media import prepare_payload
                     prepared, chosen = prepare_payload(payload)
