@@ -1,0 +1,61 @@
+name: Deploy X RSS latency improvements
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-latency' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Compile modules
+        run: python -m py_compile x_feed_health.py twitter_notifier.py twitter_huya_notifier.py
+      - name: Deploy and verify X watcher without changing repost routing
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/xlat_key
+          chmod 600 ~/.ssh/xlat_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          for f in x_feed_health.py twitter_notifier.py twitter_huya_notifier.py; do
+            scp -i ~/.ssh/xlat_key -o IdentitiesOnly=yes "$f" "$SSH_USER@$SSH_HOST:/tmp/abyss_new_$f"
+          done
+          ssh -i ~/.ssh/xlat_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p backups/x-latency
+          for f in twitter_notifier.py twitter_huya_notifier.py x_feed_health.py; do
+            if [ -f "$f" ]; then cp "$f" "backups/x-latency/$f"; fi
+            cp "/tmp/abyss_new_$f" "$f"
+          done
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile x_feed_health.py twitter_notifier.py twitter_huya_notifier.py
+          "$PY" - <<'PY'
+          import twitter_notifier as hi,twitter_huya_notifier as fu,x_feed_health
+          from x_repost_notifier import notify
+          assert callable(notify)
+          print("X_FEED_CONFIG",hi.INTERVAL,fu.INTERVAL,len(hi.ALL_FEEDS),len(fu.FEEDS))
+          for label,fn in [('hanayo',hi._fetch_merged_posts),('sakihane',fu._fetch_merged_posts)]:
+              try:
+                  import time
+                  start=time.monotonic()
+                  posts=fn()
+                  print("X_MERGE_OK",label,len(posts),round(time.monotonic()-start,2),flush=True)
+              except Exception as exc:
+                  print("X_MERGE_UNAVAILABLE",label,type(exc).__name__,str(exc)[:120],flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo X_LATENCY_DEPLOY_SUCCESS
+          REMOTE
