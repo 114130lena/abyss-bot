@@ -1,12 +1,16 @@
 name: Abyss weekly fanart cache cleanup
 on:
+  issues:
+    types: [opened]
   schedule:
     - cron: '30 18 * * 0'
   workflow_dispatch:
 permissions:
   contents: read
+  issues: read
 jobs:
   prune:
+    if: ${{ github.event_name != 'issues' || (github.event.issue.title == '[abyss-cleanup] fanart' && github.event.issue.user.login == github.repository_owner) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
