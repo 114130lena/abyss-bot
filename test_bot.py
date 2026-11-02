@@ -96,7 +96,15 @@ class RoutingTests(unittest.TestCase):
                     date="2026-10-29T12:00:00Z", ping=False,
                     handle="@HanayoHiyori", avatar="https://example.com/avatar.jpg")
                 parts = payload["components"][-1]["components"]
-                self.assertEqual(parts[-1]["type"], 12)
+                # Current layout keeps the official banner above shortcut buttons.
+                self.assertEqual(parts[-1]["type"], 1)
+                labels = [button["label"] for button in parts[-1]["components"]]
+                self.assertIn("YouTube", labels)
+                self.assertIn("X", labels)
+                self.assertIn("CAFE", labels)
+                self.assertTrue(any(p.get("type") == 12 and
+                    any(item.get("media", {}).get("url") == "https://example.com/banner.jpg"
+                        for item in p.get("items", [])) for p in parts))
                 self.assertEqual(parts[0]["type"], 9)
                 self.assertEqual(parts[0]["accessory"]["type"], 11)
                 self.assertNotIn("StelLive", str(parts))
