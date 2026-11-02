@@ -43,7 +43,7 @@ def run(session=None):
     stored=0;failed=0;changed=False
     for key,item in queue.items():
         if stored>=MAX_PER_RUN:break
-        if not isinstance(item,dict) or item.get("review_status")=="blocked":continue
+        if not isinstance(item,dict) or item.get("review_status")=="blocked" or item.get("cache_retired"):continue
         if item.get("group") not in ("hanayo","sakihane"):continue
         existing=item.get("cached_files",[])
         if existing and all((BASE/p).is_file() for p in existing if isinstance(p,str)):
