@@ -31,15 +31,27 @@ def apply(payload, group=None):
     if not group or not section:return out,None
     pool=candidates(group)
     if not pool:return out,None
-    # Independent random picks for avatar and footer, with identifiable credits.
-    avatar=random.SystemRandom().choice(pool)
-    banner=random.SystemRandom().choice([x for x in pool if x[0]!=avatar[0]] or pool)
-    section["accessory"]["media"]["url"]=avatar[0]
+    # One artwork for both locations means one clear source button and attribution.
+    picked=random.SystemRandom().choice(pool)
+    section["accessory"]["media"]["url"]=picked[0]
     for i,part in enumerate(parts[:-1]):
         if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
             gallery=parts[i+1]
-            if gallery.get("type")==12:
-                gallery["items"]=[{"media":{"url":banner[0]},"description":"팬아트 원본 이미지 · "+banner[1]}]
-                part["content"]+=" | 🎨 🎨 프로필 "+avatar[1]+" · [원본]("+avatar[2]+") | 배너 "+banner[1]+" · [원본]("+banner[2]+")"
-                return out,{"group":group,"avatar":avatar,"banner":banner}
+            if gallery.get("type")!=12:
+                continue
+            gallery["items"]=[{"media":{"url":picked[0]},"description":"팬아트 · "+picked[1]}]
+            # Keep the signature short. Move the original post URL into the button row.
+            part["content"]="-# 🎨 FAN ART · "+picked[1]
+            source=picked[2]
+            if not (isinstance(source,str) and source.startswith("https://x.com/")):
+                return payload,None
+            button={"type":2,"style":5,"label":"원본 게시물","url":source}
+            row=next((x for x in reversed(parts) if x.get("type")==1 and isinstance(x.get("components"),list)),None)
+            if row and len(row["components"])<5:
+                row["components"]=[button]+[x for x in row["components"] if x.get("label")!="원본 게시물"]
+            elif not row and len(parts)<10:
+                parts.append({"type":1,"components":[button]})
+            else:
+                return payload,None
+            return out,{"group":group,"avatar":picked,"banner":picked}
     return payload,None
