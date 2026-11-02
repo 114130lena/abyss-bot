@@ -1,0 +1,86 @@
+name: Abyss comprehensive alert preview
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  preview:
+    if: ${{ github.event.issue.title == '[abyss-test] comprehensive-alerts' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Preview eight notification scenarios to isolated thread only
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_full_key
+          chmod 600 ~/.ssh/abyss_full_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_full_key -o IdentitiesOnly=yes fanart_url_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_full_fanart_url_media.py"
+          ssh -i ~/.ssh/abyss_full_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,sys,importlib.util
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          os.environ['ABYSS_FANART_URLS']='0'
+          os.environ['ABYSS_RANDOM_MEDIA']='0'
+          from discord_v2 import alert
+          from resilience import send_webhook
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          spec=importlib.util.spec_from_file_location('preview_fanart','/tmp/abyss_full_fanart_url_media.py')
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          base=os.getenv('TEST_DISCORD_WEBHOOK_URL') or os.getenv('DISCORD_WEBHOOK_URL','')
+          assert base.startswith('https://')
+          p=urlsplit(base);q=dict(parse_qsl(p.query,keep_blank_values=True))
+          q['thread_id']='1566335914500816988'
+          dest=urlunsplit((p.scheme,p.netloc,p.path,urlencode(q),p.fragment))
+          samples={g:mod.candidates(g)[0][0] for g in ('hanayo','sakihane')}
+          cases=[
+            ('chzzk','hanayo','치지직 라이브 · 방송 썸네일 + 팬아트',False,False,False),
+            ('youtube','sakihane','유튜브 업로드 · 영상 썸네일 + 공식 배너',False,True,False),
+            ('chzzk','hanayo','치지직 다시보기 · 썸네일 + 공식 배너',True,True,False),
+            ('x','hanayo','X 글 · 자체 사진 + 공식 배너',False,True,False),
+            ('x','hanayo','X 글 · 사진 없음 + 팬아트',False,False,False),
+            ('cafe','sakihane','카페 글 · 자체 사진 + 공식 배너',False,True,False),
+            ('cafe','sakihane','카페 글 · 사진 없음 + 팬아트',False,False,False),
+            ('x','sakihane','X 리트윗 · 기존 디자인 유지',False,False,True),
+          ]
+          for i,(platform,group,label,replay,has_media,is_repost) in enumerate(cases,1):
+              name='하나요 히요리' if group=='hanayo' else '사키하네 후야'
+              # Use real accessible image URLs; no fake local attachment or production role mention.
+              media=samples[group] if has_media else (get_banner(group) if platform=='chzzk' and not replay else '')
+              kwargs={'media_url':media} if media else {}
+              payload=alert(platform,name,banner=get_banner(group),role_id='',
+                  title=f'[전체 테스트 {i}/8] {label}',body='테스트 스레드 전용 · 멘션 없음',
+                  url='https://x.com/'+('HanayoHiyori' if group=='hanayo' else 'SakihaneHuya'),
+                  avatar=avatar(group),handle=handle(group),replay=replay,ping=False,
+                  **kwargs)
+              selected=None
+              if not is_repost:
+                  payload,selected=mod.apply(payload,group)
+              expect_art=(i in (1,5,7))
+              if expect_art:
+                  assert selected and selected['group']==group, ('fanart missing',i)
+              else:
+                  assert selected is None, ('unwanted fanart',i)
+              payload['allowed_mentions']={'parse':[]}
+              send_webhook(dest,payload,attempts=1)
+              print('COMPREHENSIVE_SENT',i,label,'fanart',bool(selected),flush=True)
+          PY
+          REMOTE
