@@ -1,0 +1,28 @@
+name: Historical repost log comparison
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] repost-history-compare' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare archived repost logs
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key "$USER@$HOST" 'bash -s' <<'REMOTE'
+          echo NOV2_REPOST_WINDOW
+          sudo journalctl -u chzzk-bot.service --since '2026-11-02 02:40:00' --until '2026-11-02 03:05:00' --no-pager -o short-iso | grep -Ei 'repost|리트윗|X 새|FANART|webhook' | tail -n 80 || true
+          echo CURRENT_REPOST_WINDOW
+          sudo journalctl -u chzzk-bot.service --since '12 hours ago' --no-pager -o short-iso | grep -Ei 'repost|리트윗|X 새|FANART|webhook' | tail -n 80 || true
+          REMOTE
