@@ -1,0 +1,64 @@
+name: Verify fanart recycle and current card design
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  verify:
+    if: ${{ github.event.issue.title == '[abyss-test] fanart-recycle-final' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Inspect production without modifying history or notifying Discord
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/verify_key
+          chmod 600 ~/.ssh/verify_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/verify_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,datetime
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          import fanart_url_media as fm
+          from discord_v2 import alert
+          from creator_profiles import avatar,handle
+          from banner_manager import get_banner
+          real_read=fm.read
+          for group,name in [('hanayo','하나요 히요리'),('sakihane','사키하네 후야')]:
+              pool=fm.candidates(group)
+              assert pool
+              fake_history={x[2]:'2026-01-01T00:00:00+00:00' for x in pool}
+              # One artwork was used last, so it must NOT be chosen.
+              fake_history[pool[-1][2]]='2026-11-02T00:00:00+00:00'
+              def fake_read(path):
+                  if path==fm.HISTORY:return {group:fake_history}
+                  return real_read(path)
+              fm.read=fake_read
+              for platform in ('chzzk','x','cafe'):
+                  p=alert(platform,name,banner=get_banner(group),title='팬아트 순환 테스트',body='사진 없는 테스트',url='https://chzzk.naver.com/',handle=handle(group),avatar=avatar(group),role_id='',ping=False)
+                  output,chosen=fm.apply(p)
+                  assert chosen,(group,platform,'failed recycling')
+                  assert chosen['banner'][2] in fake_history
+                  assert chosen['banner'][2]!=pool[-1][2]
+                  buttons=[b['label'] for cont in output['components'] for row in cont.get('components',[]) if row.get('type')==1 for b in row.get('components',[])]
+                  assert buttons==['원본 게시물','CHZZK','CAFE','X','YouTube'],(group,platform,buttons)
+                  assert any('FAN ART' in c.get('content','') for co in output['components'] for c in co.get('components',[]))
+                  print('FANART_RECYCLE_PASS',group,platform,len(pool),'buttons',len(buttons),flush=True)
+              fm.read=real_read
+              # Actual history is never changed by preview.
+              print('FANART_REAL_AVAILABLE',group,len(pool),flush=True)
+          print('FANART_RECYCLE_FINAL_SUCCESS')
+          PY
+          sudo systemctl is-active chzzk-bot.service
+          REMOTE
