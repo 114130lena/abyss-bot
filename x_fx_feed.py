@@ -61,7 +61,7 @@ def fetch_creator_originals(username, common, max_age_seconds=10800):
         is_repost=author.casefold()!=username.casefold()
         title=item.findtext("title") or ""
         desc=item.findtext("description") or ""
-        if not is_repost and (not common._original_post(item) or __import__("x_repost_notifier").is_repost(title,desc)):
+        if not is_repost and not common._original_post(item):
             continue
         published=item.findtext("pubDate") or ""
         if not is_repost:
