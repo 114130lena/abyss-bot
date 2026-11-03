@@ -1,0 +1,64 @@
+name: Deploy X incomplete-media fanart safeguard
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-media-unknown-safeguard' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Test missing media cannot trigger fanart
+        run: |
+          python -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py
+          python - <<'PY'
+          import unittest.mock as mock
+          import x_post_media
+          class Resp:
+              def __init__(self,tweet):self.tweet=tweet
+              def raise_for_status(self):pass
+              def json(self):return {'tweet':self.tweet}
+          with mock.patch.object(x_post_media.requests,'get',side_effect=[Resp({'media':None}),Resp({'media':None})]),mock.patch.object(x_post_media.time,'sleep'):
+              photos,preview,video,known=x_post_media.resolve_media({'id':'2117496357607055767'},'SakihaneHuya')
+              assert not known and not photos
+          with mock.patch.object(x_post_media.requests,'get',side_effect=[Resp({'media':None}),Resp({'media':{'photos':[{'url':'https://pbs.twimg.com/media/test.jpg?name=orig'}]}})]),mock.patch.object(x_post_media.time,'sleep'):
+              photos,preview,video,known=x_post_media.resolve_media({'id':'2117496357607055767'},'SakihaneHuya')
+              assert known and len(photos)==1
+          print('X_PHOTO_MISMATCH_REGRESSION_OK')
+          PY
+      - name: Deploy and verify live Huya post
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes x_post_media.py "$USER@$HOST:/tmp/x_media_safe_new.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/x_media_safe_new.py
+          mkdir -p backups/x-media-safe
+          cp x_post_media.py "backups/x-media-safe/x_post_media-$(date +%Y%m%d-%H%M%S).py"
+          cp /tmp/x_media_safe_new.py x_post_media.py
+          "$PY" - <<'PY'
+          from x_post_media import resolve_media
+          p,preview,video,known=resolve_media({'id':'2117496357607055767'},'SakihaneHuya')
+          print('LIVE_HUYA_REGRESSION',len(p),video,known,flush=True)
+          assert p or not known,'Photo absent but classification claims confirmed text-only'
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo X_MEDIA_SAFE_DEPLOY_OK
+          REMOTE
