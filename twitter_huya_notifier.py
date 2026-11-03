@@ -54,7 +54,7 @@ def _fetch_posts(feed):
             "url": f"https://x.com/{USERNAME}/status/{post_id}",
             "images": common._post_images(item),
             "pub_date": item.findtext("pubDate") or "",
-            "source": feed, "rss_title": item.findtext("title") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or ""),
+            "source": feed, "rss_title": item.findtext("title") or "", "source_link": item.findtext("link") or "", "rss_description": item.findtext("description") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or ""),
         })
     return posts
 
@@ -166,15 +166,15 @@ def check_huya_x():
             logging.info("후야 X 감시 초기화: 기존 %d개 읽음 처리", len(posts))
             failures = 0
             return
-        from x_repost_notifier import is_repost, notify as notify_repost
+        from x_repost_notifier import is_repost_post, notify as notify_repost
         repost_file=BASE_DIR / "x_huya_repost_seen_posts.json"
         try:
             repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
         except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if p.get("repost") or is_repost(p.get("rss_title"))}
+            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
             repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
-            if post.get("repost") or is_repost(post.get("rss_title")):
+            if is_repost_post(post, USERNAME):
                 if post["id"] not in repost_seen:
                     logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s",post["id"],post.get("source","?"))
                     notify_repost(GROUP,post,WEBHOOK_URL)
