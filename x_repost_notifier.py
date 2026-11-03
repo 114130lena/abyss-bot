@@ -58,6 +58,11 @@ def notify(group,post,webhook):
         payload["_abyss_has_video"] = True
     if not photo_known:
         payload["_abyss_photo_unknown"] = True
+    if photo_known and not resolved_images and not has_video and not video_preview:
+        payload["_abyss_verified_text_only"] = True
+    logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
+                 group,post.get("id"),len(resolved_images),has_video,photo_known,
+                 bool(payload.get("_abyss_verified_text_only")))
     payload["allowed_mentions"]={"parse":[]}
     started=time.monotonic()
     send_webhook(thread_url(webhook),payload)
