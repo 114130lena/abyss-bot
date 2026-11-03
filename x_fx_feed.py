@@ -38,7 +38,7 @@ def _write_state(path, ids):
 def fetch_creator_originals(username, common, max_age_seconds=10800):
     """Preserves legacy entrypoint; returns own posts and new off-author reposts."""
     url="https://fxtwitter.com/"+username+"/feed.xml"
-    response=requests.get(url,params={"count":90},timeout=7,
+    response=requests.get(url,params={"count":90},timeout=(2.5, 5),
                           headers={"User-Agent":"abyss-bot/1.0 (RSS polling)"})
     response.raise_for_status()
     if len(response.content)>3_000_000:
