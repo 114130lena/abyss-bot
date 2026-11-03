@@ -81,14 +81,16 @@ def send_webhook(url, payload, attempts=3):
         try:
             # Internal metadata is stripped before the Discord API request.
             photo_unknown = bool(payload.get('_abyss_photo_unknown'))
-            prepared = dict(payload) if photo_unknown else payload
-            if photo_unknown:
+            has_video = bool(payload.get('_abyss_has_video'))
+            prepared = dict(payload) if (photo_unknown or has_video) else payload
+            if photo_unknown or has_video:
                 prepared.pop('_abyss_photo_unknown', None)
+                prepared.pop('_abyss_has_video', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
             # Skip randomized local attachments entirely for those notifications.
-            native_post_photo = photo_unknown
+            native_post_photo = photo_unknown or has_video
             try:
                 from fanart_url_media import has_post_photos
                 native_post_photo = native_post_photo or has_post_photos(payload)
