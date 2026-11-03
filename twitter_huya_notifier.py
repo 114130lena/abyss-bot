@@ -124,7 +124,7 @@ def _notify(post):
             if c.get("type")==17:
                 for part in c.get("components",[]):
                     if part.get("type")==10 and "𝕏 X" in str(part.get("content","")):
-                        part["content"] += "\\n▶️ [원본 X 영상 보기]("+post["url"]+")"
+                        part["content"] += "\n▶️ [원본 X 영상 보기]("+post["url"]+")"
                         break
     if uncertain_photo:
         payload["_abyss_photo_unknown"] = True
