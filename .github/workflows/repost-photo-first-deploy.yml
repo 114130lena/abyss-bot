@@ -1,0 +1,51 @@
+name: Deploy repost photo-first selection
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] repost-photo-first' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Verify photo-first repost path
+        run: |
+          python -m py_compile x_repost_notifier.py x_post_media.py
+          python - <<'PY'
+          src=open('x_repost_notifier.py').read()
+          assert 'resolve_images(' in src
+          assert 'images=resolved_images' in src
+          assert 'if not photo_known:' in src
+          print('REPOST_PHOTO_FIRST_TEST_OK')
+          PY
+      - name: Deploy repost handler with backup
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/repost_key
+          chmod 600 ~/.ssh/repost_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/repost_key -o IdentitiesOnly=yes x_repost_notifier.py "$SSH_USER@$SSH_HOST:/tmp/repost_photo_first.py"
+          ssh -i ~/.ssh/repost_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/repost_photo_first.py
+          mkdir -p backups/repost-photo-first
+          cp x_repost_notifier.py backups/repost-photo-first/x_repost_notifier.py
+          cp /tmp/repost_photo_first.py x_repost_notifier.py
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo REPOST_PHOTO_FIRST_DEPLOY_SUCCESS
+          REMOTE
