@@ -1,0 +1,52 @@
+name: Diagnose repost delivery gap
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  diagnose:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] repost-delivery-gap' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect live state and recent feed without sending messages
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          echo STATUS
+          sudo systemctl is-active chzzk-bot.service
+          echo RECENT_EVENTS
+          sudo journalctl -u chzzk-bot.service --since '2026-11-01' --no-pager -o short-iso | grep -Ei 'repost|리트윗|X RSS|X 새 |후야 X|webhook|429|rate.limit|FANART|X_MEDIA' | tail -n 105 || true
+          "$PY" - <<'PY'
+          import json,datetime
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          import twitter_notifier as hi,twitter_huya_notifier as hu
+          from x_repost_notifier import is_repost
+          for user,mod,filename in [('HIYORI',hi,'x_repost_seen_posts.json'),('HUYA',hu,'x_huya_repost_seen_posts.json')]:
+              p=Path(filename)
+              try:
+                  seen=set(str(x) for x in json.loads(p.read_text()))
+              except Exception as e:
+                  seen=set();print('STATE_ERROR',user,type(e).__name__,flush=True)
+              print('STATE',user,'seen',len(seen),'mtime',datetime.datetime.fromtimestamp(p.stat().st_mtime,datetime.timezone.utc).isoformat() if p.exists() else 'missing',flush=True)
+              try:
+                  posts=mod._fetch_merged_posts()
+                  reposts=[p for p in posts if p.get('repost') or is_repost(p.get('rss_title'))]
+                  print('LIVE',user,'all',len(posts),'reposts',len(reposts),'unseen',sum(str(p['id']) not in seen for p in reposts),flush=True)
+                  for p in sorted(reposts,key=lambda x:int(x['id']),reverse=True)[:12]:
+                      print('ENTRY',user,p['id'],'seen',str(p['id']) in seen,'photos',len(p.get('images',[])),'source',urlsplit(p.get('source','')).hostname,'url',p.get('url',''),'title',repr(p.get('rss_title','')[:90]),flush=True)
+              except Exception as e:print('FETCH_ERROR',user,type(e).__name__,str(e)[:180],flush=True)
+          PY
+          REMOTE
