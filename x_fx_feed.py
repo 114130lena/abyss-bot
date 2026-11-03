@@ -86,9 +86,9 @@ def fetch_creator_originals(username, common, max_age_seconds=10800):
         logging.info("X_FX_REPOST_SEEDED username=%s existing=%d",username,len(current_reposts))
     else:
         new_reposts=current_reposts-known
-        if new_reposts:
-            _write_state(state_file,known | current_reposts)
-        logging.info("X_FX_REPOST_SCAN username=%s visible=%d newly_seen=%d",username,len(current_reposts),len(new_reposts))
+        # Keep the initial baseline unchanged. The notifier records delivery only
+        # after Discord succeeds, so failed sends are eligible for retries.
+        logging.info("X_FX_REPOST_SCAN username=%s visible=%d outside_baseline=%d",username,len(current_reposts),len(new_reposts))
     results=[v for k,v in entries.items() if not v["repost"] or k in new_reposts]
     logging.info("X_FX_FEED username=%s originals=%d reposts=%d",username,
                  sum(not p["repost"] for p in results),sum(p["repost"] for p in results))
