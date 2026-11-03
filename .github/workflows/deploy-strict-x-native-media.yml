@@ -1,0 +1,100 @@
+name: Deploy strict X original-photo safeguard
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] strict-x-native-media' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Static verification
+        run: |
+          python -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py resilience.py
+          python - <<'PY'
+          from pathlib import Path
+          assert 'X_FANART_BLOCKED' in Path('resilience.py').read_text()
+          assert '_abyss_verified_text_only' in Path('twitter_notifier.py').read_text()
+          assert '_abyss_verified_text_only' in Path('twitter_huya_notifier.py').read_text()
+          assert '_abyss_verified_text_only' in Path('x_repost_notifier.py').read_text()
+          print('STRICT_X_MEDIA_STATIC_TEST_OK')
+          PY
+      - name: Stage, test and deploy with rollback
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          for f in x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py resilience.py; do
+            scp -i ~/.ssh/key -o IdentitiesOnly=yes "$f" "$USER@$HOST:/tmp/strict_x_$f"
+          done
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          files="x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py resilience.py"
+          "$PY" -m py_compile /tmp/strict_x_*.py
+          backup="backups/strict-x-media-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$backup"
+          for f in $files; do cp "$f" "$backup/$f"; done
+          restore() {
+            for f in $files; do cp "$backup/$f" "$f"; done
+            sudo systemctl restart chzzk-bot.service || true
+          }
+          trap restore ERR
+          for f in $files; do cp "/tmp/strict_x_$f" "$f"; done
+          "$PY" - <<'PY'
+          import os, unittest.mock as mock
+          import resilience, x_post_media
+          import discord_v2
+          os.environ['ABYSS_RANDOM_MEDIA']='1'
+          os.environ['ABYSS_FANART_URLS']='1'
+          class Response:
+              status_code=204
+              def raise_for_status(self):pass
+          def card():
+              return discord_v2.alert('x','사키하네 후야',
+                'https://i.ytimg.com/vi/test/hqdefault.jpg',title='Test',body='text',
+                url='https://x.com/SakihaneHuya/status/2117649109708669153',
+                avatar='https://pbs.twimg.com/profile_images/1234567890/test.jpg',ping=False)
+          with mock.patch.object(resilience.requests,'post',return_value=Response()) as post:
+              with mock.patch('random_media.prepare_payload') as rnd, mock.patch('fanart_url_media.apply') as fan:
+                  resilience.send_webhook('https://discord.com/api/webhooks/123456789/fixture',card())
+                  assert not rnd.called and not fan.called,'Unverified X post got fanart'
+                  print('X_UNKNOWN_MEDIA_NO_FANART_OK',flush=True)
+              post.reset_mock()
+              with mock.patch('random_media.prepare_payload',side_effect=lambda p:(p,None)) as rnd:
+                  with mock.patch('fanart_url_media.apply',side_effect=lambda p:(p,None)) as fan:
+                      payload=card();payload['_abyss_verified_text_only']=True
+                      resilience.send_webhook('https://discord.com/api/webhooks/123456789/fixture',payload)
+                      assert rnd.called and fan.called,'Explicit text-only was not eligible'
+                      sent=post.call_args.kwargs.get('json') or {}
+                      assert '_abyss_verified_text_only' not in sent,'Leaked metadata'
+                      print('X_CONFIRMED_TEXT_FANART_ELIGIBLE_OK',flush=True)
+          class FxResponse:
+              def __init__(self,tweet):self.tweet=tweet
+              def raise_for_status(self):pass
+              def json(self):return {'tweet':self.tweet}
+          with mock.patch.object(x_post_media.requests,'get',return_value=FxResponse({'media':None})),mock.patch.object(x_post_media.time,'sleep'):
+              photos,preview,video,known=x_post_media.resolve_media({'id':'2117649109708669153'},'SakihaneHuya')
+              assert not known and not photos,'Incomplete Fx response classified as text'
+              print('X_MISSING_METADATA_UNVERIFIED_OK',flush=True)
+          photos,preview,video,known=x_post_media.resolve_media({'id':'2117649109708669153'},'SakihaneHuya')
+          print('LATEST_HUYA_MEDIA_PROBE','photos',len(photos),'known',known,'video',video,flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          trap - ERR
+          echo STRICT_X_MEDIA_DEPLOY_SUCCESS
+          REMOTE
