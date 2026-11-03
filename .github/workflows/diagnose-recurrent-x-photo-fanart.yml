@@ -1,0 +1,51 @@
+name: Diagnose recurrent X photos replaced by fanart
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  diagnose:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] recurrent-x-photo-fanart' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read-only inspection of recent X deliveries and photo metadata
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          echo SERVICE
+          sudo systemctl is-active chzzk-bot.service
+          echo LOG_SAMPLES
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager | grep -E 'X_MEDIA_|X 새 게시글 알림 성공|후야 X 새 글 알림|FANART_SELECTED|X_REPOST_DELIVERED' | tail -n 100 || true
+          "$PY" - <<'PY'
+          import json,requests
+          import twitter_notifier as hi,twitter_huya_notifier as hu
+          from x_post_media import resolve_media
+          for n,mod in [('HanayoHiyori',hi),('SakihaneHuya',hu)]:
+              try:rows=sorted((x for x in mod._fetch_merged_posts() if not x.get('repost')),key=lambda x:int(x['id']),reverse=True)[:8]
+              except Exception as e:
+                  print('FETCH_ERR',n,type(e).__name__,str(e)[:100]);continue
+              for x in rows:
+                  photos,prev,video,known=resolve_media(x,n)
+                  try:
+                      d=requests.get('https://api.fxtwitter.com/'+n+'/status/'+x['id'],timeout=5).json()
+                      t=d.get('tweet') or {}
+                      m=t.get('media')
+                      shape=type(m).__name__
+                      keys=list(m.keys())[:8] if isinstance(m,dict) else []
+                  except Exception as e:shape='ERROR:'+type(e).__name__;keys=[]
+                  print('POST',json.dumps({'creator':n,'id':x['id'],'source':x.get('source'),'rss_photo_count':len(x.get('images',[])),'photo_count':len(photos),'video':video,'known':known,'media_shape':shape,'media_keys':keys,'text':x.get('text','')[:65]},ensure_ascii=False),flush=True)
+          PY
+          REMOTE
