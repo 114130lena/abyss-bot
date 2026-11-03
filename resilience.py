@@ -82,10 +82,11 @@ def send_webhook(url, payload, attempts=3):
             # Internal metadata is stripped before the Discord API request.
             photo_unknown = bool(payload.get('_abyss_photo_unknown'))
             has_video = bool(payload.get('_abyss_has_video'))
-            prepared = dict(payload) if (photo_unknown or has_video) else payload
-            if photo_unknown or has_video:
-                prepared.pop('_abyss_photo_unknown', None)
-                prepared.pop('_abyss_has_video', None)
+            verified_text_only = bool(payload.get('_abyss_verified_text_only'))
+            prepared = dict(payload)
+            prepared.pop('_abyss_photo_unknown', None)
+            prepared.pop('_abyss_has_video', None)
+            prepared.pop('_abyss_verified_text_only', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
@@ -96,8 +97,14 @@ def send_webhook(url, payload, attempts=3):
                 native_post_photo = native_post_photo or has_post_photos(payload)
                 tag = " ".join(c.get("content","") for box in payload.get("components",[]) if box.get("type")==17 for c in box.get("components",[]) if c.get("type")==10)
                 native_post_photo = native_post_photo or "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag)
+                # X may list a photo-free item before its photo metadata arrives.
+                # Only confirmed original-media absence can authorize fanart.
+                if "𝕏 X" in tag and not verified_text_only:
+                    native_post_photo = True
+                    logging.info("X_FANART_BLOCKED reason=unverified_media")
             except Exception as exc:
                 logging.warning("게시글 이미지 확인 실패: %s", exc)
+                native_post_photo = True
             if not native_post_photo and os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
                 try:
                     from random_media import prepare_payload
