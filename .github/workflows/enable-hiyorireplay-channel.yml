@@ -1,0 +1,56 @@
+name: Enable Hiyorireplay YouTube channel
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] hiyorireplay-channel' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Verify channels configuration
+        run: |
+          grep -q '^@Hiyorireplay ' youtube_channels.txt
+          python -m py_compile youtube_notifier.py
+          echo REPLAY_CHANNEL_CONFIG_OK
+      - name: Add replay handle without disturbing server channel list
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          mkdir -p backups/youtube-replay
+          cp youtube_channels.txt "backups/youtube-replay/youtube_channels-$(date +%Y%m%d-%H%M%S).txt"
+          "$PY" - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('youtube_channels.txt')
+          lines=p.read_text().splitlines()
+          if not any(line.partition('#')[0].strip().casefold()=='@hiyorireplay' for line in lines):
+              with p.open('a') as f: f.write('\n@Hiyorireplay # Hanayo replay channel\n')
+          from youtube_notifier import _load_handle_cache,_MAIN_CHANNEL_IDS,load_channel_ids
+          cached=_load_handle_cache().get('@Hiyorireplay','')
+          assert cached.startswith('UC') and len(cached)==24 and cached not in _MAIN_CHANNEL_IDS, 'Replay handle cache is unverified'
+          channels=load_channel_ids()
+          assert cached in channels and len(channels)>=3, ('Replay channel missing',len(channels))
+          print('YOUTUBE_ALL_CHANNELS_VALID',len(channels),'REPLAY_PRESENT',True,flush=True)
+          PY
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo YOUTUBE_REPLAY_WATCHER_DEPLOY_SUCCESS
+          REMOTE
