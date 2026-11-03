@@ -168,20 +168,31 @@ def _fetch_posts(feed_url=None):
 
 
 def _notify(post):
-    from x_post_media import resolve_images
-    photo_urls, photo_known = resolve_images(post, USERNAME)
+    from x_post_media import resolve_media
+    photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
     if photo_urls:
         post = dict(post, images=photo_urls)
     # Preserve safety if metadata is unavailable: never mislabel a potentially
     # illustrated X post as confirmed text-only and display unrelated fanart.
-    uncertain_photo = not photo_known
+    uncertain_photo = not media_known
     banner = get_banner(X_GROUP) if X_GROUP else ""
     payload = unified_alert(
         "x", "하나요 히요리", banner, X_ROLE_ID,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
-        images=post.get("images", []),
+        images=post.get("images", []), media_url=video_preview,
         handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
+    if has_video:
+        payload["_abyss_has_video"] = True
+    if has_video:
+        # A stable clickable fallback even when the public thumbnail fails to render.
+        from urllib.parse import urlsplit
+        for c in payload.get("components",[]):
+            if c.get("type")==17:
+                for part in c.get("components",[]):
+                    if part.get("type")==10 and "𝕏 X" in str(part.get("content","")):
+                        part["content"] += "\\n▶️ [원본 X 영상 보기]("+post["url"]+")"
+                        break
     if uncertain_photo:
         payload["_abyss_photo_unknown"] = True
     send_webhook(WEBHOOK_URL, payload)
