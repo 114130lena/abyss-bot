@@ -163,7 +163,7 @@ def _fetch_posts(feed_url=None):
         text = _post_body(item)
         posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
                       "source": source, "pub_date": item.findtext("pubDate") or "",
-                      "images": _post_images(item), "rss_title": item.findtext("title") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")})
+                      "images": _post_images(item), "rss_title": item.findtext("title") or "", "source_link": item.findtext("link") or "", "rss_description": item.findtext("description") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")})
     return sorted(posts, key=lambda p: int(p["id"]))
 
 
@@ -294,15 +294,15 @@ def check_twitter():
             logging.info("X RSS 첫 실행: 기존 글 %d개 읽음 처리", len(posts))
             failures = 0
             return
-        from x_repost_notifier import is_repost, notify as notify_repost
+        from x_repost_notifier import is_repost_post, notify as notify_repost
         repost_file=BASE_DIR / "x_repost_seen_posts.json"
         try:
             repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
         except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if p.get("repost") or is_repost(p.get("rss_title"))}
+            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
             repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
-            if post.get("repost") or is_repost(post.get("rss_title")):
+            if is_repost_post(post, USERNAME):
                 if post["id"] not in repost_seen:
                     logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))
                     notify_repost(X_GROUP,post,WEBHOOK_URL)
