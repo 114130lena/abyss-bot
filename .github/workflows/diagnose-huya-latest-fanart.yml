@@ -1,0 +1,47 @@
+name: Diagnose latest Huya image fanart mismatch
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] latest-huya-photo-fanart' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read live post metadata and logs; no sending
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          echo RECENT_HUYA_LOGS
+          sudo journalctl -u chzzk-bot.service --since '2026-11-03 03:00 UTC' -o short-iso --no-pager | grep -Ei '후야 X 새 글|FANART_SELECTED|FANART_PICK|X_MEDIA_CLASSIFIED|X_MEDIA_UNKNOWN|X_RSS_FETCH|X_FX_FEED' | tail -n 60 || true
+          "$PY" - <<'PY'
+          import requests,json
+          import twitter_huya_notifier as hu
+          from x_post_media import resolve_media
+          from pathlib import Path
+          seen=hu._load_seen() or set()
+          posts=hu._fetch_merged_posts()
+          posts=[p for p in posts if not p.get('repost')]
+          for p in sorted(posts,key=lambda q:int(q['id']),reverse=True)[:6]:
+              photos,poster,video,known=resolve_media(p,'SakihaneHuya')
+              print('HUYA_POST',json.dumps({'id':p['id'],'url':p['url'],'seen':p['id'] in seen,'rss_images':p.get('images'),'fx_photos':photos,'video':video,'known':known,'text':p.get('text','')[:200],'source':p.get('source')},ensure_ascii=False),flush=True)
+              try:
+                  data=requests.get('https://api.fxtwitter.com/SakihaneHuya/status/'+p['id'],timeout=6).json()
+                  t=data.get('tweet') or {}
+                  m=t.get('media')
+                  print('FX_SHAPE',p['id'],json.dumps({'media':m,'media_key_type':type(m).__name__,'has_video':t.get('has_video'),'possibly_sensitive':t.get('possibly_sensitive'),'photos_count':len((m or {}).get('photos') or []) if isinstance(m,dict) else None},ensure_ascii=False)[:1300],flush=True)
+              except Exception as exc:print('FX_ERROR',p['id'],type(exc).__name__,flush=True)
+          PY
+          REMOTE
