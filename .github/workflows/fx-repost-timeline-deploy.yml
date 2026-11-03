@@ -1,0 +1,77 @@
+name: Deploy Fx repost timeline collection
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] fx-repost-timeline' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Unit test repost and old timestamp handling
+        run: |
+          python -m py_compile x_fx_feed.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py
+          python - <<'PY'
+          import tempfile,os,unittest.mock as mock
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          import x_fx_feed
+          xml=b"""<rss><channel><title>@HanayoHiyori</title>
+          <item><link>https://x.com/SomeArtist/status/2111111111111111111</link><title>Fanart</title><pubDate>Thu, 01 Jan 2026 00:00:00 GMT</pubDate><description>old art</description></item>
+          <item><link>https://x.com/HanayoHiyori/status/2112222222222222222</link><title>New post</title><pubDate>Tue, 03 Nov 2026 00:00:00 GMT</pubDate><description>hello</description></item>
+          </channel></rss>"""
+          class Reply:
+              content=xml
+              def raise_for_status(self):pass
+          class Common:
+              def _original_post(self,item):return True
+              def _post_body(self,item):return item.findtext('description') or ''
+              def _post_images(self,item):return []
+          with tempfile.TemporaryDirectory() as d:
+              os.environ['BOT_DATA_DIR']=d
+              with mock.patch.object(x_fx_feed.requests,'get',return_value=Reply()):
+                  one=x_fx_feed.fetch_creator_originals('HanayoHiyori',Common())
+                  assert len(one)==1 and not one[0]['repost'],one
+                  two=x_fx_feed.fetch_creator_originals('HanayoHiyori',Common())
+                  assert len(two)==1 and not two[0]['repost'],two
+                  new=xml.replace(b'2111111111111111111',b'2113333333333333333')
+                  class NewReply(Reply):content=new
+                  with mock.patch.object(x_fx_feed.requests,'get',return_value=NewReply()):
+                      three=x_fx_feed.fetch_creator_originals('HanayoHiyori',Common())
+                      assert any(x['repost'] and x['id']=='2113333333333333333' for x in three),three
+                      again=x_fx_feed.fetch_creator_originals('HanayoHiyori',Common())
+                      assert any(x['repost'] for x in again),'Unsaved alert should remain retryable'
+          print('FX_REPOST_UNIT_TEST_OK')
+          PY
+      - name: Deploy only Fx feed module, preserve all seen states
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes x_fx_feed.py "$USER@$HOST:/tmp/fx_repost_new.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/fx_repost_new.py
+          mkdir -p backups/fx-repost-timeline
+          cp x_fx_feed.py backups/fx-repost-timeline/x_fx_feed.py
+          cp /tmp/fx_repost_new.py x_fx_feed.py
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          sleep 8
+          echo FX_REPOST_TIMELINE_DEPLOY_SUCCESS
+          sudo journalctl -u chzzk-bot.service --since '1 minute ago' --no-pager | grep -E 'X_FX_REPOST_SEEDED|X_FX_REPOST_SCAN|X_FX_FEED' | tail -n 12 || true
+          REMOTE
