@@ -93,6 +93,7 @@ class _CafeHtmlParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.lines = []
         self.images = []
+        self.has_video = False
         self.skip = 0
 
     def handle_starttag(self, tag, attrs):
@@ -103,6 +104,13 @@ class _CafeHtmlParser(HTMLParser):
             return
         if tag in ("br", "p", "div", "li"):
             self.lines.append("\n")
+        marker = " ".join(str(attrs.get(k, "")) for k in (
+            "class", "data-type", "data-module-type", "data-module", "data-component"))
+        if tag in ("video", "source") or (
+            tag == "iframe" and any(domain in str(attrs.get("src", "")).lower()
+                for domain in ("player.tv.naver.com", "serviceapi.nmv.naver.com", "tv.naver.com/embed"))
+        ) or ("video" in marker.lower() and tag in ("div", "section", "figure")):
+            self.has_video = True
         if tag == "img":
             for key in ("data-src", "data-original", "src"):
                 value = attrs.get(key, "")
@@ -158,11 +166,11 @@ def article_detail(article):
             raise ValueError("Public article HTML not available")
         parser = _CafeHtmlParser()
         parser.feed(html)
-        return parser.get_text() or fallback_text, (parser.images or fallback_images)[:4], True
+        return parser.get_text() or fallback_text, (parser.images or fallback_images)[:4], True, parser.has_video
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
         logging.info("카페 %s 상세 본문 접근 불가; 목록 미리보기 사용: %s",
                      article.get("id"), type(exc).__name__)
-        return fallback_text, fallback_images, bool(fallback_images)
+        return fallback_text, fallback_images, bool(fallback_images), False
 
 
 def load_seen(path):
@@ -184,7 +192,7 @@ def notify(article, role_id, menu_id, group):
     role_id = role_for(group)
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     title = " ".join(article["title"].split())[:300]
-    summary, images, photo_known = article_detail(article)
+    summary, images, photo_known, has_video = article_detail(article)
     payload = unified_alert(
         "cafe", creator, get_banner(group), role_id,
         title=title, body=summary,
@@ -192,6 +200,14 @@ def notify(article, role_id, menu_id, group):
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
         date=article.get("date", ""), images=images,
         handle=creator_handle(group), avatar=creator_avatar(group))
+    if has_video:
+        payload["_abyss_has_video"] = True
+        for container in payload.get("components", []):
+            if container.get("type") == 17:
+                for part in container.get("components", []):
+                    if part.get("type") == 10 and "NAVER CAFE" in str(part.get("content", "")):
+                        part["content"] += "\n▶️ [카페 영상 보기](" + article["url"] + ")"
+                        break
     if not photo_known:
         payload['_abyss_photo_unknown'] = True
     send_webhook(WEBHOOK_URL, payload)
