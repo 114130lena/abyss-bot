@@ -1,0 +1,52 @@
+name: Deploy Cafe video classification
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] cafe-video-media' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate Cafe video parsing
+        run: |
+          python -m py_compile cafe_notifier.py
+          python - <<'PY'
+          import ast
+          src=open("cafe_notifier.py").read()
+          tree=ast.parse(src)
+          parser=next(node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=="_CafeHtmlParser")
+          assert any(node.name=="handle_starttag" for node in parser.body if isinstance(node,ast.FunctionDef))
+          assert "parser.has_video" in src
+          assert 'payload["_abyss_has_video"] = True' in src
+          print("CAFE_VIDEO_PARSE_TEST_OK")
+          PY
+      - name: Install Cafe notifier
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes cafe_notifier.py "$USER@$HOST:/tmp/cafe_video_new.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/cafe_video_new.py
+          cp cafe_notifier.py "backups/cafe-video-$(date +%Y%m%d-%H%M%S).py"
+          cp /tmp/cafe_video_new.py cafe_notifier.py
+          sudo systemctl restart chzzk-bot.service
+          sudo systemctl is-active --quiet chzzk-bot.service
+          echo CAFE_VIDEO_DEPLOY_SUCCESS
+          REMOTE
