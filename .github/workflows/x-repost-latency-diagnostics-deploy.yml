@@ -1,0 +1,70 @@
+name: Deploy X latency and repost diagnostics
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  deploy:
+    if: ${{ github.event.issue.title == '[abyss-deploy] x-repost-latency-diagnostics' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/compact-footer-four-links
+          persist-credentials: false
+      - name: Validate Python syntax and routing invariants
+        run: |
+          python -m py_compile twitter_notifier.py twitter_huya_notifier.py x_fx_feed.py x_repost_notifier.py
+          python - <<'PY'
+          from pathlib import Path
+          hi=Path("twitter_notifier.py").read_text()
+          hu=Path("twitter_huya_notifier.py").read_text()
+          rt=Path("x_repost_notifier.py").read_text()
+          fx=Path("x_fx_feed.py").read_text()
+          assert "X_REPOST_DISCOVERED" in hi and "X_REPOST_DISCOVERED" in hu
+          assert "X_REPOST_DELIVERED" in rt
+          assert "THREAD_ID=\"1566509366591627344\"" in rt
+          assert 'payload["allowed_mentions"]={"parse":[]}' in rt
+          assert 'is_repost=author.casefold()!=username.casefold()' in fx
+          assert 'new_reposts=current_reposts-known' in fx
+          assert 'timeout=(2.5, 4)' in hi and 'timeout=(2.5, 4)' in hu
+          print("X_REPOST_ROUTING_CHECK_OK")
+          PY
+      - name: Deploy with backups and restart verification
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          for f in twitter_notifier.py twitter_huya_notifier.py x_fx_feed.py x_repost_notifier.py; do
+            scp -i ~/.ssh/key -o IdentitiesOnly=yes "$f" "$USER@$HOST:/tmp/xdiag_$f"
+          done
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/xdiag_twitter_notifier.py /tmp/xdiag_twitter_huya_notifier.py /tmp/xdiag_x_fx_feed.py /tmp/xdiag_x_repost_notifier.py
+          dest="backups/x-repost-latency-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$dest"
+          for f in twitter_notifier.py twitter_huya_notifier.py x_fx_feed.py x_repost_notifier.py; do
+            cp "$f" "$dest/$f"
+            cp "/tmp/xdiag_$f" "$f"
+          done
+          if ! sudo systemctl restart chzzk-bot.service || ! sudo systemctl is-active --quiet chzzk-bot.service; then
+            for f in twitter_notifier.py twitter_huya_notifier.py x_fx_feed.py x_repost_notifier.py; do cp "$dest/$f" "$f"; done
+            sudo systemctl restart chzzk-bot.service
+            exit 1
+          fi
+          echo X_REPOST_LATENCY_DEPLOY_SUCCESS
+          echo SERVICE_ACTIVE
+          sudo systemctl is-active chzzk-bot.service
+          echo RECENT_X_LOGS
+          sudo journalctl -u chzzk-bot.service --since '3 minutes ago' --no-pager | grep -E 'X_REPOST_|X_FX_REPOST_|X_RSS_FETCH|X_SOURCE_BACKOFF' | tail -n 20 || true
+          REMOTE
