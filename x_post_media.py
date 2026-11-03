@@ -24,7 +24,7 @@ def resolve_media(post, username):
         endpoint=f"https://api.fxtwitter.com/{username}/status/{post_id}"
         media=None
         tweet={}
-        for attempt in range(2):
+        for attempt in range(3):
             response=requests.get(endpoint,timeout=(2.5,4),headers={"User-Agent":"abyss-bot/1.0"})
             response.raise_for_status()
             data=response.json()
@@ -36,12 +36,13 @@ def resolve_media(post, username):
             if isinstance(media,dict):
                 break
             # Missing metadata is not proof the original post is text-only.
-            if attempt==0:
-                time.sleep(0.7)
+            if attempt<2:
+                time.sleep(2)
         if media is None:
             logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
             return existing,"",False,False
-        if not isinstance(media,dict):
+        if not isinstance(media,dict) or not media:
+            logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
             return existing,"",False,False
         photos=[]
         for item in media.get("photos",[]) or []:
@@ -65,7 +66,10 @@ def resolve_media(post, username):
             preview=_media_url(media.get("thumbnail_url") or tweet.get("thumbnail_url"))
         logging.info("X_MEDIA_CLASSIFIED username=%s post=%s photos=%d video=%s preview=%s",
                      username,post_id,len(photos),has_video,bool(preview))
-        return photos[:4],preview,has_video,True
+        # Require an explicit empty media list before claiming a text-only post.
+        confirmed=(bool(photos) or has_video or
+                   ("all" in media and isinstance(media["all"],list) and len(media["all"])==0))
+        return photos[:4],preview,has_video,confirmed
     except (requests.RequestException,ValueError,TypeError) as exc:
         logging.warning("X_MEDIA_UNKNOWN username=%s post=%s reason=%s",username,post_id,str(exc)[:120])
         return existing,"",False,False
