@@ -122,11 +122,12 @@ def send_webhook(url, payload, attempts=3):
                         logging.info('FANART_SELECTED group=%s source=%s', selected_urls.get('group'), selected_urls.get('banner', ('','',''))[2])
                 except Exception as exc:
                     logging.warning("팬아트 링크 선택 실패: %s", exc)
-            # Attach X post photos alongside the existing random header/footer images.
-            # Work from a fresh payload copy so retries never use stale attachment URLs.
-            if prepared is payload:
-                import copy
-                prepared = copy.deepcopy(payload)
+            # Sanitize after all media decorators: they may return the original
+            # payload, which still contains internal classification markers.
+            import copy
+            prepared = copy.deepcopy(prepared)
+            for private_key in ("_abyss_photo_unknown","_abyss_has_video","_abyss_verified_text_only"):
+                prepared.pop(private_key,None)
             x_photos = _collect_x_image_attachments(prepared)
             if chosen or x_photos:
                 from contextlib import ExitStack
