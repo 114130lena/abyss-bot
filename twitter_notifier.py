@@ -144,7 +144,7 @@ def _post_images(item):
 
 def _fetch_posts(feed_url=None):
     source = feed_url or FEED_URL
-    response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=8)
+    response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=(2.5, 4))
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -299,6 +299,7 @@ def check_twitter():
         for post in posts:
             if post.get("repost") or is_repost(post.get("rss_title")):
                 if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))
                     notify_repost(X_GROUP,post,WEBHOOK_URL)
                     repost_seen.add(post["id"])
                     repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
