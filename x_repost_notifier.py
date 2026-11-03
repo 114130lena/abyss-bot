@@ -26,6 +26,23 @@ def is_repost(title, description="", source=""):
     return False
 
 
+def is_repost_post(post, username):
+    """Classify before routing, including off-author FxTwitter status links."""
+    from urllib.parse import urlsplit
+    import re
+    if post.get("repost") is True:
+        return True
+    if is_repost(post.get("rss_title", ""), post.get("rss_description", "")):
+        return True
+    for key in ("url", "source_link"):
+        parsed = urlsplit(str(post.get(key) or ""))
+        match = re.fullmatch(r"/([^/]+)/status/([0-9]+)", parsed.path)
+        if parsed.hostname in ("x.com", "twitter.com", "www.x.com", "www.twitter.com") and match:
+            if match.group(1).casefold() != username.lstrip("@").casefold():
+                return True
+    return False
+
+
 def thread_url(webhook):
     p=urlsplit(webhook)
     if p.scheme!="https" or not p.hostname:raise ValueError("Webhook missing")
