@@ -1,0 +1,87 @@
+name: Audit recent repost photo classifications
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  inspect:
+    if: ${{ github.event.issue.title == '[abyss-diagnose] repost-photo-examples' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect production RSS reposts and original image metadata
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import requests,xml.etree.ElementTree as ET,re,json
+          from urllib.parse import urlsplit
+          import twitter_notifier as hi,twitter_huya_notifier as hu
+          from x_repost_notifier import is_repost,THREAD_ID
+          from x_post_media import resolve_images
+          print('REPOST_THREAD',THREAD_ID,flush=True)
+          for user,mod,feeds in [('HanayoHiyori',hi,hi.ALL_FEEDS),('SakihaneHuya',hu,hu.FEEDS)]:
+              print('ACCOUNT',user,flush=True)
+              found={}
+              for url in feeds:
+                  try:
+                      r=requests.get(url,timeout=6,headers={'User-Agent':'abyss-bot/1.0'})
+                      r.raise_for_status()
+                      root=ET.fromstring(r.content)
+                      count=0
+                      for item in root.findall('./channel/item'):
+                          title=item.findtext('title') or ''
+                          desc=item.findtext('description') or ''
+                          if not is_repost(title,desc):continue
+                          post_id=(item.findtext('guid') or '').strip()
+                          if not post_id.isdigit():continue
+                          imgs=hi._post_images(item)
+                          prev=found.get(post_id)
+                          if prev is None or len(imgs)>len(prev['images']):
+                              found[post_id]={'title':title,'body':mod._post_body(item),'images':imgs,'source':urlsplit(url).hostname,'date':item.findtext('pubDate') or ''}
+                          count+=1
+                      print('NITTER_SOURCE',user,urlsplit(url).hostname,'reposts',count,flush=True)
+                  except Exception as exc:print('NITTER_ERROR',user,urlsplit(url).hostname,type(exc).__name__,str(exc)[:90],flush=True)
+              try:
+                  url='https://fxtwitter.com/'+user+'/feed.xml'
+                  r=requests.get(url,params={'count':60},timeout=9)
+                  r.raise_for_status()
+                  root=ET.fromstring(r.content)
+                  count=0
+                  for item in root.findall('./channel/item'):
+                      link=(item.findtext('link') or item.findtext('guid') or '').strip()
+                      m=re.fullmatch(r'/([^/]+)/status/([0-9]+)',urlsplit(link).path)
+                      if not m or m.group(1).casefold()==user.casefold():continue
+                      pid=m.group(2)
+                      imgs=hi._post_images(item)
+                      count+=1
+                      if pid not in found:
+                          found[pid]={'title':item.findtext('title') or '', 'body':hi._post_body(item),'images':imgs,'source':'fxtwitter-reposted-author','date':item.findtext('pubDate') or '','original_author':m.group(1)}
+                  print('FX_REPOSTED_AUTHOR_ITEMS',user,count,flush=True)
+              except Exception as exc:print('FX_ERROR',user,type(exc).__name__,str(exc)[:90],flush=True)
+              rows=sorted(found.items(),key=lambda t:int(t[0]),reverse=True)[:8]
+              for pid,data in rows:
+                  original=data.get('original_author',user)
+                  photos=list(data['images'])
+                  verified=bool(photos)
+                  if not verified:
+                      photos,verified=resolve_images({'id':pid,'images':[]},original)
+                  record={'account':user,'id':pid,'link':'https://x.com/'+original+'/status/'+pid,'text':(data['body'] or data['title'])[:170],'rss_photos':len(data['images']),'verified_photo_count':len(photos),'photo_status':('YES' if photos else 'NO' if verified else 'UNKNOWN'),'source':data['source'],'date':data['date']}
+                  print('REPOST_EXAMPLE',json.dumps(record,ensure_ascii=False),flush=True)
+              print('REPOST_COUNT',user,len(found),flush=True)
+          PY
+          sudo systemctl is-active chzzk-bot.service
+          REMOTE
