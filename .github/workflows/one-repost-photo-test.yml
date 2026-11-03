@@ -1,0 +1,86 @@
+name: Send one verified repost photo test
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  test:
+    if: ${{ github.event.issue.title == '[abyss-test] one-repost-photo' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Select a collected repost with confirmed photo and send to repost thread
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,requests,xml.etree.ElementTree as ET,re
+          from urllib.parse import urlsplit
+          from pathlib import Path
+          from dotenv import load_dotenv
+          from x_post_media import resolve_media
+          from x_repost_notifier import thread_url
+          from discord_v2 import alert
+          from banner_manager import get_banner
+          from creator_profiles import handle,avatar
+          from resilience import send_webhook
+          load_dotenv(Path('/home/ubuntu/chzzk-bot/.env'))
+          webhook=os.getenv('DISCORD_WEBHOOK_URL','')
+          assert webhook.startswith('https://'), 'Missing webhook'
+          chosen=None
+          for username,group,label in [('HanayoHiyori','hanayo','하나요 히요리'),('SakihaneHuya','sakihane','사키하네 후야')]:
+              try:
+                  resp=requests.get('https://fxtwitter.com/'+username+'/feed.xml',params={'count':90},timeout=12)
+                  resp.raise_for_status()
+                  root=ET.fromstring(resp.content)
+                  print('FEED_CHECK',username,'items',len(root.findall('./channel/item')),flush=True)
+                  for item in root.findall('./channel/item'):
+                      link=(item.findtext('link') or item.findtext('guid') or '').strip()
+                      path=urlsplit(link).path
+                      m=re.fullmatch(r'/([^/]+)/status/([0-9]+)',path)
+                      if not m or m.group(1).casefold()==username.casefold():
+                          continue
+                      author,post_id=m.groups()
+                      photos,preview,video,known=resolve_media({'id':post_id,'images':[]},author)
+                      if photos:
+                          # Confirm actual image byte is retrievable, not merely metadata.
+                          try:
+                              p=requests.get(photos[0],timeout=10,headers={'Range':'bytes=0-1023'})
+                              if p.status_code not in (200,206) or not p.headers.get('content-type','').startswith('image/'):
+                                  continue
+                          except requests.RequestException:
+                              continue
+                          chosen=(group,label,author,post_id,photos,item.findtext('title') or '',item.findtext('description') or '',item.findtext('pubDate') or '')
+                          break
+                  if chosen:break
+              except (requests.RequestException,ET.ParseError,ValueError) as ex:
+                  print('FEED_ERROR',username,type(ex).__name__,str(ex)[:120],flush=True)
+          if not chosen:raise RuntimeError('No verified-photo repost found in current creator Fx feeds; refusing unrelated post test')
+          group,label,author,post_id,photos,title,description,pubdate=chosen
+          link=f'https://x.com/{author}/status/{post_id}'
+          from twitter_notifier import _post_body
+          e=ET.Element('item');ET.SubElement(e,'title').text=title;ET.SubElement(e,'description').text=description
+          body=_post_body(e)
+          payload=alert('x',label,get_banner(group),role_id='',title='🧪 테스트 · X 리트윗 사진 확인',body=(body or title or '원본 리트윗 이미지 확인')[:1800],url=link,images=photos[:4],date=pubdate,handle=handle(group),avatar=avatar(group),ping=False)
+          payload['allowed_mentions']={'parse':[]}
+          galleries=[p for c in payload.get('components',[]) for p in c.get('components',[]) if p.get('type')==12]
+          has_photo=any(any(i.get('media',{}).get('url','').startswith('https://pbs.twimg.com/media/') for i in p.get('items',[])) for p in galleries)
+          assert has_photo,'Repost source photos missing from Discord body gallery'
+          print('SELECTED_REPOST',group,link,'photo_count',len(photos),'body_photo',has_photo,flush=True)
+          # Does not modify seen IDs. Uses the existing shared send_webhook media-attachment path.
+          send_webhook(thread_url(webhook),payload)
+          print('REPOST_TEST_DISCORD_SEND_OK',group,link,'photos',len(photos),flush=True)
+          PY
+          REMOTE
