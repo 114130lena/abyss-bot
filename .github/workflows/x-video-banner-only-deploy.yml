@@ -51,9 +51,12 @@ jobs:
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           "$PY" -m py_compile /tmp/video_route_x_post_media.py /tmp/video_route_twitter_notifier.py /tmp/video_route_twitter_huya_notifier.py /tmp/video_route_x_repost_notifier.py /tmp/video_route_resilience.py
           "$PY" - <<'PY'
-          from x_post_media import resolve_media
+          import importlib.util
+          spec=importlib.util.spec_from_file_location("video_route_staged","/tmp/video_route_x_post_media.py")
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
           for user,post in [('HanayoHiyori','2117211562968797400'),('SakihaneHuya','2117264651247649266')]:
-              photos,preview,video,known=resolve_media({'id':post},user)
+              photos,preview,video,known=mod.resolve_media({'id':post},user)
               print('LIVE_MEDIA_PROBE',user,post,'photos',len(photos),'video',video,'preview',bool(preview),'known',known,flush=True)
           PY
           BACKUP="backups/video-banner-$(date +%Y%m%d-%H%M%S)"
