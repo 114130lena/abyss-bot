@@ -36,7 +36,7 @@ failures = 0
 
 
 def _fetch_posts(feed):
-    response = requests.get(feed, timeout=5, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
+    response = requests.get(feed, timeout=(2.5, 4), headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -171,6 +171,7 @@ def check_huya_x():
         for post in posts:
             if post.get("repost") or is_repost(post.get("rss_title")):
                 if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s",post["id"],post.get("source","?"))
                     notify_repost(GROUP,post,WEBHOOK_URL)
                     repost_seen.add(post["id"])
                     repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
