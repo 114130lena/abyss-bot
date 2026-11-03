@@ -1,0 +1,87 @@
+name: Audit all platform notification paths
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  audit:
+    if: ${{ github.event.issue.title == '[abyss-audit] all-platform-rules' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Read-only production checks
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          echo SERVICE_STATUS
+          sudo systemctl is-active chzzk-bot.service
+          "$PY" - <<'PY'
+          import os, pathlib, json
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          import youtube_notifier as yt
+          import twitter_notifier as hi
+          import twitter_huya_notifier as hu
+          import cafe_notifier as cf
+          from discord_v2 import alert
+          from fanart_url_media import has_post_photos, candidates
+          from creator_profiles import handle,avatar
+          from banner_manager import get_banner
+          def items(p):
+              return [e for c in p.get('components',[]) if c.get('type')==17 for e in c.get('components',[])]
+          def footer(p):
+              parts=items(p)
+              for i,e in enumerate(parts[:-1]):
+                  if e.get('type')==10 and 'OFFICIAL LINKS' in e.get('content',''):
+                      return parts[i+1].get('items',[])
+              return []
+          def case(platform,group,photo=False,video=False,replay=False):
+              name='하나요 히요리' if group=='hanayo' else '사키하네 후야'
+              p=alert(platform,name,get_banner(group),title='테스트',body='내용',url='https://x.com/sample/status/1234567890',
+                      images=['https://pbs.twimg.com/media/example.jpg'] if photo else [],
+                      replay=replay,handle=handle(group),avatar=avatar(group),ping=False)
+              if video:p['_abyss_has_video']=True
+              own=has_post_photos(p)
+              ft=footer(p)
+              print('CARD',platform,group,'photo',photo,'video',video,'replay',replay,'original_gallery',own,'footer',bool(ft),'components',len(items(p)),flush=True)
+              assert bool(ft),('Missing footer',platform,group)
+              if platform in ('x','cafe'):assert own==photo
+              return p
+          for group in ('hanayo','sakihane'):
+              for platform in ('x','cafe'):
+                  case(platform,group,False)
+                  case(platform,group,True)
+                  case(platform,group,False,True)
+              case('chzzk',group)
+              case('youtube',group)
+              print('FANART_POOL',group,len(candidates(group)),flush=True)
+          case('chzzk','hanayo',replay=True)
+          chans=yt.load_channel_ids()
+          print('YOUTUBE_CHANNELS',len(chans),'REPLAY_HANDLE_CACHED',bool(yt._load_handle_cache().get('@Hiyorireplay')),flush=True)
+          print('CAFE_BOARDS',[(x['menu_id'],x['group']) for x in cf.BOARDS],flush=True)
+          print('X_CONFIG','hiyori',hi.USERNAME,'huya',hu.USERNAME,flush=True)
+          print('ENV_FLAGS','FANART',os.getenv('ABYSS_FANART_URLS','0'),'RANDOM_MEDIA',os.getenv('ABYSS_RANDOM_MEDIA','0'),flush=True)
+          for name in ('x_repost_seen_posts.json','x_huya_repost_seen_posts.json','x_fx_timeline_hanayohiyori.json','x_fx_timeline_sakihanehuya.json'):
+              p=pathlib.Path(name)
+              if p.exists():
+                  try:data=json.loads(p.read_text());count=len(data)
+                  except Exception:count='invalid'
+                  print('STATE_FILE',name,count,flush=True)
+              else:print('STATE_FILE_MISSING',name,flush=True)
+          print('ALL_PLATFORM_RULE_AUDIT_COMPLETE',flush=True)
+          PY
+          echo RECENT_ERROR_COUNTS
+          sudo journalctl -u chzzk-bot.service --since '30 minutes ago' --no-pager | grep -Ei 'WARNING|ERROR|exception|traceback' | grep -Eo 'X RSS 서버 조회 실패|후야 X RSS 소스 실패|YOUTUBE_FEED_RETRY|카페|CHZZK|Traceback|X_SOURCE_BACKOFF|FANART' | sort | uniq -c || true
+          REMOTE
