@@ -1,5 +1,7 @@
 """X retweet/repost notifications: no mentions, dedicated Discord thread."""
 import os
+import logging
+import time
 from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
 from discord_v2 import alert
 from resilience import send_webhook
@@ -57,4 +59,6 @@ def notify(group,post,webhook):
     if not photo_known:
         payload["_abyss_photo_unknown"] = True
     payload["allowed_mentions"]={"parse":[]}
+    started=time.monotonic()
     send_webhook(thread_url(webhook),payload)
+    logging.info("X_REPOST_DELIVERED creator=%s id=%s source=%s delivery_seconds=%.2f",group,post.get("id",""),post.get("source","?"),time.monotonic()-started)
