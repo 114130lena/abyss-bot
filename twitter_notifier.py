@@ -195,6 +195,11 @@ def _notify(post):
                         break
     if uncertain_photo:
         payload["_abyss_photo_unknown"] = True
+    if media_known and not photo_urls and not has_video and not video_preview:
+        payload["_abyss_verified_text_only"] = True
+    logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
+                 USERNAME,post.get("id"),len(photo_urls),has_video,media_known,
+                 bool(payload.get("_abyss_verified_text_only")))
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
