@@ -1,0 +1,37 @@
+name: Fanart gallery test send
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/fanart-post-gallery-multi-image]
+    paths: [fanart-gallery-run.trigger]
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit checks
+        run: |
+          pip install -r requirements.txt
+          python -m unittest -v test_fanart_post_gallery.py
+      - name: Send preview to fixed test thread
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "mkdir -p /tmp/abyss-fanart-test-${{ github.run_id }}"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes scripts/fanart_gallery_live_preview.py fanart_url_media.py fanart_discovery.py "$SSH_USER@$SSH_HOST:/tmp/abyss-fanart-test-${{ github.run_id }}/"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; PYTHONPATH=/tmp/abyss-fanart-test-${{ github.run_id }} "$PY" /tmp/abyss-fanart-test-${{ github.run_id }}/fanart_gallery_live_preview.py'
