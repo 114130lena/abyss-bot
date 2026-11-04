@@ -244,7 +244,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     previous = read_state()
     if current_slot and not manual and previous.get("last_slot") == current_slot:
         return {"status": "already_rotated"}
-    selected, rotation_used, candidate_total, remaining = rotation_selection(\n        previous.get("last_sha256"), previous.get("rotation_used", []))
+    selected, rotation_used, candidate_total, remaining = rotation_selection(
+        previous.get("last_sha256"), previous.get("rotation_used", []))
     if selected is None:
         return {"status": "no_approved_hanayo_art"}
     source, metadata = selected
