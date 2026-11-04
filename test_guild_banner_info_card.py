@@ -60,7 +60,7 @@ class CardTests(unittest.TestCase):
                 return fixed
         with patch.object(actions, "datetime", FakeDateTime), \
              patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
-                                     "GITHUB_SCHEDULE": "25,45 23 * * *"}):
+                                     "GITHUB_SCHEDULE": "27,47 23 * * *"}):
             self.assertEqual(actions.slot_label(), "2026-11-05 08:00")
 
     def test_stale_schedule_skips_change(self):
@@ -71,7 +71,7 @@ class CardTests(unittest.TestCase):
                 return fixed
         with patch.object(actions, "datetime", FakeDateTime), \
              patch.dict(os.environ, {"GITHUB_EVENT_NAME": "schedule",
-                                     "GITHUB_SCHEDULE": "25,45 23 * * *"}):
+                                     "GITHUB_SCHEDULE": "27,47 23 * * *"}):
             self.assertIsNone(actions.slot_label())
 
 
