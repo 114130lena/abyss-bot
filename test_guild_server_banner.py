@@ -70,7 +70,7 @@ class BannerTests(unittest.TestCase):
                     "cached_files": ["fanart_candidates/hanayo/good.jpg"]},
             }
             (base / "fanart_discovery.json").write_text(json.dumps(queue), encoding="utf-8")
-            with patch.object(mod, "media_base", return_value=base), \\
+            with patch.object(mod, "media_base", return_value=base), \
                  patch.dict("os.environ", {"SERVER_BANNER_USE_COLLECTED": "1"}):
                 selected = mod.collected_hanayo_art()
                 self.assertEqual(len(selected), 1)
