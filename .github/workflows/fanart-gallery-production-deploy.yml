@@ -1,0 +1,68 @@
+name: Deploy post-grouped fanart gallery only
+on:
+  push:
+    branches: [fix/fanart-post-gallery-multi-image]
+    paths: [fanart-gallery-production.trigger]
+permissions:
+  contents: read
+concurrency:
+  group: chzzk-bot-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify gallery logic
+        run: |
+          python -m pip install -r requirements.txt
+          python -m unittest -v test_fanart_post_gallery.py
+          python -m py_compile fanart_url_media.py random_media.py
+      - name: Deploy only two fanart selection files
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          REMOTE_DIR="/tmp/abyss-fanart-gallery-deploy-${{ github.run_id }}"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes fanart_url_media.py random_media.py "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "DEPLOY_DIR='$REMOTE_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          test -x "$PY"
+          # Do not replace the production bot or create incomplete module trees.
+          test -f fanart_discovery.py
+          test -f fanart_url_media.py
+          test -f random_media.py
+          "$PY" -m py_compile "$DEPLOY_DIR/fanart_url_media.py" "$DEPLOY_DIR/random_media.py"
+          BACKUP=$(mktemp -d /tmp/abyss-fanart-gallery-rollback.XXXXXX)
+          cp -p fanart_url_media.py random_media.py "$BACKUP/"
+          revert() {
+            rc=$?
+            echo "::warning::Gallery deploy failed; restoring previous modules"
+            cp -p "$BACKUP/fanart_url_media.py" "$BACKUP/random_media.py" .
+            sudo systemctl restart chzzk-bot || true
+            exit "$rc"
+          }
+          trap revert ERR
+          cp "$DEPLOY_DIR/fanart_url_media.py" "$DEPLOY_DIR/random_media.py" .
+          "$PY" -c 'import fanart_url_media, random_media; assert callable(fanart_url_media.apply); assert callable(random_media.prepare_payload)'
+          sudo systemctl restart chzzk-bot
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot
+          trap - ERR
+          echo "GALLERY_DEPLOY_SUCCESS only fanart_url_media.py and random_media.py"
+          REMOTE
