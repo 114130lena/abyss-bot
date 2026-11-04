@@ -94,9 +94,10 @@ def main():
         "rm -f /tmp/abyss-guild-icon-restore-candidate.png; fi"],check=True,timeout=30)
     print("GUILD_ICON_BACKUP_SAVED",flush=True)
     changed=False
+    new_icon=None
     try:
+        changed=True  # Restore even if the first PATCH times out after being applied.
         change_icon(temporary_bytes,"image/png")
-        changed=True
         new_icon=get_guild().get("icon")
         require(new_icon and new_icon != icon_hash,"Temporary guild icon not observed")
         print("GUILD_ICON_TEMPORARY_APPLIED waiting_seconds=180",flush=True)
