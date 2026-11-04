@@ -1,0 +1,59 @@
+name: Diagnose Discord guild banner prerequisites
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/diagnose-server-banner.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current server without printing secrets
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, pathlib, json, re
+          base=pathlib.Path('/home/ubuntu/chzzk-bot')
+          env={}
+          # Only check whether variables exist; never print token/IDs/URLs.
+          path=base/'.env'
+          if path.exists():
+              for line in path.read_text('utf-8').splitlines():
+                  match=re.match(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=\s*(.*)$',line)
+                  if match and not match.group(1).startswith('#'):
+                      env[match.group(1)]=match.group(2).strip().strip("'\"")
+          enabled=env.get('SERVER_BANNER_ENABLED',os.getenv('SERVER_BANNER_ENABLED','0'))
+          token=env.get('DISCORD_BOT_TOKEN',os.getenv('DISCORD_BOT_TOKEN',''))
+          guild=env.get('DISCORD_GUILD_ID',os.getenv('DISCORD_GUILD_ID',''))
+          index_path=base/'creator_media'/'fanart_index.json'
+          approved=0
+          if index_path.exists():
+              try:
+                  index=json.loads(index_path.read_text('utf-8'))
+                  approved=sum(1 for x in index.get('hanayo',[]) if isinstance(x,dict) and x.get('approved') is True and x.get('permission_confirmed') is True)
+              except (OSError,ValueError,AttributeError,TypeError):
+                  pass
+          info={
+            'existing_webhook_configured':bool(env.get('DISCORD_WEBHOOK_URL')),
+            'guild_bot_token_configured':bool(token),
+            'guild_id_configured':bool(re.fullmatch('[0-9]+',guild)),
+            'server_banner_enabled':enabled=='1',
+            'approved_hanayo_index_entries':approved,
+            'fanart_index_exists':index_path.exists(),
+            'server_banner_module_installed':(base/'guild_server_banner.py').exists(),
+          }
+          print('GUILD_BANNER_DIAGNOSIS '+json.dumps(info,ensure_ascii=False))
+          PY
