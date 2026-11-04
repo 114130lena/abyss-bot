@@ -1,4 +1,5 @@
 name: Sync current server banner info card
+# Refresh the existing Discord message in place after the UI design update.
 
 on:
   push:
