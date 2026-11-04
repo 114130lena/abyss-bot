@@ -1,4 +1,5 @@
 name: Install guild banner module (no credentials)
+# Collected-art selection preview; no Discord banner writes.
 on:
   push:
     branches: [feature/hanayo-approved-fanart-server-banner]
