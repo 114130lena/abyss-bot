@@ -2,12 +2,11 @@ name: Rotate Hanayo Discord server banner
 
 on:
   schedule:
-    # 08:00 / 18:00 KST plus retries every 15 minutes, capped at 90m.
-    # Multiple checks do not duplicate updates: rotation state records the slot.
-    - cron: '0,15,30,45 23 * * *'
-    - cron: '0 0 * * *'
-    - cron: '0,15,30,45 9 * * *'
-    - cron: '0 10 * * *'
+    # Oracle systemd is the primary KST 08:00 / 18:00 scheduler.
+    # GitHub Actions is a delayed backup only at 08:25/08:45 and 18:25/18:45.
+    # Both paths read the same saved slot to avoid duplicate changes.
+    - cron: '25,45 23 * * *'
+    - cron: '25,45 9 * * *'
   workflow_dispatch:
 
 permissions:
