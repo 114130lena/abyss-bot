@@ -9,6 +9,7 @@ import os
 import random
 from pathlib import Path
 from urllib.parse import urlsplit
+from fanart_character_guard import banner_candidate_allowed
 
 DATA_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 PROFILE_CACHE = DATA_DIR / "creator_profile_cache.json"
@@ -93,8 +94,11 @@ def _local_candidates(group, kind):
         found.append((path, item.get("sha256", path.name)))
     if kind == "banner" and os.getenv("ABYSS_FANART_ENABLED", "0") == "1":
         fanart = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
+        discovery_queue = _load(MEDIA_ROOT / "fanart_discovery.json")
         for item in fanart if isinstance(fanart, list) else []:
             if not isinstance(item, dict) or item.get("approved") is not True or item.get("permission_confirmed") is not True:
+                continue
+            if not banner_candidate_allowed(group, item, discovery_queue):
                 continue
             if item.get("hashtag") != ("#hiyoriart_" if group == "hanayo" else "#huyart"):
                 continue
