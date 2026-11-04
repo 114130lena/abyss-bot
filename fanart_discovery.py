@@ -9,6 +9,7 @@ import os
 import re
 from pathlib import Path
 import requests
+from fanart_character_guard import mixed_character_tags
 from datetime import datetime, timezone
 
 BASE=Path(os.getenv("BOT_DATA_DIR","/home/ubuntu/chzzk-bot"))/"creator_media"
@@ -82,6 +83,8 @@ def discover(session=None):
                 if not post_id.isdigit():continue
                 hashtag_values=[t.get("tag","").casefold() for t in post.get("entities",{}).get("hashtags",[])]
                 if tag.casefold() not in hashtag_values:continue
+                if mixed_character_tags(group, post.get("text", ""), hashtag_values):
+                    continue  # Mixed characters: not eligible for a single-creator banner.
                 if not max_id or int(post_id)>int(max_id):max_id=post_id
                 image_keys=[k for k in post.get("attachments",{}).get("media_keys",[])
                             if media.get(k,{}).get("type")=="photo"]
@@ -94,7 +97,8 @@ def discover(session=None):
                 catalog[key]={"group":group,"hashtag":"#"+tag,"post_id":post_id,
                     "post_url":f"https://x.com/{artist}/status/{post_id}",
                     "artist":"@"+artist,"image_urls":[media[k]["url"] for k in image_keys if media[k].get("url")],
-                    "decision":decision,"review_status":"blocked" if decision=="blocked" else "pending",
+                    "decision":decision,"all_hashtags":hashtag_values,
+                    "review_status":"blocked" if decision=="blocked" else "pending",
                     "discovered_at":datetime.now(timezone.utc).isoformat(),"text":post.get("text","")[:2000]}
                 added+=1
             page_token=data.get("meta",{}).get("next_token")
