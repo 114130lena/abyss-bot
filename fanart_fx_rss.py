@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import requests
 from fanart_discovery import BASE,QUEUE,read,write,classify
+from fanart_character_guard import mixed_character_tags
 
 ACCOUNTS={"hanayo":("HanayoHiyori","hiyoriart_"),"sakihane":("SakihaneHuya","huyart")}
 MEDIA_HOSTS={"pbs.twimg.com"}
@@ -52,7 +53,9 @@ def fetch_group(group,session=None):
         description=item.findtext("description") or ""
         title=item.findtext("title") or ""
         combined=title+" "+re.sub("<[^>]*>"," ",description)
-        if tag.casefold() not in [t.casefold() for t in HASHTAG.findall(combined)]:continue
+        tags=[t.casefold() for t in HASHTAG.findall(combined)]
+        if tag.casefold() not in tags:continue
+        if mixed_character_tags(group, combined, tags):continue
         images=Images()
         images.feed(description)
         for child in item:
@@ -66,7 +69,8 @@ def fetch_group(group,session=None):
         queue[key]={"group":group,"hashtag":"#"+tag,"post_id":post_id,
             "post_url":f"https://x.com/{author}/status/{post_id}",
             "artist":"@"+author,"image_urls":images.urls[:4],
-            "decision":decision,"review_status":"blocked" if decision=="blocked" else "pending",
+            "decision":decision,"all_hashtags":tags,
+            "review_status":"blocked" if decision=="blocked" else "pending",
             "source":"fxtwitter_profile_feed","text":combined[:2000]}
         added+=1
     write(QUEUE,queue)
