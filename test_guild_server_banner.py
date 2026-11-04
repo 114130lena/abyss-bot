@@ -77,6 +77,44 @@ class BannerTests(unittest.TestCase):
                 self.assertEqual(selected[0][0], good.resolve())
                 self.assertFalse(selected[0][1]["permission_confirmed"])
 
+    def test_rotation_uses_every_candidate_before_repeating(self):
+        pool = [(Path(f"/tmp/{c}.jpg"), {"sha256": c}) for c in ("a", "b", "c")]
+        history = []
+        previous = None
+        picks = []
+        with patch.object(mod, "approved_hanayo_art", return_value=pool), \
+             patch.object(mod, "collected_hanayo_art", return_value=[]):
+            for _ in range(3):
+                chosen, history, total, remaining = mod.rotation_selection(previous, history)
+                previous = chosen[1]["sha256"]
+                picks.append(previous)
+                self.assertEqual(total, 3)
+            self.assertEqual(set(picks), {"a", "b", "c"})
+            self.assertEqual(remaining, 0)
+            next_one, new_history, _, _ = mod.rotation_selection(previous, history)
+            self.assertNotEqual(next_one[1]["sha256"], previous)
+            self.assertEqual(len(new_history), 1)
+
+    def test_rotation_expands_when_new_image_arrives(self):
+        pool = [(Path(f"/tmp/{c}.jpg"), {"sha256": c}) for c in ("a", "b", "c")]
+        with patch.object(mod, "approved_hanayo_art", return_value=pool), \
+             patch.object(mod, "collected_hanayo_art", return_value=[]):
+            selected, used, total, remaining = mod.rotation_selection("b", ["a", "b"])
+            self.assertEqual(selected[1]["sha256"], "c")
+            self.assertEqual(total, 3)
+            self.assertEqual(remaining, 0)
+
+    def test_portrait_is_optional_and_preserved_without_crop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "portrait.jpg"
+            Image.new("RGB", (1080, 1920), "white").save(source)
+            self.assertIsNone(mod.kind(1080, 1920))
+            with patch.dict("os.environ", {"SERVER_BANNER_ALLOW_FIT": "1"}):
+                self.assertEqual(mod.kind(1080, 1920), "fit")
+                result = mod.convert_banner(source)
+                with Image.open(__import__("io").BytesIO(result)) as final:
+                    self.assertEqual(final.size, (960, 540))
+
     def test_dry_run_never_calls_discord(self):
         with patch.object(mod, "select_art", return_value=None), \
              patch.object(mod, "change_guild_banner") as api:
