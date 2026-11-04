@@ -25,13 +25,18 @@ def slot_label():
     event = os.getenv("GITHUB_EVENT_NAME", "")
     schedule = os.getenv("GITHUB_SCHEDULE", "")
     if event == "schedule":
-        target_hour = {"0 23 * * *": 8, "0 9 * * *": 18}.get(schedule)
+        target_hour = {
+            "0,15,30,45 23 * * *": 8,
+            "0 0 * * *": 8,
+            "0,15,30,45 9 * * *": 18,
+            "0 10 * * *": 18,
+        }.get(schedule)
         if target_hour is None:
             raise RuntimeError("Unknown scheduled rotation slot")
         # GitHub scheduling can be delayed. Skip stale events instead of
         # unexpectedly changing the server's banner much later in the day.
         elapsed = (now.hour * 60 + now.minute) - target_hour * 60
-        if not 0 <= elapsed <= 120:
+        if not 0 <= elapsed <= 90:
             return None
         return now.strftime("%Y-%m-%d") + f" {target_hour:02d}:00"
     return "manual:" + now.strftime("%Y-%m-%dT%H:%M:%S")
