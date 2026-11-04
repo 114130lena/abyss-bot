@@ -50,14 +50,14 @@ def write_state(state):
 
 
 def kind(width, height):
-    if width < 960 or height < 540:
+    if width <= 0 or height <= 0:
         return None
     aspect = width / height
-    if abs(aspect - 16 / 9) <= 0.035:
+    if width >= 960 and height >= 540 and abs(aspect - 16 / 9) <= 0.035:
         return "16:9"
-    if abs(aspect - 16 / 10) <= 0.03:
+    if width >= 960 and height >= 540 and abs(aspect - 16 / 10) <= 0.03:
         return "16:10"
-    if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" and width >= 600 and height >= 600 and 0.5 <= ratio <= 2.5:
+    if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" and width >= 600 and height >= 600 and 0.5 <= aspect <= 2.5:
         return "fit"
     return None
 
