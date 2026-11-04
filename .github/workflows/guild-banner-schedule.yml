@@ -1,12 +1,11 @@
-name: Rotate Hanayo Discord server banner
+name: Backup check for Hanayo Discord server banner
 
 on:
   schedule:
-    # Oracle systemd is the primary KST 08:00 / 18:00 scheduler.
-    # GitHub Actions is a delayed backup only at 08:25/08:45 and 18:25/18:45.
-    # Both paths read the same saved slot to avoid duplicate changes.
-    - cron: '25,45 23 * * *'
-    - cron: '25,45 9 * * *'
+    # Primary: Oracle systemd every 5m during 08:xx/18:xx Korea time.
+    # Backup: 08:27/08:47 and 18:27/18:47 Korea time, away from 5m ticks.
+    - cron: '27,47 23 * * *'
+    - cron: '27,47 9 * * *'
   workflow_dispatch:
 
 permissions:
@@ -17,38 +16,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  rotate:
+  backup:
     if: github.repository == '114130lena/abyss-bot'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
-      - name: Checkout isolated, tested guild banner updater
-        uses: actions/checkout@v4
-        with:
-          ref: feature/hanayo-approved-fanart-server-banner
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install image verification dependency
-        run: python -m pip install 'Pillow>=10,<13' 'requests>=2.30,<3'
-      - name: Prepare existing SSH connection to collected media
+      - name: Prepare existing SSH connection
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
         run: |
           set -euo pipefail
           test -n "$SSH_HOST" && test -n "$SSH_KEY"
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-      - name: Rotate server banner from collected local Hanayo image
+      - name: Confirm or recover the KST banner slot on Oracle
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
-          GITHUB_SCHEDULE: ${{ github.event.schedule }}
-        run: python scripts/guild_banner_actions.py
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          # Token stays in Oracle's chmod 600 private file, never copied to Actions.
+          set -a
+          . ./.guild_banner_auth.env
+          set +a
+          export SERVER_BANNER_USE_COLLECTED=1 SERVER_BANNER_ALLOW_FIT=1
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 120 creator_media/guild_banner_rotation.lock "$PY" guild_banner_timer_runner.py
+          REMOTE
