@@ -2,9 +2,12 @@ name: Rotate Hanayo Discord server banner
 
 on:
   schedule:
-    # 08:00 and 18:00 Asia/Seoul = 23:00 and 09:00 UTC.
-    - cron: '0 23 * * *'
-    - cron: '0 9 * * *'
+    # 08:00 / 18:00 KST plus retries every 15 minutes, capped at 90m.
+    # Multiple checks do not duplicate updates: rotation state records the slot.
+    - cron: '0,15,30,45 23 * * *'
+    - cron: '0 0 * * *'
+    - cron: '0,15,30,45 9 * * *'
+    - cron: '0 10 * * *'
   workflow_dispatch:
 
 permissions:
