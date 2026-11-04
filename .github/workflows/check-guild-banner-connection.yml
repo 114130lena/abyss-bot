@@ -1,0 +1,61 @@
+name: Check server banner bot connection
+
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/check-guild-banner-connection.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Discord bot and guild without changing banner
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+        shell: python
+        run: |
+          import json, os, urllib.request, urllib.error
+          token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+          guild_id = os.environ.get("DISCORD_GUILD_ID", "").strip()
+          def request(path):
+              req = urllib.request.Request("https://discord.com/api/v10" + path,
+                  headers={"Authorization": "Bot " + token, "User-Agent": "abyss-bot-guild-banner-check/1.0"})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as response:
+                      return response.status, json.load(response)
+              except urllib.error.HTTPError as exc:
+                  return exc.code, {}
+          result = {"token_configured": bool(token), "guild_id_configured": guild_id.isdigit(),
+                    "bot_authenticated": False, "guild_access": False,
+                    "guild_banner_feature": False, "manage_guild_permission": "unverified"}
+          if not token or not guild_id.isdigit():
+              print("BANNER_CHECK " + json.dumps(result))
+              raise SystemExit("Missing Discord bot credentials")
+          status, me = request("/users/@me")
+          result["bot_authenticated"] = status == 200 and me.get("bot") is True
+          if result["bot_authenticated"]:
+              status, guild = request("/guilds/" + guild_id)
+              result["guild_access"] = status == 200
+              if result["guild_access"]:
+                  features = guild.get("features", [])
+                  result["guild_banner_feature"] = "BANNER" in features
+                  status, member = request("/guilds/" + guild_id + "/members/" + str(me.get("id", "")))
+                  if status == 200:
+                      roles = set(member.get("roles", []))
+                      roles.add(guild_id)
+                      permissions = 0
+                      for role in guild.get("roles", []):
+                          if role.get("id") in roles:
+                              permissions |= int(role.get("permissions", "0"))
+                      result["manage_guild_permission"] = bool(permissions & 0x20 or permissions & 0x8)
+                  else:
+                      result["manage_guild_permission"] = "unable_to_verify"
+          print("BANNER_CHECK " + json.dumps(result, ensure_ascii=False))
+          if not result["bot_authenticated"] or not result["guild_access"]:
+              raise SystemExit("Bot authentication or guild access failed")
