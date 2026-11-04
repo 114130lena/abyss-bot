@@ -46,6 +46,37 @@ class BannerTests(unittest.TestCase):
                 self.assertEqual(Image.open(__import__("io").BytesIO(mod.convert_banner(good))).size,
                                  (960, 540))
 
+    def test_opt_in_collected_cache_uses_only_hanayo_valid_landscape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "creator_media"
+            cached = base / "fanart_candidates" / "hanayo"
+            cached.mkdir(parents=True)
+            good = cached / "good.jpg"
+            portrait = cached / "portrait.jpg"
+            Image.new("RGB", (1920, 1080), "white").save(good)
+            Image.new("RGB", (1080, 1920), "white").save(portrait)
+            queue = {
+                "hanayo:1": {
+                    "group": "hanayo", "hashtag": "#hiyoriart_",
+                    "artist": "@artist", "post_url": "https://x.com/artist/status/1",
+                    "review_status": "pending", "decision": "unknown",
+                    "text": "#hiyoriart_",
+                    "cached_files": ["fanart_candidates/hanayo/good.jpg",
+                                     "fanart_candidates/hanayo/portrait.jpg"]},
+                "hanayo:2": {
+                    "group": "hanayo", "hashtag": "#hiyoriart_",
+                    "artist": "@mixed", "post_url": "https://x.com/mixed/status/2",
+                    "text": "#hiyoriart_ #huyart",
+                    "cached_files": ["fanart_candidates/hanayo/good.jpg"]},
+            }
+            (base / "fanart_discovery.json").write_text(json.dumps(queue), encoding="utf-8")
+            with patch.object(mod, "media_base", return_value=base), \\
+                 patch.dict("os.environ", {"SERVER_BANNER_USE_COLLECTED": "1"}):
+                selected = mod.collected_hanayo_art()
+                self.assertEqual(len(selected), 1)
+                self.assertEqual(selected[0][0], good.resolve())
+                self.assertFalse(selected[0][1]["permission_confirmed"])
+
     def test_dry_run_never_calls_discord(self):
         with patch.object(mod, "select_art", return_value=None), \
              patch.object(mod, "change_guild_banner") as api:
