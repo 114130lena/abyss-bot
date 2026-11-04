@@ -14,15 +14,28 @@ def _usable(url):
     return p.scheme=="https" and p.hostname=="pbs.twimg.com" and p.path.startswith("/media/")
 
 def candidates(group):
-    result=[]
+    """Choose entire posts, not one randomly selected image from a multi-art post.
+
+    Only source images from the *same* X status can share a footer gallery.
+    Preserve the media order that X supplied; remove duplicated photo URLs.
+    """
+    posts = {}
     for item in read(QUEUE).values():
-        if not isinstance(item,dict) or item.get("group")!=group or item.get("review_status")=="blocked":
+        if not isinstance(item, dict) or item.get("group") != group or item.get("review_status") == "blocked":
             continue
-        for url in item.get("image_urls",[])[:4]:
-            source=item.get("post_url","")
-            if _usable(url) and isinstance(source,str) and source.startswith("https://x.com/"):
-                result.append((url,item.get("artist",""),source))
-    return result
+        source = item.get("post_url", "")
+        if not isinstance(source, str) or not source.startswith("https://x.com/"):
+            continue
+        images = [url for url in item.get("image_urls", [])[:4] if _usable(url)]
+        if not images:
+            continue
+        post = posts.setdefault(source, {"post_url": source, "artist": item.get("artist", ""),
+                                        "images": []})
+        for url in images:
+            if url not in post["images"] and len(post["images"]) < 4:
+                post["images"].append(url)
+    return list(posts.values())
+
 
 def has_post_photos(payload):
     """Detect post-specific media, never the footer banner or creator avatar.
@@ -81,14 +94,15 @@ def apply(payload, group=None):
     with LOCK:
         used=read(HISTORY).get(group,{})
         if not isinstance(used,dict):used={}
-        fresh=[x for x in pool if x[2] not in used]
+        fresh = [x for x in pool if x["post_url"] not in used]
         if fresh:
-            picked=random.SystemRandom().choice(fresh)
-            cycle="fresh"
+            picked = random.SystemRandom().choice(fresh)
+            cycle = "fresh"
         else:
-            oldest=min(str(used.get(x[2],"")) for x in pool)
-            picked=random.SystemRandom().choice([x for x in pool if str(used.get(x[2],""))==oldest])
-            cycle="recycled"
+            oldest = min(str(used.get(x["post_url"], "")) for x in pool)
+            picked = random.SystemRandom().choice(
+                [x for x in pool if str(used.get(x["post_url"], "")) == oldest])
+            cycle = "recycled"
     logging.info("FANART_PICK group=%s mode=%s available=%d unused=%d",group,cycle,len(pool),len(fresh))
     # Preserve the independently selected official/random creator profile.
     for i,part in enumerate(parts[:-1]):
@@ -96,10 +110,14 @@ def apply(payload, group=None):
             gallery=parts[i+1]
             if gallery.get("type")!=12:
                 continue
-            gallery["items"]=[{"media":{"url":picked[0]},"description":"팬아트 · "+picked[1]}]
-            # Keep the signature short. Move the original post URL into the button row.
-            part["content"]="-# 🎨 FAN ART · "+picked[1]
-            source=picked[2]
+            gallery["items"] = [
+                {"media": {"url": image}, "description": "팬아트 %d/%d · %s" % (
+                    index + 1, len(picked["images"]), picked["artist"])}
+                for index, image in enumerate(picked["images"])
+            ]
+            # Show the entire selected post as one set; credit it once.
+            part["content"] = "-# 🎨 FAN ART · " + str(picked["artist"]) + " · " + str(len(picked["images"])) + "장"
+            source = picked["post_url"]
             if not (isinstance(source,str) and source.startswith("https://x.com/")):
                 return payload,None
             button={"type":2,"style":5,"label":"원본 게시물","url":source}
@@ -116,7 +134,7 @@ def apply(payload, group=None):
                 return payload,None
             row["components"]=[button]+base_buttons
             assert len(row["components"])==5
-            return out,{"group":group,"avatar":picked,"banner":picked}
+            return out,{"group":group,"post_url":source,"banner":(picked["images"][0], picked["artist"], source)}
     logging.warning("FANART_FALLBACK group=%s reason=no_footer_gallery",group)
     return payload,None
 
@@ -125,10 +143,12 @@ def mark_delivered(selection):
     """Persist only after Discord accepts the alert, never during preview selection."""
     if not isinstance(selection,dict):return
     group=selection.get("group")
-    item=selection.get("banner")
-    if group not in ("hanayo","sakihane") or not item:return
+    source = selection.get("post_url")
+    if not source and selection.get("banner"):
+        source = selection["banner"][2]
+    if group not in ("hanayo","sakihane") or not isinstance(source,str) or not source:return
     with LOCK:
         history=read(HISTORY)
         used=history.setdefault(group,{})
-        used[item[2]]=datetime.now(timezone.utc).isoformat()
+        used[source]=datetime.now(timezone.utc).isoformat()
         write(HISTORY,history)
