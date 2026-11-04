@@ -32,20 +32,20 @@ def card_payload(state):
     else:
         rotation = "수집된 팬아트 자동 순환"
     parts = [
-        {"type": 10, "content": "## 🌸 ABYSS · SERVER BANNER\\n-# HANAYO HIYORI  ·  현재 서버 배너"},
+        {"type": 10, "content": "## 🌸 ABYSS · SERVER BANNER\n-# HANAYO HIYORI  ·  현재 서버 배너"},
         {"type": 12, "items": [{"media": {"url": "attachment://current_banner.jpg"},
                                "description": "하나요 히요리 · 현재 서버 배너 작품"}]},
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": (
-            "**🎨 현재 적용된 팬아트**\\n"
-            f"**작가**　{artist}\\n"
-            f"**적용**　{updated_label}\\n"
+            "**🎨 현재 적용된 팬아트**\n"
+            f"**작가**　{artist}\n"
+            f"**적용**　{updated_label}\n"
             f"**순환**　{rotation}"
         )},
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": (
-            "**🕒 다음 자동 변경**\\n"
-            "매일 **08:00 / 18:00** (KST)\\n"
+            "**🕒 다음 자동 변경**\n"
+            "매일 **08:00 / 18:00** (KST)\n"
             "-# 원본을 자르지 않는 960 × 540 배너 · 게시물은 하나만 갱신됩니다."
         )},
     ]
