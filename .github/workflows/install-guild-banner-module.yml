@@ -1,4 +1,5 @@
 name: Install guild banner module (no credentials)
+# Validate five banner hardening improvements before copying the isolated module.
 # Collected-art selection preview; no Discord banner writes.
 on:
   push:
