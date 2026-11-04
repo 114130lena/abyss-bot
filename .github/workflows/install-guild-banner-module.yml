@@ -31,4 +31,4 @@ jobs:
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes guild_server_banner.py guild_banner_timer_runner.py "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/"
-          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" -m py_compile guild_server_banner.py guild_banner_timer_runner.py && "$PY" guild_server_banner.py --output /tmp/abyss-banner-dryrun.jpg'
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" -m py_compile guild_server_banner.py guild_banner_timer_runner.py && SERVER_BANNER_USE_COLLECTED=1 "$PY" guild_server_banner.py --output /tmp/abyss-banner-dryrun.jpg'
