@@ -57,6 +57,8 @@ def kind(width, height):
         return "16:9"
     if abs(aspect - 16 / 10) <= 0.03:
         return "16:10"
+    if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" and width >= 600 and height >= 600 and 0.5 <= ratio <= 2.5:
+        return "fit"
     return None
 
 
@@ -189,10 +191,32 @@ def convert_banner(path):
         return output.getvalue()
 
 
-def select_art(previous):
+def rotation_selection(previous=None, used=None):
+    """Draw without replacement, automatically extending the pool with new art.
+
+    Rotation history is committed by the caller only after Discord accepts the
+    banner change, so an API failure cannot consume a picture.
+    """
     pool = approved_hanayo_art() + collected_hanayo_art()
-    entries = [e for e in pool if e[1]["sha256"] != previous]
-    return random.choice(entries) if entries else None
+    unique = {}
+    for path, info in pool:
+        unique.setdefault(info["sha256"], (path, info))
+    all_ids = set(unique)
+    history = [sha for sha in (used or []) if sha in all_ids]
+    unseen = [sha for sha in unique if sha not in history]
+    if not unseen:
+        history = []
+        unseen = list(unique)
+    if len(unseen) > 1 and previous in unseen:
+        unseen.remove(previous)
+    if not unseen:
+        return None, [], len(unique), 0
+    picked = random.choice(unseen)
+    return unique[picked], history + [picked], len(unique), max(len(unique) - len(history) - 1, 0)
+
+
+def select_art(previous):
+    return rotation_selection(previous, read_state().get("rotation_used", []))[0]
 
 
 def change_guild_banner(image, token, guild_id):
@@ -220,7 +244,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     previous = read_state()
     if current_slot and not manual and previous.get("last_slot") == current_slot:
         return {"status": "already_rotated"}
-    selected = select_art(previous.get("last_sha256"))
+    selected, rotation_used, candidate_total, remaining = rotation_selection(\n        previous.get("last_sha256"), previous.get("rotation_used", []))
     if selected is None:
         return {"status": "no_approved_hanayo_art"}
     source, metadata = selected
@@ -230,7 +254,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(image)
     info = {"sha256": metadata["sha256"], "artist": metadata.get("artist"),
-            "post_url": metadata.get("post_url"), "size": list(SIZE)}
+            "post_url": metadata.get("post_url"), "size": list(SIZE),\n            "rotation_used": rotation_used, "candidate_total": candidate_total,\n            "remaining_after": remaining}
     if dry_run:
         return {"status": "preview_only", **info}
     if os.getenv("SERVER_BANNER_ENABLED", "0") != "1":
