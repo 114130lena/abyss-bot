@@ -255,7 +255,9 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(image)
     info = {"sha256": metadata["sha256"], "artist": metadata.get("artist"),
-            "post_url": metadata.get("post_url"), "size": list(SIZE),\n            "rotation_used": rotation_used, "candidate_total": candidate_total,\n            "remaining_after": remaining}
+            "post_url": metadata.get("post_url"), "size": list(SIZE),
+            "rotation_used": rotation_used, "candidate_total": candidate_total,
+            "remaining_after": remaining}
     if dry_run:
         return {"status": "preview_only", **info}
     if os.getenv("SERVER_BANNER_ENABLED", "0") != "1":
@@ -265,8 +267,10 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     if not token or not guild_id.isdigit():
         return {"status": "missing_discord_credentials"}
     change_guild_banner(image, token, guild_id)
-    write_state({"last_slot": current_slot, "last_sha256": metadata["sha256"],
-                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url")})
+    write_state({**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
+                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
+                 "rotation_used": rotation_used, "candidate_total": candidate_total,
+                 "remaining_after": remaining})
     logging.info("히요리 서버 배너 교체 완료: %s / %s", metadata.get("artist"), current_slot)
     return {"status": "changed", **info}
 
