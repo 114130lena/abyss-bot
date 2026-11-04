@@ -26,10 +26,8 @@ def slot_label():
     schedule = os.getenv("GITHUB_SCHEDULE", "")
     if event == "schedule":
         target_hour = {
-            "0,15,30,45 23 * * *": 8,
-            "0 0 * * *": 8,
-            "0,15,30,45 9 * * *": 18,
-            "0 10 * * *": 18,
+            "25,45 23 * * *": 8,
+            "25,45 9 * * *": 18,
         }.get(schedule)
         if target_hour is None:
             raise RuntimeError("Unknown scheduled rotation slot")
