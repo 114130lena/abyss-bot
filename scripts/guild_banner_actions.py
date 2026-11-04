@@ -67,11 +67,16 @@ def main():
     state_code = "import json;from guild_server_banner import read_state; print(json.dumps(read_state()))"
     prior = json.loads(run_cmd(prefix + [boot + '"$PY" -c ' + shlex.quote(state_code)] ) or "{}")
     if prior.get("last_slot") == slot:
-        print("GUILD_BANNER_ROTATION already_rotated")
+        if prior.get("info_card_pending"):
+            from guild_banner_sync_card import main as repair_card
+            repair_card()
+            print("GUILD_BANNER_ROTATION info_card_repaired")
+        else:
+            print("GUILD_BANNER_ROTATION already_rotated")
         return
     image_file = f"/tmp/abyss-guild-rotation-{run_id}.jpg"
     try:
-        cmd = boot + f'SERVER_BANNER_USE_COLLECTED=1 "$PY" guild_server_banner.py --output {image_file}'
+        cmd = boot + f'SERVER_BANNER_USE_COLLECTED=1 SERVER_BANNER_ALLOW_FIT=1 "$PY" guild_server_banner.py --output {image_file}'
         output = run_cmd(prefix + [cmd])
         result = json.loads(output.splitlines()[-1])
         if result.get("status") != "preview_only":
@@ -103,11 +108,16 @@ def main():
             except urllib.error.HTTPError as exc:
                 raise RuntimeError(f"Discord banner update HTTP {exc.code}") from None
         new_state = {
+            **prior,
             "last_slot": slot,
             "last_sha256": result["sha256"],
             "artist": result.get("artist"),
             "post_url": result.get("post_url"),
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "rotation_used": result.get("rotation_used", []),
+            "candidate_total": result.get("candidate_total", 0),
+            "remaining_after": result.get("remaining_after", 0),
+            "info_card_pending": True,
         }
         state = base64.urlsafe_b64encode(json.dumps(new_state).encode("utf-8")).decode("ascii")
         update_code = ("import base64,json,sys;from guild_server_banner import write_state;"
@@ -121,6 +131,7 @@ def main():
             new_id, card_status = upsert_card(token, guild, image, new_state,
                                               prior.get("info_message_id"))
             new_state["info_message_id"] = new_id
+            new_state["info_card_pending"] = False
             new_state["info_channel_id"] = "1567561255764500551"
             encoded_state = base64.urlsafe_b64encode(
                 json.dumps(new_state).encode("utf-8")).decode("ascii")
