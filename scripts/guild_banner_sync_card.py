@@ -48,7 +48,7 @@ def main():
         "print(json.dumps(state))\n"
     )
     try:
-        stdout=run(ssh+[boot+'SERVER_BANNER_USE_COLLECTED=1 "$PY" -c '+shlex.quote(code)+' '+shlex.quote(path)])
+        stdout=run(ssh+[boot+'SERVER_BANNER_USE_COLLECTED=1 SERVER_BANNER_ALLOW_FIT=1 "$PY" -c '+shlex.quote(code)+' '+shlex.quote(path)])
         state=json.loads(stdout.splitlines()[-1])
         with tempfile.TemporaryDirectory(prefix="abyss-info-") as temp:
             local=Path(temp)/"banner.jpg"
@@ -59,6 +59,7 @@ def main():
                     raise RuntimeError("Invalid cached current banner")
             new_id,status=upsert_card(token,guild,local.read_bytes(),state,state.get("info_message_id"))
         state["info_message_id"]=new_id
+        state["info_card_pending"]=False
         state["info_channel_id"]="1567561255764500551"
         write_code=("import base64,json,sys;from guild_server_banner import write_state;"
                     "write_state(json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode('utf-8')))")
