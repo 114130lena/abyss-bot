@@ -25,24 +25,33 @@ def card_payload(state):
         updated_label = updated.strftime("%Y.%m.%d %H:%M KST")
     except (ValueError, TypeError):
         updated_label = "기록 없음"
+    total = state.get("candidate_total")
+    remaining = state.get("remaining_after")
+    if type(total) is int and total > 0 and type(remaining) is int:
+        rotation = f"{total}장 중 이번 순환에서 남은 작품 {max(0, remaining)}장"
+    else:
+        rotation = "수집된 팬아트 자동 순환"
     parts = [
-        {"type": 10, "content": "## 🌸 ABYSS · SERVER BANNER\n-# 하나요 히요리 · 현재 적용 중인 서버 배너"},
-        {"type": 14, "divider": True, "spacing": 1},
+        {"type": 10, "content": "## 🌸 ABYSS · SERVER BANNER\\n-# HANAYO HIYORI  ·  현재 서버 배너"},
         {"type": 12, "items": [{"media": {"url": "attachment://current_banner.jpg"},
-                               "description": "현재 디스코드 서버 배너 · 하나요 히요리"}]},
+                               "description": "하나요 히요리 · 현재 서버 배너 작품"}]},
+        {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": (
-            "**🎨 현재 팬아트**\n"
-            f"작가 · {artist}\n"
-            f"적용 · {updated_label}\n"
-            "자동 변경 · 매일 08:00 / 18:00 KST\n"
-            "규격 · 960 × 540"
+            "**🎨 현재 적용된 팬아트**\\n"
+            f"**작가**　{artist}\\n"
+            f"**적용**　{updated_label}\\n"
+            f"**순환**　{rotation}"
         )},
         {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "-# 작가님께 감사드립니다. 원본 링크에서 작품을 확인하실 수 있습니다."},
+        {"type": 10, "content": (
+            "**🕒 다음 자동 변경**\\n"
+            "매일 **08:00 / 18:00** (KST)\\n"
+            "-# 원본을 자르지 않는 960 × 540 배너 · 게시물은 하나만 갱신됩니다."
+        )},
     ]
     if post_url:
         parts.append({"type": 1, "components": [
-            {"type": 2, "style": 5, "label": "🎨 팬아트 원본 보기", "url": post_url}
+            {"type": 2, "style": 5, "label": "원본 팬아트 · X에서 보기", "url": post_url}
         ]})
     return {"flags": 32768, "allowed_mentions": {"parse": []},
             "components": [{"type": 17, "accent_color": 12234221, "components": parts}],
