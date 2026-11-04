@@ -23,7 +23,8 @@ jobs:
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import json,pathlib,collections
+          import json,pathlib,collections, re
+          from PIL import Image, ImageOps
           b=pathlib.Path('/home/ubuntu/chzzk-bot/creator_media')
           def read(name):
               try:return json.loads((b/name).read_text('utf-8'))
@@ -37,5 +38,27 @@ jobs:
           forbidden=sum(any(t in str(v.get('text','')).lower() for t in ('転載禁止','使用禁止','배포 금지','사용 금지','do not repost','do not use')) for v in items)
           idx=read('fanart_index.json')
           approved=sum(bool(v.get('approved') and v.get('permission_confirmed')) for v in idx.get('hanayo',[]) if isinstance(v,dict))
+          valid=0
+          mixed=0
+          eligible_posts=0
+          for v in items:
+              text=str(v.get('text','')).lower()
+              if '#huyart' in text or '#nanart_' in text:
+                  mixed+=1
+                  continue
+              any_valid=False
+              for rel in v.get('cached_files',[]):
+                  p=(b/rel).resolve() if isinstance(rel,str) else None
+                  if not p or b.resolve() not in p.parents or not p.is_file():continue
+                  try:
+                      with Image.open(p) as img:
+                          width,height=ImageOps.exif_transpose(img).size
+                          ratio=width/height
+                          if width>=960 and height>=540 and (abs(ratio-16/9)<=.035 or abs(ratio-16/10)<=.03):
+                              valid+=1
+                              any_valid=True
+                  except (OSError,ValueError):pass
+              eligible_posts+=bool(any_valid)
+          print('BANNER_ASPECT_COUNT '+json.dumps({'eligible_images':valid,'eligible_posts':eligible_posts,'mixed_tag_posts_excluded':mixed}))
           print('COLLECTED_FANART_SUMMARY '+json.dumps({'hanayo_posts':len(items),'post_with_images':with_media,'cached_local_images':cached,'statuses':dict(status),'permission_decisions':dict(decision),'explicit_restrictions_found':forbidden,'approved_hanayo_images':approved},ensure_ascii=False))
           PY
