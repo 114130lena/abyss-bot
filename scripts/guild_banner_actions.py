@@ -113,8 +113,24 @@ def main():
         update_code = ("import base64,json,sys;from guild_server_banner import write_state;"
                        "write_state(json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode('utf-8')))")
         run_cmd(prefix + [boot + '"$PY" -c ' + shlex.quote(update_code) + ' ' + shlex.quote(state)])
-        print(json.dumps({"status": "changed", "slot": slot, "artist": result.get("artist"),
-                          "post_url": result.get("post_url")}, ensure_ascii=False))
+        # The banner has already changed. Keep the rotation state even if
+        # the informational card is not writable in its designated channel.
+        card_status = "not_configured"
+        try:
+            from guild_banner_info_card import upsert_card
+            new_id, card_status = upsert_card(token, guild, image, new_state,
+                                              prior.get("info_message_id"))
+            new_state["info_message_id"] = new_id
+            new_state["info_channel_id"] = "1567561255764500551"
+            encoded_state = base64.urlsafe_b64encode(
+                json.dumps(new_state).encode("utf-8")).decode("ascii")
+            run_cmd(prefix + [boot + '"$PY" -c ' + shlex.quote(update_code) + ' ' + shlex.quote(encoded_state)])
+        except Exception as exc:
+            card_status = "failed:" + type(exc).__name__
+            print("GUILD_BANNER_CARD_WARNING " + card_status)
+        print(json.dumps({"status": "changed", "slot": slot,
+                          "artist": result.get("artist"), "post_url": result.get("post_url"),
+                          "info_card": card_status}, ensure_ascii=False))
     finally:
         try:
             run_cmd(prefix + ["rm -f " + shlex.quote(image_file)], timeout=15)
