@@ -103,6 +103,71 @@ def approved_hanayo_art():
     return result
 
 
+def collected_hanayo_art():
+    """Opt-in locally cached #hiyoriart_ sources, kept distinct from approved art.
+
+    A collection record does not establish copyright permission. Only use this
+    pool when the server operator explicitly opts into it, and keep original
+    creator and post metadata for provenance.
+    """
+    if os.getenv("SERVER_BANNER_USE_COLLECTED", "0") != "1":
+        return []
+    base = media_base()
+    try:
+        queue = json.loads((base / "fanart_discovery.json").read_text("utf-8"))
+        if not isinstance(queue, dict):
+            return []
+    except (OSError, ValueError):
+        return []
+    cache_root = (base / "fanart_candidates" / "hanayo").resolve()
+    blocked_phrases = ("転載禁止", "無断転載", "使用禁止", "재배포 금지",
+                       "사용 금지", "무단 사용", "do not repost", "do not use",
+                       "no repost", "reupload prohibited")
+    result = []
+    seen = set()
+    for item in queue.values():
+        if not isinstance(item, dict) or item.get("group") != "hanayo":
+            continue
+        if str(item.get("hashtag", "")).casefold() != "#hiyoriart_":
+            continue
+        if item.get("review_status") == "blocked" or item.get("decision") == "blocked":
+            continue
+        body = str(item.get("text", "")).casefold()
+        if any(term in body for term in blocked_phrases):
+            continue
+        # Mixed-character tagged posts cannot be attributed to Hanayo alone.
+        if "#huyart" in body or "#nanart_" in body:
+            continue
+        artist = item.get("artist", "")
+        post_url = item.get("post_url", "")
+        if not (isinstance(artist, str) and artist.startswith("@")
+                and isinstance(post_url, str) and post_url.startswith("https://x.com/")):
+            continue
+        for relative in item.get("cached_files", [])[:4]:
+            if not isinstance(relative, str):
+                continue
+            path = (base / relative).resolve()
+            if (cache_root not in path.parents or not path.is_file()
+                    or path.suffix.lower() not in EXTS):
+                continue
+            try:
+                with Image.open(path) as img:
+                    if getattr(img, "is_animated", False):
+                        continue
+                    if not kind(*ImageOps.exif_transpose(img).size):
+                        continue
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+                continue
+            if digest in seen:
+                continue
+            seen.add(digest)
+            result.append((path, {"sha256": digest, "artist": artist,
+                                  "post_url": post_url, "source": "collected_pending_review",
+                                  "permission_confirmed": False}))
+    return result
+
+
 def convert_banner(path):
     """16:9: downsize; 16:10: keep full art and blur-fill the sides."""
     with Image.open(path) as image:
@@ -125,7 +190,8 @@ def convert_banner(path):
 
 
 def select_art(previous):
-    entries = [e for e in approved_hanayo_art() if e[1]["sha256"] != previous]
+    pool = approved_hanayo_art() + collected_hanayo_art()
+    entries = [e for e in pool if e[1]["sha256"] != previous]
     return random.choice(entries) if entries else None
 
 
