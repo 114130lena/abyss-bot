@@ -1,0 +1,15 @@
+name: Cancel delayed icon test safely
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/cancel-delayed-icon-test.yml]
+permissions:
+  contents: read
+concurrency:
+  group: abyss-guild-banner-update
+  cancel-in-progress: false
+jobs:
+  cancel-only:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No Discord change. Replace previous pending test in concurrency group."
