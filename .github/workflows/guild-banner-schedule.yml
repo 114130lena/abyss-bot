@@ -1,0 +1,52 @@
+name: Rotate Hanayo Discord server banner
+
+on:
+  schedule:
+    # 08:00 and 18:00 Asia/Seoul = 23:00 and 09:00 UTC.
+    - cron: '0 23 * * *'
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: abyss-guild-banner-update
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    if: github.repository == '114130lena/abyss-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated, tested guild banner updater
+        uses: actions/checkout@v4
+        with:
+          ref: feature/hanayo-approved-fanart-server-banner
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install image verification dependency
+        run: python -m pip install 'Pillow>=10,<13'
+      - name: Prepare existing SSH connection to collected media
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Rotate server banner from collected local Hanayo image
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          GITHUB_SCHEDULE: ${{ github.event.schedule }}
+        run: python scripts/guild_banner_actions.py
