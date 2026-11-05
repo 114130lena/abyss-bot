@@ -47,6 +47,23 @@ class HourlyTests(unittest.TestCase):
         self.p2=patch.object(collector,"INDEX",self.idx)
         self.p1.start();self.p2.start()
         self.addCleanup(self.p1.stop);self.addCleanup(self.p2.stop)
+    def test_overnight_and_morning_skip_without_collection(self):
+        s=session()
+        for hour in (0,2,4,6,8,10,23):
+            result=h.refresh(now=NOW.replace(hour=hour),session=s,collect_fn=lambda **kw: self.fail("must not collect outside active period"))
+            self.assertEqual(result["status"],"outside_active_hours")
+        s.post.assert_not_called()
+        s.patch.assert_not_called()
+    def test_top_twelve_and_archived_featured_links(self):
+        now=NOW
+        clips={f"clip{idx:06d}":clip(f"clip{idx:06d}",idx) for idx in range(1,19)}
+        ranked=h.ranked(clips,now)
+        self.assertEqual(len(ranked),18)
+        body=h._extra_links(ranked,[{"id":"previous987","title":"지난 영상"}])
+        self.assertEqual(body.count("https://chzzk.naver.com/clips/"),12)
+        self.assertIn("이전에 소개한 클립",body)
+        self.assertNotIn("조회수",body)
+        self.assertNotIn("🏆",body)
     def test_select_top_24h_and_hidden_metrics(self):
         best=h.choose(collector.read(self.idx)["clips"],NOW)
         self.assertEqual(best["id"],UID2)
@@ -57,7 +74,8 @@ class HourlyTests(unittest.TestCase):
         self.assertEqual(r["message_id"],MID)
         payload=s.post.call_args.kwargs["json"]
         body=json.dumps(payload,ensure_ascii=False)
-        self.assertIn("2시간마다 최신 클립 갱신",body)
+        self.assertIn("12:05~22:05 · 2시간마다 갱신",body)
+        self.assertIn("다른 인기 클립",body)
         self.assertIn("example.org/x.mp4",body)
         for invalid in ("조회수","재생시간","🏆","1위","TODAY'S HIYORI CLIP","<@&"):
             self.assertNotIn(invalid,body)
