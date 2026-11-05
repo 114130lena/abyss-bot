@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
+DAILY_RECOMMENDATION_HOUR_KST = 12  # 12:00 PM (noon), not midnight
+DAILY_RECOMMENDATION_MINUTE_KST = 0
 TAG = re.compile(r"(?i)(?<![\w])#hiyoriclip_(?![\w])")
 WEIGHTS = {"views": 0.40, "likes": 0.35, "reposts": 0.25}
 
@@ -74,7 +76,7 @@ def eligible(raw, now):
 
 
 def rank_clips(candidates, *, now=None, used_ids=()):
-    """Rank true clips in the 24h ending at 21:00 Korea time.
+    """Rank true clips in the 24h ending at 12:00 noon Korea time.
 
     Per-metric log scaling avoids views numerically swamping engagement.
     Missing views do not silently become fabricated zero views. If not one
