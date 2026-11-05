@@ -1,5 +1,5 @@
 name: Install ten playable Hiyori clips every four hours
-# Rerun regression with all ten video URLs mocked
+# All simulated video URLs now satisfy direct-play preflight in tests
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
