@@ -34,6 +34,7 @@ def resolve_mp4(clip_id, *, session=None):
         raise ValueError("Oversized DASH metadata")
     root=ET.fromstring(manifest.content)
     candidates=[]
+    diagnostics=[]
     for adaptation in root.iter():
         if adaptation.tag.split("}")[-1]!="AdaptationSet":
             continue
@@ -48,11 +49,13 @@ def resolve_mp4(clip_id, *, session=None):
                     continue
                 url=urljoin(manifest.url,base.text.strip())
                 parsed=urlsplit(url)
+                diagnostics.append({"mime":mime,"hostname":parsed.hostname,"mp4":parsed.path.lower().endswith(".mp4"),"length":len(url)})
                 if (parsed.scheme=="https" and parsed.hostname and
                         (parsed.hostname=="pstatic.net" or parsed.hostname.endswith(".pstatic.net")) and
                         parsed.path.lower().endswith(".mp4") and
                         parsed.username is None and parsed.password is None and len(url)<=2048):
                     candidates.append(url)
+    print("CHZZK_MP4_REPRESENTATIONS "+str(diagnostics[:8]),flush=True)
     print("CHZZK_MP4_CANDIDATES count="+str(len(candidates)),flush=True)
     for url in candidates[:3]:
         try:
