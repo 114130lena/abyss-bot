@@ -36,8 +36,8 @@ def candidates_from_rss(content,group,hashtag):
         text=html.unescape(HTML_TAGS.sub(" ",title+" "+description))
         if not re.search(r"(?i)(?<![\w])#"+re.escape(hashtag)+r"(?![\w])",text):
             continue
-        if re.match(r"(?i)^\s*(?:RT by|Retweeted by|Reposted by|Boosted by)",title):
-            continue
+        # Search results labeled as reposts still link to the original artist.
+        # Keep the artist's source post in the permission-review queue.
         link=entry.findtext("link") or ""
         address=urlsplit(link)
         match=PARSER_RE.match(address.path)
