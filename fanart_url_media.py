@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from pathlib import Path
 from hashlib import sha256
 from fanart_discovery import BASE, QUEUE, read, write
-from fanart_usage import notification_allowed
+from fanart_usage import notification_allowed, excluded_notification_art
 from fanart_discovery import classify, TAGS
 
 HISTORY=BASE/'fanart_url_used.json'
@@ -23,6 +23,7 @@ def candidates(group):
     Preserve the media order that X supplied; remove duplicated photo URLs.
     """
     posts = {}
+    exclusions = excluded_notification_art(group)
     for item in read(QUEUE).values():
         # Public X URL previews use attributed source links, not reuploaded
         # screenshots. Explicit repost/use prohibitions always block display.
@@ -31,7 +32,7 @@ def candidates(group):
         if (item.get("review_status") == "blocked"
                 or item.get("decision") == "blocked"
                 or classify(item.get("text", "")) == "blocked"
-                or not notification_allowed(group, item)):
+                or not notification_allowed(group, item, exclusions)):
             continue
         expected_tag = "#" + TAGS.get(group, "")
         if item.get("hashtag", "").casefold() != expected_tag.casefold():
@@ -62,7 +63,7 @@ def candidates(group):
             continue
         if item.get("approved") is not True or item.get("permission_confirmed") is not True:
             continue
-        if not notification_allowed(group, item):
+        if not notification_allowed(group, item, exclusions):
             continue
         source = item.get("post_url", "")
         if not isinstance(source, str) or not source.startswith("https://x.com/"):
