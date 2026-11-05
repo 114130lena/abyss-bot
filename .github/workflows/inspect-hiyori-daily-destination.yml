@@ -1,0 +1,64 @@
+name: Verify Discord channel routing for daily Hiyori clip
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/inspect-hiyori-daily-destination.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect webhook channel IDs and available bot credentials only
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,requests
+          from urllib.parse import urlsplit
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          target='919216649880633468'
+          found={}
+          for name in ('CHZZK_DAILY_CLIP_WEBHOOK_URL','DISCORD_WEBHOOK_URL','TEST_DISCORD_WEBHOOK_URL'):
+              u=os.getenv(name,'').strip()
+              parts=urlsplit(u)
+              item={'configured':bool(u),'valid_host':parts.hostname in ('discord.com','discordapp.com')}
+              if u and item['valid_host'] and parts.path.startswith('/api/webhooks/'):
+                  try:
+                      response=requests.get(u.split('?')[0],timeout=12)
+                      item['http']=response.status_code
+                      if response.status_code==200:
+                          body=response.json()
+                          item['channel_id']=body.get('channel_id')
+                          item['matches_target']=body.get('channel_id')==target
+                          item['webhook_type']=body.get('type')
+                  except requests.RequestException as exc:
+                      item['error']=type(exc).__name__
+              found[name]=item
+          keys=('DISCORD_BOT_TOKEN','BOT_TOKEN','DISCORD_TOKEN','CHZZK_DAILY_CLIP_THREAD_ID','CHZZK_DAILY_CLIP_CHANNEL_ID')
+          found['credentials']={k:bool(os.getenv(k,'')) for k in keys}
+          token=next((os.getenv(k) for k in ('DISCORD_BOT_TOKEN','BOT_TOKEN','DISCORD_TOKEN') if os.getenv(k)),None)
+          if token:
+              try:
+                  r=requests.get('https://discord.com/api/v10/channels/'+target,headers={'Authorization':'Bot '+token},timeout=12)
+                  found['bot_target_access']={'http':r.status_code}
+                  if r.status_code==200:
+                      d=r.json()
+                      found['bot_target_access'].update({'type':d.get('type'),'guild_id':d.get('guild_id'),'parent_id':d.get('parent_id')})
+              except requests.RequestException as exc:
+                  found['bot_target_access']={'error':type(exc).__name__}
+          print('HIYORI_DAILY_TARGET_DIAGNOSTIC',json.dumps(found,ensure_ascii=False))
+          PY
+          REMOTE
