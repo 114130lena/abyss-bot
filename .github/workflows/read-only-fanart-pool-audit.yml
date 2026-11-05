@@ -1,0 +1,60 @@
+name: Inspect continuous fanart pool and banner candidate refresh
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/read-only-fanart-pool-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Inspect systemd schedules, candidate counts, latest files
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          from datetime import datetime,timezone
+          root=Path('/home/ubuntu/chzzk-bot')
+          for path in sorted(root.glob('*fanart*'))+sorted((root/'creator_media').glob('*fanart*')):
+              try:
+                  record={'path':str(path.relative_to(root)),'is_dir':path.is_dir(),
+                          'last_modified':datetime.fromtimestamp(path.stat().st_mtime,timezone.utc).isoformat()}
+                  if path.is_file() and path.suffix=='.json':
+                      data=json.loads(path.read_text())
+                      if isinstance(data,list):record['entries']=len(data)
+                      elif isinstance(data,dict):
+                          record['keys']=list(data)[:12]
+                          record['counts']={k:len(v) for k,v in data.items() if isinstance(v,(list,dict))}
+                  print('FANART_CANDIDATE',json.dumps(record,ensure_ascii=False),flush=True)
+              except Exception as e:print('FANART_CANDIDATE_ERROR',type(e).__name__,flush=True)
+          result=subprocess.run(['systemctl','list-timers','--all','--no-legend','--no-pager'],capture_output=True,text=True)
+          print('MEDIA_TIMERS',[x.strip() for x in result.stdout.splitlines() if any(y in x.lower() for y in ('fanart','media','banner','asset','art'))],flush=True)
+          services=subprocess.run(['systemctl','list-unit-files','--type=service','--no-legend','--no-pager'],capture_output=True,text=True)
+          print('MEDIA_SERVICES',[x.strip() for x in services.stdout.splitlines() if any(y in x.lower() for y in ('fanart','media','banner','asset','art'))],flush=True)
+          for path in [root/'guild_banner_timer_runner.py',root/'guild_banner_healthcheck.py']:
+              if path.is_file():
+                  text=path.read_text()
+                  print('BANNER_MODULE',path.name,
+                    {'size':len(text),'mentions_fanart':('fanart' in text.lower()),
+                     'mentions_collected':('collected' in text.lower())},flush=True)
+          PY
+          REMOTE
