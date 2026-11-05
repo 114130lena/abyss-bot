@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from daily_hiyoriclip_selector import rank_clips
+from daily_hiyoriclip_selector import rank_clips, DAILY_RECOMMENDATION_HOUR_KST, DAILY_RECOMMENDATION_MINUTE_KST
 from hiyoriclip_video_screen import inspect, _date
 
 KST=ZoneInfo("Asia/Seoul")
@@ -32,6 +32,8 @@ def preview(posts, *, now=None, limit=10, used_ids=()):
     ranked=rank_clips([transform(x) for x in posts.values()],
                       now=now,used_ids=used_ids)
     return {"checked_at":now.isoformat(),"window_hours":24,
+            "daily_recommendation_time_kst":f"{DAILY_RECOMMENDATION_HOUR_KST:02d}:{DAILY_RECOMMENDATION_MINUTE_KST:02d}",
+            "publication_enabled":False,
             "candidate_total":audit["video_posts"],
             "ranked_count":len(ranked),
             "shortlist":ranked[:limit],
