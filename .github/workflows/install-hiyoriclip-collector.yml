@@ -1,6 +1,6 @@
 name: Install isolated Hiyoriclip metadata collector (no Discord posts)
 # Expand verified source discovery without changing the existing notification bot.
-# Install recurring filtered candidate list, with no Discord publishing.
+# Update cached recommendation clock to 12:00 noon KST; no Discord publishing.
 on:
   push:
     branches: [feature/hiyoriclip-daily-recommendation]
