@@ -1,0 +1,34 @@
+name: Verify initial live fanart RSS review collection
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-live-fanart-rss-review.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Run one review-queue-only collection and show counts
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 80 creator_media/fanart_discovery.lock "$PY" fanart_public_rss_review.py
+          "$PY" fanart_review.py
+          systemctl is-active abyss-fanart-rss-review.timer
+          systemctl is-active chzzk-bot.service
+          REMOTE
