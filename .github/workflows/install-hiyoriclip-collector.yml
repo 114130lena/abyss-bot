@@ -1,5 +1,6 @@
 name: Install isolated Hiyoriclip metadata collector (no Discord posts)
 # Expand verified source discovery without changing the existing notification bot.
+# Retest isolated discovered-author persistence.
 on:
   push:
     branches: [feature/hiyoriclip-daily-recommendation]
