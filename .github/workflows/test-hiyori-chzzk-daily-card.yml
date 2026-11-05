@@ -1,5 +1,5 @@
 name: Send inline CHZZK daily clip video test card
-# Diagnose public MP4 candidates without logging signed CDN URLs
+# Use verified short-lived Akamai MP4 for native Discord video gallery; no role pings
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
