@@ -20,6 +20,66 @@ def canonical_post(url):
     return match.group(1) if match else ""
 
 
+def preferred_server_banner(width, height):
+    """Preferred Discord server-banner aspect ratios (kept separate from notifications)."""
+    if not width or not height or width < 960 or height < 540:
+        return False
+    aspect = width / height
+    return abs(aspect - 16 / 9) <= .035 or abs(aspect - 16 / 10) <= .03
+
+
+def server_reserved_post_ids(group):
+    """Reserve every eligible landscape source post for the guild banner pool.
+
+    The server banner picker prefers widescreen artworks and falls back to
+    portrait-fit only when there are none. Keep the same partition in cards.
+    Only read local image dimensions; never download or modify artwork.
+    """
+    if group != "hanayo":
+        return set()
+    from pathlib import Path
+    from PIL import Image, ImageOps
+    queue = read(BASE / "fanart_discovery.json")
+    root = (BASE / "fanart_candidates" / "hanayo").resolve()
+    preferred, fitted = set(), set()
+    for item in queue.values() if isinstance(queue, dict) else []:
+        if not isinstance(item, dict) or item.get("group") != group:
+            continue
+        if item.get("hashtag", "").casefold() != "#hiyoriart_":
+            continue
+        if (item.get("review_status") == "blocked" or item.get("decision") == "blocked"
+                or item.get("server_banner_excluded") is True):
+            continue
+        from fanart_discovery import classify
+        if classify(item.get("text", "")) == "blocked":
+            continue
+        source_id = canonical_post(item.get("post_url"))
+        if not source_id:
+            continue
+        for rel in item.get("cached_files", [])[:4]:
+            if not isinstance(rel, str):
+                continue
+            path = (BASE / rel).resolve()
+            if root not in path.parents or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+                continue
+            if not path.is_file():
+                continue
+            try:
+                with Image.open(path) as im:
+                    width, height = ImageOps.exif_transpose(im).size
+            except (OSError, ValueError):
+                continue
+            if preferred_server_banner(width, height):
+                preferred.add(source_id)
+                break
+            if width >= 600 and height >= 600 and .5 <= width / height <= 2.5:
+                fitted.add(source_id)
+    if preferred:
+        return preferred
+    import os
+    return fitted if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" else set()
+
+
 def excluded_notification_art(group):
     """Return (reserved sha256s, original post IDs).
 
@@ -38,6 +98,8 @@ def excluded_notification_art(group):
     reserved_sha = set(used)
     reserved_posts = {x for x in state.get("all_used_post_ids", [])
                       if isinstance(x, str) and x.isdigit()} if isinstance(state, dict) else set()
+    # Separate FUTURE server-banner candidates too, not just previously used art.
+    reserved_posts.update(server_reserved_post_ids(group))
     # Cached guild-banner artwork lives in the discovery queue, not necessarily
     # the curated index. Exclude any post whose cached artwork was selected.
     if group == "hanayo" and used:
@@ -65,13 +127,13 @@ def excluded_notification_art(group):
     return reserved_sha, reserved_posts
 
 
-def notification_allowed(group, entry):
+def notification_allowed(group, entry, exclusions=None):
     if not isinstance(entry, dict):
         return False
     if entry.get("use_for_notification_banner") is False:
         return False
     if entry.get("use_for_server_banner") is True or entry.get("server_banner_only") is True:
         return False
-    hashes, posts = excluded_notification_art(group)
+    hashes, posts = exclusions if exclusions is not None else excluded_notification_art(group)
     return (entry.get("sha256") not in hashes
             and canonical_post(entry.get("post_url")) not in posts)

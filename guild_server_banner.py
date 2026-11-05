@@ -183,7 +183,8 @@ def collected_hanayo_art():
                 with Image.open(path) as img:
                     if getattr(img, "is_animated", False):
                         continue
-                    if not kind(*ImageOps.exif_transpose(img).size):
+                    dimensions = ImageOps.exif_transpose(img).size
+                    if not kind(*dimensions):
                         continue
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
             except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
@@ -191,9 +192,15 @@ def collected_hanayo_art():
             if digest in seen:
                 continue
             seen.add(digest)
+            from fanart_usage import preferred_server_banner
+            aspect_group = "wide" if preferred_server_banner(*dimensions) else "fit"
             result.append((path, {"sha256": digest, "artist": artist,
-                                  "post_url": source, "source": "cached_hanayo_fanart"}))
-    return result
+                                  "post_url": source, "source": "cached_hanayo_fanart",
+                                  "server_aspect": aspect_group}))
+    # The guild owns widescreen artworks first; other ratios remain for
+    # notification cards. Fit-only artwork is a fallback when none are wide.
+    widescreen = [entry for entry in result if entry[1].get("server_aspect") == "wide"]
+    return widescreen if widescreen else result
 
 
 def convert_banner(path):
