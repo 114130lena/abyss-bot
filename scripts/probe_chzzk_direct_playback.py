@@ -26,6 +26,9 @@ if isinstance(data,dict):
         summary["content_keys"]=list(content)[:30]
         summary["inKey_present"]=bool(content.get("inKey"))
         summary["videoId_present"]=bool(content.get("videoId"))
+        summary["adult_flag"]=content.get("adult")
+        summary["naverOnly_flag"]=content.get("naverOnly")
+        summary["vodStatus"]=content.get("vodStatus")
         if content.get("inKey") and content.get("videoId"):
             video=str(content["videoId"])
             key=str(content["inKey"])
