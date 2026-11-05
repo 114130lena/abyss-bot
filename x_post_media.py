@@ -8,6 +8,67 @@ def _media_url(value):
     p=urlsplit(url)
     return url if p.scheme=="https" and p.hostname in ("pbs.twimg.com","video.twimg.com","pbs.twimg.com:443") else ""
 
+def _complete_text_only(tweet, username, post_id):
+    """A complete matching tweet without media indicators is a text-only witness.
+
+    Missing/empty media by itself is NOT proof; require a matching status ID,
+    owner and actual text before counting a response as a witness.
+    """
+    if not isinstance(tweet, dict):
+        return False
+    if str(tweet.get("id") or tweet.get("id_str") or "") != post_id:
+        return False
+    author = tweet.get("author") or {}
+    screen_name = (author.get("screen_name") or author.get("username") or "") if isinstance(author, dict) else ""
+    if not screen_name or screen_name.casefold() != username.lstrip("@").casefold():
+        return False
+    if not isinstance(tweet.get("text"), str) or not tweet["text"].strip():
+        return False
+    media = tweet.get("media")
+    if media is not None and media != {} and media != []:
+        return False
+    if any(tweet.get(flag) for flag in ("has_video", "video", "extended_entities", "card")):
+        return False
+    return True
+
+
+def _recheck_empty(post, username, post_id, primary_tweet):
+    """One bounded second-source verification before allowing notification fanart."""
+    if post.get("images") or not _complete_text_only(primary_tweet, username, post_id):
+        logging.info("X_MEDIA_RECHECK_UNVERIFIED username=%s post=%s reason=incomplete_primary", username, post_id)
+        return None
+    try:
+        endpoint = f"https://api.vxtwitter.com/{username}/status/{post_id}"
+        response = requests.get(endpoint, timeout=(1.5, 3), headers={"User-Agent": "abyss-bot/1.0"})
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            return None
+        # VX replies with a flat tweet object. Reject error envelopes, redirects
+        # or a tweet belonging to a different status/account.
+        if str(data.get("tweetID") or data.get("id") or "") != post_id:
+            return None
+        user = data.get("user_screen_name") or data.get("screen_name") or ""
+        if user.casefold() != username.lstrip("@").casefold():
+            return None
+        media = data.get("mediaURLs")
+        if not isinstance(media, list):
+            return None
+        # An explicit mediaURLs list is stronger evidence than absent media.
+        if (media or data.get("hasMedia") or data.get("media_extended")
+                or data.get("combinedMediaUrl") or data.get("videoURL")
+                or data.get("has_video") or data.get("video")):
+            logging.info("X_MEDIA_RECHECK_UNVERIFIED username=%s post=%s reason=secondary_has_media", username, post_id)
+            return None
+        if not isinstance(data.get("text"), str) or not data["text"].strip():
+            return None
+        logging.info("X_MEDIA_TEXT_ONLY_VERIFIED username=%s post=%s via=vxtwitter", username, post_id)
+        return ([], "", False, True)
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        logging.info("X_MEDIA_RECHECK_FAILED username=%s post=%s reason=%s", username, post_id, type(exc).__name__)
+    return None
+
+
 def resolve_media(post, username):
     """Return (photos, video_preview, has_video, known).
 
@@ -33,10 +94,13 @@ def resolve_media(post, username):
             return existing,"",False,False
         tweet=candidate
         media=tweet.get("media")
-        if media is None:
+        if media is None or media == {}:
+            verified = _recheck_empty(post, username, post_id, tweet)
+            if verified is not None:
+                return verified
             logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
             return existing,"",False,False
-        if not isinstance(media,dict) or not media:
+        if not isinstance(media,dict):
             logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
             return existing,"",False,False
         photos=[]
