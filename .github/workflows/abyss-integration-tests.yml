@@ -1,0 +1,36 @@
+name: Abyss integration validation
+on:
+  push:
+    branches:
+      - integration/abyss-x-media-fanart-20261105
+  pull_request:
+    paths:
+      - 'main.py'
+      - 'resilience.py'
+      - 'twitter_*'
+      - 'x_*'
+      - 'fanart_*'
+      - 'random_media.py'
+      - 'guild_server_banner.py'
+      - 'tests/**'
+      - 'test_guild_server_banner.py'
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/abyss-integration-tests.yml'
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile runtime modules
+        run: python -m py_compile main.py resilience.py discord_v2.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py x_post_media.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py
+      - name: Check repost, photo, fanart routing and consent
+        run: python -m unittest discover -s tests -p 'test_x_*.py' -v
+      - name: Check guild banner, schedule and dry-run
+        run: python -m unittest -v test_guild_server_banner.py
+      - name: Existing baseline tests
+        run: python -m unittest -v test_bot.py
