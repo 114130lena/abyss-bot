@@ -1,4 +1,5 @@
 name: Verify direct CHZZK clip playback metadata
+# Verify MP4 CDN HEAD feasibility with signed URLs redacted
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
