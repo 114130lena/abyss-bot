@@ -1,4 +1,5 @@
 name: Install independent Oracle guild banner systemd timer
+# Reinstall with crash-safe state and health tests.
 on:
   push:
     branches: [feature/hanayo-approved-fanart-server-banner]
