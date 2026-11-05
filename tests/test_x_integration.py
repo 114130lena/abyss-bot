@@ -24,20 +24,19 @@ class RepostRoutingTests(unittest.TestCase):
 
 
 class FanartPermissionTests(unittest.TestCase):
-    def test_unapproved_and_unlicensed_art_excluded(self):
+    def test_attributed_public_art_included_but_blocked_art_excluded(self):
         queue = {
             "a": {"group": "hanayo", "post_url": "https://x.com/artist/status/1",
-                  "image_urls": ["https://pbs.twimg.com/media/a"], "review_status": "new"},
+                  "image_urls": ["https://pbs.twimg.com/media/a"], "review_status": "pending", "artist":"@artist", "hashtag":"#hiyoriart_"},
             "b": {"group": "hanayo", "post_url": "https://x.com/artist/status/2",
-                  "image_urls": ["https://pbs.twimg.com/media/b"], "review_status": "approved"},
+                  "image_urls": ["https://pbs.twimg.com/media/b"], "review_status": "blocked", "artist":"@artist", "hashtag":"#hiyoriart_"},
             "c": {"group": "hanayo", "post_url": "https://x.com/artist/status/3",
-                  "image_urls": ["https://pbs.twimg.com/media/c"], "review_status": "approved",
-                  "permission_confirmed": True},
+                  "image_urls": ["https://pbs.twimg.com/media/c"], "review_status": "pending", "artist":"@artist", "hashtag":"#hiyoriart_"},
         }
         with patch.object(fanart, "read", return_value=queue):
             pool = fanart.candidates("hanayo")
         self.assertEqual([p["post_url"] for p in pool],
-                         ["https://x.com/artist/status/3"])
+                         ["https://x.com/artist/status/1", "https://x.com/artist/status/3"])
 
     def test_native_post_photo_suppresses_fanart(self):
         payload = {"components": [{"type": 17, "components": [
