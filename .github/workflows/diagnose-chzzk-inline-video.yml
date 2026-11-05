@@ -1,4 +1,5 @@
 name: Diagnose CHZZK inline MP4 resolver without posting
+# Verify Akamai CHZZK CDN response after hostname allowlist update
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
