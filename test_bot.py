@@ -727,5 +727,33 @@ class YouTubeFeedFallbackTests(unittest.TestCase):
         requested.assert_called_once()
 
 
+class WebSubSafetyTests(unittest.TestCase):
+    def test_websub_and_rss_share_seen_ledger(self):
+        import youtube_notifier as notifier
+        channel = "UCHAr9pWGS30akL4MQCQT4uQ"
+        xml = (f'<feed xmlns="http://www.w3.org/2005/Atom" '
+               f'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+               f'<yt:channelId>{channel}</yt:channelId><title>Creator</title>'
+               f'<entry><yt:channelId>{channel}</yt:channelId>'
+               f'<yt:videoId>newvideo001</yt:videoId><title>New upload</title>'
+               f'</entry></feed>').encode()
+        seen = {channel: []}
+        with patch.object(notifier, "load_channel_ids", return_value=[channel]), patch.object(notifier, "_load_seen", return_value=seen), patch.object(notifier, "_save_seen") as saved, patch.object(notifier, "_notify") as sent:
+            notifier.receive_websub_feed(xml)
+            notifier.receive_websub_feed(xml)
+        sent.assert_called_once()
+        self.assertEqual(seen[channel], ["newvideo001"])
+        self.assertEqual(saved.call_count, 1)
+
+    def test_websub_rejects_unknown_channel(self):
+        import youtube_notifier as notifier
+        xml = (b'<feed xmlns="http://www.w3.org/2005/Atom" '
+               b'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+               b'<yt:channelId>UC0000000000000000000000</yt:channelId></feed>')
+        with patch.object(notifier,"load_channel_ids",return_value=["UCHAr9pWGS30akL4MQCQT4uQ"]):
+            with self.assertRaises(ValueError):
+                notifier.receive_websub_feed(xml)
+
+
 if __name__ == "__main__":
     unittest.main()
