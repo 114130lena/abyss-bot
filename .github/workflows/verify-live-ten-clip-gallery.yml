@@ -1,0 +1,69 @@
+name: Verify live ten playable CHZZK clip gallery on existing Discord message
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-live-ten-clip-gallery.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Prepare secure SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Refresh existing card once and inspect actual Discord video gallery
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 120 creator_media/chzzk_hiyoriclip.lock "$PY" - <<'PY'
+          import json,requests
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import hiyori_hourly_clip_updater as h
+          from banner_manager import get_banner
+          from creator_profiles import avatar
+          now=datetime.now(ZoneInfo('Asia/Seoul'))
+          # One manual verification only: allow current daytime hour, never
+          # change the installed 12:05/16:05/20:05 systemd schedule.
+          h.ACTIVE_HOURS=(*h.ACTIVE_HOURS,now.hour)
+          outcome=h.refresh(now=now,banner=get_banner('hanayo'),avatar=avatar('hanayo'))
+          print('HIYORI_TEN_VIDEO_MANUAL_UPDATE',json.dumps(outcome,ensure_ascii=False),flush=True)
+          saved=h._saved()
+          mid=saved.get('message_id')
+          if not mid:
+              raise RuntimeError('No existing Discord card ID')
+          s=h._session(h._auth())
+          response=s.get(h._endpoint(str(mid)),timeout=(5,20))
+          response.raise_for_status()
+          message=response.json()
+          containers=message.get('components') or []
+          galleries=[x for c in containers for x in (c.get('components') or []) if x.get('type')==12]
+          entries=[i for g in galleries for i in g.get('items',[])]
+          video_entries=sum(str(i.get('media',{}).get('url','')).split('?')[0].endswith('.mp4') for i in entries)
+          texts=' '.join(x.get('content','') for c in containers for x in c.get('components',[]) if x.get('type')==10)
+          stats={'channel_id':message.get('channel_id'),'message_id':message.get('id'),
+                 'media_items':len(entries),'video_items':video_entries,
+                 'video_list_present':'영상 목록' in texts,
+                 'history_visible':'이전에 소개한 클립' in texts}
+          print('HIYORI_TEN_VIDEO_LIVE_MESSAGE',json.dumps(stats,ensure_ascii=False),flush=True)
+          if outcome.get('status') not in ('updated','already_updated_this_hour'):
+              raise RuntimeError('New gallery update was not confirmed')
+          if len(entries)!=10 or video_entries!=10 or not stats['video_list_present']:
+              raise RuntimeError('Ten playable videos were not reflected in Discord')
+          PY
+          REMOTE
