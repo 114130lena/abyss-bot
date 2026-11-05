@@ -3,13 +3,14 @@
 No gateway connection, no CHZZK notification service restart, and no Discord
 secret in logs. Shared rotation state makes later GitHub Actions a safe backup.
 """
-import hashlib
 import json
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from guild_banner_safety import reconcile, run_change
 
 from guild_server_banner import (
     change_guild_banner, convert_banner, read_state, rotation_selection,
@@ -58,6 +59,11 @@ def main():
     if not token or not guild.isdigit():
         raise RuntimeError("Missing restricted guild banner credentials")
     old = read_state()
+    old, recovery = reconcile(old, token, guild, write_state)
+    if recovery != "none":
+        print("GUILD_BANNER_TIMER recovery=" + recovery, flush=True)
+        if recovery == "pending_grace":
+            return
     if old.get("last_slot") == slot:
         if old.get("info_card_pending"):
             print("GUILD_BANNER_TIMER repairing_card")
@@ -73,21 +79,11 @@ def main():
         raise SystemExit(2)
     image_path, meta = chosen
     payload = convert_banner(image_path)
-    # Change remote guild once. Only record as complete after Discord accepts.
-    change_guild_banner(payload, token, guild)
-    new = {
-        **old,
-        "last_slot": slot,
-        "last_sha256": meta["sha256"],
-        "artist": meta.get("artist"),
-        "post_url": meta.get("post_url"),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "rotation_used": used,
-        "candidate_total": total,
-        "remaining_after": remaining,
-        "info_card_pending": True,
-    }
-    write_state(new)
+    info = {**meta, "rotation_used": used,
+            "candidate_total": total, "remaining_after": remaining}
+    new = run_change(old, slot=slot, info=info, payload=payload,
+                     token=token, guild=guild,
+                     write=write_state, change=change_guild_banner)
     print(json.dumps({"status":"banner_changed","slot":slot,
                       "artist":new["artist"],"candidate_total":total},ensure_ascii=False),flush=True)
     try:
