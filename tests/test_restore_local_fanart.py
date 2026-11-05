@@ -79,9 +79,9 @@ class RestoreLocalFanartTests(unittest.TestCase):
             data = json.loads(kwargs["data"]["payload_json"])
             self.assertIn("attachment://abyss_notification_fanart.jpg", str(data))
             return FakeResponse()
-        with patch.object(resilience.requests, "post", side_effect=fake_post), \\
-             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \\
-             patch("fanart_discovery.BASE", self.base), \\
+        with patch.object(resilience.requests, "post", side_effect=fake_post), \
+             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \
+             patch("fanart_discovery.BASE", self.base), \
              patch.dict("os.environ", {"ABYSS_NOTIFICATION_FANART": "1",
                                       "ABYSS_RANDOM_MEDIA": "0"}):
             resilience.send_webhook("https://discord.com/api/webhooks/1/abc", self.make_card())
