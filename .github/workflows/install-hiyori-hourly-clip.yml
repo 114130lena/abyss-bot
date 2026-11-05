@@ -1,4 +1,4 @@
-name: Install Hiyori clip editor every two hours using banner bot
+name: Install Hiyori clip editor between noon and 22:05 KST every two hours using banner bot
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
@@ -81,7 +81,7 @@ jobs:
           Description=Refresh one Discord Hiyori clip video card every two hours
 
           [Timer]
-          OnCalendar=*-*-* 00/2:05:00 Asia/Seoul
+          OnCalendar=*-*-* 12/2:05:00 Asia/Seoul
           AccuracySec=10s
           RandomizedDelaySec=0
           Persistent=false
