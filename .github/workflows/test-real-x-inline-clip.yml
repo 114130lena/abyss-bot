@@ -1,0 +1,73 @@
+name: Test a real X video inside isolated Discord thread
+on:
+  push:
+    branches: [feature/x-inline-clips-preview]
+    paths: [.github/workflows/test-real-x-inline-clip.yml]
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/x-inline-clips-preview
+          persist-credentials: false
+      - name: Prepare SSH to existing non-restarted Oracle bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Resolve previously reported X video and send one mention-free preview
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes x_post_media.py "$SSH_USER@$SSH_HOST:/tmp/abyss_x_clip_candidate.py"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import importlib.util,os,requests
+          from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          spec=importlib.util.spec_from_file_location("x_clip_candidate","/tmp/abyss_x_clip_candidate.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          item={"id":"2116841881615446466","images":[]}
+          photos,preview,video,known,direct=module.resolve_media_with_video(item,"33ammi")
+          print("CLIP_SOURCE_CHECK video=%s known=%s mp4=%s preview=%s photos=%s"%(video,known,bool(direct),bool(preview),len(photos)),flush=True)
+          if not (known and video and direct):
+              print("CLIP_TEST_SKIPPED: supplied example has no playable public MP4 metadata",flush=True)
+              raise SystemExit(2)
+          from discord_v2 import alert
+          from resilience import send_webhook
+          base=os.getenv("TEST_DISCORD_WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL","")
+          if not base.startswith("https://"):
+              raise SystemExit("Missing test webhook")
+          parts=urlsplit(base)
+          params=dict(parse_qsl(parts.query,keep_blank_values=True))
+          params["thread_id"]="1566335914500816988"
+          dest=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(params),parts.fragment))
+          original="https://x.com/33ammi/status/2116841881615446466"
+          payload=alert("x","하나요 히요리",role_id="",
+              title="[영상 재생 테스트] 멘션 없음 · 운영 봇 변경 없음",
+              body="이전에 재생되지 않았던 X 게시글의 공개 MP4 URL을 직접 갤러리에 연결한 테스트입니다. 원본은 33ammi 계정입니다.",
+              url=original,images=photos,media_url=direct,ping=False)
+          payload["_abyss_has_video"]=True
+          payload["_abyss_photo_unknown"]=True
+          payload["allowed_mentions"]={"parse":[]}
+          send_webhook(dest,payload,attempts=1)
+          print("X_INLINE_VIDEO_PREVIEW_SENT thread=1566335914500816988",flush=True)
+          PY
+          REMOTE
