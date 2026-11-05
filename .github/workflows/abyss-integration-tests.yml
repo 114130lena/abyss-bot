@@ -32,6 +32,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_x_*.py' -v
       - name: Check existing local fanart restoration and attachment delivery
         run: python -m unittest discover -s tests -p 'test_restore_local_fanart.py' -v
+      - name: Check restored banner, weekly prune and exclusion ledger
+        run: python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v
       - name: Check guild banner, schedule and dry-run
         run: python -m unittest -v test_guild_server_banner.py
       - name: Existing baseline tests
