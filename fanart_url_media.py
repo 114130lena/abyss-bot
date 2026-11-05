@@ -6,6 +6,7 @@ from pathlib import Path
 from hashlib import sha256
 from fanart_discovery import BASE, QUEUE, read, write
 from fanart_usage import notification_allowed
+from fanart_discovery import classify, TAGS
 
 HISTORY=BASE/'fanart_url_used.json'
 LOCK=threading.RLock()
@@ -23,18 +24,30 @@ def candidates(group):
     """
     posts = {}
     for item in read(QUEUE).values():
-        if (not isinstance(item, dict) or item.get("group") != group
-                or item.get("review_status") != "approved"
-                or item.get("permission_confirmed") is not True
+        # Public X URL previews use attributed source links, not reuploaded
+        # screenshots. Explicit repost/use prohibitions always block display.
+        if not isinstance(item, dict) or item.get("group") != group:
+            continue
+        if (item.get("review_status") == "blocked"
+                or item.get("decision") == "blocked"
+                or item.get("cache_retired")
+                or classify(item.get("text", "")) == "blocked"
                 or not notification_allowed(group, item)):
             continue
+        expected_tag = "#" + TAGS.get(group, "")
+        if item.get("hashtag", "").casefold() != expected_tag.casefold():
+            continue
         source = item.get("post_url", "")
+        from fanart_usage import canonical_post
+        artist = str(item.get("artist", ""))
+        if not canonical_post(source) or not artist.startswith("@"):
+            continue
         if not isinstance(source, str) or not source.startswith("https://x.com/"):
             continue
         images = [url for url in item.get("image_urls", [])[:4] if _usable(url)]
         if not images:
             continue
-        post = posts.setdefault(source, {"post_url": source, "artist": item.get("artist", ""),
+        post = posts.setdefault(source, {"post_url": source, "artist": artist,
                                         "images": []})
         for url in images:
             if url not in post["images"] and len(post["images"]) < 4:
@@ -153,7 +166,7 @@ def apply(payload, group=None):
                 for index, image in enumerate(picked["images"])
             ]
             # Show the entire selected post as one set; credit it once.
-            part["content"] = "-# 🎨 FAN ART · " + str(picked["artist"]) + " · " + str(len(picked["images"])) + "장"
+            part["content"] = "-# 🎨 FAN ART · 출처: " + str(picked["artist"]) + " · " + str(len(picked["images"])) + "장 · [원본 X 게시물](" + str(picked["post_url"]) + ")"
             source = picked["post_url"]
             if not (isinstance(source,str) and source.startswith("https://x.com/")):
                 return payload,None
