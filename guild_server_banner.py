@@ -147,7 +147,7 @@ def collected_hanayo_art():
     This pool is opt-in and independent from notification footer art. Retain
     creator attribution in state / existing guild source-information card.
     """
-    if os.getenv("SERVER_BANNER_USE_COLLECTED", "0") != "1":
+    if os.getenv("SERVER_BANNER_USE_COLLECTED", "1") != "1":
         return []
     from fanart_discovery import QUEUE, read, classify
     base = media_base().resolve()
