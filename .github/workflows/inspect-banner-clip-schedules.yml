@@ -1,0 +1,36 @@
+name: Inspect actual server banner and Hiyori clip timer schedules
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/inspect-banner-clip-schedules.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Print only schedule and unit status, no credentials
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          for t in abyss-guild-banner.timer abyss-hiyori-hourly-clip.timer; do
+            echo "CHECK_TIMER=$t"
+            systemctl show "$t" --no-pager -p ActiveState -p Unit -p NextElapseUSecRealtime
+            systemctl cat "$t" --no-pager | grep -E 'OnCalendar|AccuracySec|RandomizedDelaySec|Description=' || true
+          done
+          systemctl list-timers --all abyss-guild-banner.timer abyss-hiyori-hourly-clip.timer --no-pager
+          REMOTE
