@@ -17,6 +17,39 @@ class RepostRoutingTests(unittest.TestCase):
             "rss_title": "a new status", "source_link": "https://x.com/HanayoHiyori/status/123"
         }, "HanayoHiyori"))
 
+    def test_nitter_original_author_is_classified_as_repost(self):
+        for mirror in ("nitter.mie.foundation", "nitter.meowing.monster",
+                       "nitter.mizuki.st"):
+            with self.subTest(mirror=mirror):
+                post = {
+                    "id": "123456", "rss_title": "an ordinary-looking title",
+                    "url": "https://x.com/HanayoHiyori/status/123456",
+                    "source_link": f"https://{mirror}/SomeArtist/status/123456#m",
+                    "repost": False,
+                }
+                self.assertTrue(repost.is_repost_post(post, "HanayoHiyori"))
+                self.assertEqual(repost.original_status_from_feed(post["source_link"]),
+                                 ("SomeArtist", "123456"))
+
+    def test_nitter_creator_original_remains_regular_post(self):
+        post = {"rss_title": "original update",
+                "source_link": "https://nitter.mie.foundation/HanayoHiyori/status/123"}
+        self.assertFalse(repost.is_repost_post(post, "HanayoHiyori"))
+
+    def test_repost_nitter_link_uses_original_x_author_and_thread(self):
+        post = {"id": "123", "text": "reshared",
+                "url": "https://x.com/HanayoHiyori/status/123",
+                "source_link": "https://nitter.mie.foundation/GoodArtist/status/123",
+                "images": ["https://pbs.twimg.com/media/example.jpg"],
+                "rss_title": "repost"}
+        with patch("x_post_media.resolve_media", return_value=(post["images"], "", False, True)), \\
+             patch.object(repost, "send_webhook") as sent:
+            repost.notify("hanayo", post, "https://discord.com/api/webhooks/111/token")
+        url, payload = sent.call_args.args
+        self.assertIn("thread_id=1566509366591627344", url)
+        self.assertIn("https://x.com/GoodArtist/status/123", str(payload))
+        self.assertEqual(payload["allowed_mentions"], {"parse":[]})
+
     def test_thread_preserves_components_parameter(self):
         url = repost.thread_url("https://discord.com/api/webhooks/123/abc?with_components=true")
         self.assertIn("thread_id=1566509366591627344", url)
