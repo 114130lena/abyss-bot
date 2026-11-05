@@ -55,7 +55,8 @@ class CollectorTests(unittest.TestCase):
             base=Path(folder)
             with patch.object(clip,"DEST",base),patch.object(clip,"INDEX",base/"index.json"),\
                  patch.object(clip,"STATUS",base/"state.json"),patch.object(clip,"ACCOUNTS",base/"accounts.txt"),\
-                 patch.object(clip,"URLS",base/"links.txt"),patch.object(clip,"DISCOVERED",base/"discovered.txt"),patch.dict(os.environ,{"X_BEARER_TOKEN":""}):
+                 patch.object(clip,"URLS",base/"links.txt"),patch.object(clip,"DISCOVERED",base/"discovered.txt"),\
+                 patch.object(clip,"SHORTLIST",base/"shortlist.json"),patch.dict(os.environ,{"X_BEARER_TOKEN":""}):
                 (base/"links.txt").write_text("https://x.com/33ammi/status/2116841881615446466",encoding="utf-8")
                 with patch.object(clip,"fx_post",return_value=payload()):
                     result=clip.collect(session=Mock(),now=DATE+timedelta(hours=1))
@@ -63,6 +64,8 @@ class CollectorTests(unittest.TestCase):
                     self.assertFalse(result["global_hashtag_search_confirmed"])
                     self.assertEqual(result["status"],"partial_profile_or_manual_only")
                     self.assertEqual(result["within_24h"],1)
+                    self.assertEqual(result["shortlist_status"],"ok")
+                    self.assertEqual(json.loads((base/"shortlist.json").read_text())["candidate_total"],1)
                     second=clip.collect(session=Mock(),now=DATE+timedelta(hours=1))
                     self.assertEqual(second["new"],0)
                     self.assertEqual(second["updated"],1)
