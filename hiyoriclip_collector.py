@@ -30,6 +30,7 @@ STATUS=DEST/"hiyoriclip_collect_status.json"
 ACCOUNTS=DEST/"hiyoriclip_accounts.txt"
 URLS=DEST/"hiyoriclip_post_urls.txt"
 DISCOVERED=DEST/"hiyoriclip_discovered_accounts.txt"
+SHORTLIST=DEST/"hiyoriclip_shortlist.json"
 TAG=re.compile(r"(?i)(?<!\w)#hiyoriclip_(?!\w)")
 POST=re.compile(r"^/(?:([A-Za-z0-9_]{1,15}))/status/([0-9]{10,25})$")
 MAX_BYTES=4_000_000
@@ -334,6 +335,14 @@ def collect(*, session=None, now=None):
             "within_24h":sum(
                 (date:=parse_time(e.get("created_at"))) is not None
                 and now-timedelta(hours=24)<=date<=now for e in catalog.values())}
+    try:
+        from hiyoriclip_shortlist import preview
+        shortlist=preview(catalog,now=now,limit=20)
+        _write(SHORTLIST,shortlist)
+        report["shortlist_status"]="ok"
+        report["shortlist_candidates"]=shortlist["candidate_total"]
+    except (ValueError,TypeError,KeyError,ImportError,OSError) as exc:
+        report["shortlist_status"]="error:"+type(exc).__name__
     _write(STATUS,report)
     return report
 
