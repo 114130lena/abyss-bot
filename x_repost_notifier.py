@@ -51,6 +51,7 @@ def thread_url(webhook):
     return urlunsplit((p.scheme,p.netloc,p.path,urlencode(query),p.fragment))
 
 def notify(group,post,webhook):
+    started_total=time.monotonic()
     creator="하나요 히요리" if group=="hanayo" else "사키하네 후야"
     title=str(post.get("rss_title") or "리트윗").strip()
     body=post.get("text","")[:2300]
@@ -59,7 +60,16 @@ def notify(group,post,webhook):
     # from the URL instead of querying the retweeter's account.
     from urllib.parse import urlsplit
     import re
-    match=re.fullmatch(r"/([^/]+)/status/([0-9]+)",urlsplit(str(post.get("url",""))).path)
+    # Prefer the original author's X status when the RSS entry exposes it.
+    original_url=str(post.get("url",""))
+    for key in ("source_link",):
+        proposed=str(post.get(key) or "")
+        parsed=urlsplit(proposed)
+        if parsed.hostname in ("x.com","www.x.com","twitter.com","www.twitter.com"):
+            if re.fullmatch(r"/[^/]+/status/[0-9]+",parsed.path):
+                original_url="https://x.com"+parsed.path
+                break
+    match=re.fullmatch(r"/([^/]+)/status/([0-9]+)",urlsplit(original_url).path)
     resolved_images=list(post.get("images") or [])
     photo_known=bool(resolved_images)
     video_preview=""
@@ -68,8 +78,9 @@ def notify(group,post,webhook):
         found,video_preview,has_video,photo_known=resolve_media(
             dict(post,id=match.group(2)),match.group(1))
         if found:resolved_images=found
+    logging.info("X_REPOST_MEDIA_RESOLVED creator=%s id=%s elapsed_seconds=%.2f",group,post.get("id"),time.monotonic()-started_total)
     payload=alert("x",creator,get_banner(group),role_id="",title="🔁 X 리트윗 · "+title[:160],
-        body=body,url=post["url"],images=resolved_images,media_url=video_preview,date=post.get("pub_date",""),
+        body=body,url=original_url,images=resolved_images,media_url=video_preview,date=post.get("pub_date",""),
         handle=handle(group),avatar=avatar(group),ping=False)
     if has_video:
         payload["_abyss_has_video"] = True
@@ -84,3 +95,4 @@ def notify(group,post,webhook):
     started=time.monotonic()
     send_webhook(thread_url(webhook),payload)
     logging.info("X_REPOST_DELIVERED creator=%s id=%s source=%s delivery_seconds=%.2f",group,post.get("id",""),post.get("source","?"),time.monotonic()-started)
+    logging.info("X_REPOST_TOTAL creator=%s id=%s elapsed_seconds=%.2f",group,post.get("id"),time.monotonic()-started_total)
