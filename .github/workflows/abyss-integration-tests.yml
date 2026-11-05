@@ -79,3 +79,27 @@ jobs:
           echo FANART_COLLECTION_EVENTS_LAST_24H_COUNT
           sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -c 'FANART_DISCOVERY_PROFILE' || true
           REMOTE
+
+  recent_x_routing_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/repost-routing-20261106'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect last 12 hours of X delivered and repost routing logs, read-only
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          echo "AUDIT_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          sudo journalctl -u chzzk-bot.service --since '12 hours ago' --no-pager -o short-iso |
+            grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|X_FX_FEED|X_FX_REPOST_SCAN|Discord response timed out' |
+            tail -n 120 || true
+          REMOTE
