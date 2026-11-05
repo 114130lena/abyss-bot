@@ -1,4 +1,5 @@
 """Poll a public Nitter RSS feed for new original X posts."""
+import x_feed_health as feed_health
 import json
 import logging
 import os
@@ -113,28 +114,37 @@ def _post_body(item):
 
 
 def _post_images(item):
-    """Pick up to four public HTTPS image URLs exposed by the RSS description."""
+    """Parse X image URLs from HTML and standard RSS media tags."""
     from urllib.parse import urlparse
-    description = item.findtext("description") or ""
+    urls = []
+    def add(value):
+        value = unescape(str(value or "")).strip()
+        if value.startswith("//"):
+            value = "https:" + value
+        p = urlparse(value)
+        if p.scheme == "https" and p.hostname in ("pbs.twimg.com", "abs.twimg.com") and "/media/" in p.path and value not in urls:
+            urls.append(value)
     class Finder(HTMLParser):
-        def __init__(self):
-            super().__init__(convert_charrefs=True)
-            self.urls = []
         def handle_starttag(self, tag, attrs):
-            if tag != "img":
+            if tag not in ("img", "source", "a"):
                 return
-            attributes = dict(attrs)
-            url = attributes.get("src") or attributes.get("data-src") or ""
-            if url.startswith("https://") and urlparse(url).hostname and url not in self.urls:
-                self.urls.append(url)
-    parser = Finder()
-    parser.feed(description)
-    return parser.urls[:4]
+            values = dict(attrs)
+            for key in ("src", "data-src", "data-original", "data-original-src", "data-image", "href"):
+                add(values.get(key))
+            for key in ("srcset", "data-srcset"):
+                for candidate in (values.get(key) or "").split(","):
+                    add(candidate.strip().split(" ")[0])
+    Finder().feed(item.findtext("description") or "")
+    for node in item.iter():
+        name = node.tag.rsplit("}", 1)[-1].lower()
+        if name in ("enclosure", "content", "thumbnail"):
+            add(node.attrib.get("url"))
+    return urls[:4]
 
 
 def _fetch_posts(feed_url=None):
     source = feed_url or FEED_URL
-    response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=8)
+    response = requests.get(source, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"}, timeout=(2.5, 4))
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -148,29 +158,74 @@ def _fetch_posts(feed_url=None):
     posts = []
     for item in channel.findall("item"):
         post_id = (item.findtext("guid") or "").strip()
-        if not post_id.isdigit() or not _original_post(item):
+        if not post_id.isdigit() or (not _original_post(item) and not __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")):
             continue
         text = _post_body(item)
         posts.append({"id": post_id, "text": text, "url": f"https://x.com/{USERNAME}/status/{post_id}",
                       "source": source, "pub_date": item.findtext("pubDate") or "",
-                      "images": _post_images(item)})
+                      "images": _post_images(item), "rss_title": item.findtext("title") or "", "source_link": item.findtext("link") or "", "rss_description": item.findtext("description") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")})
     return sorted(posts, key=lambda p: int(p["id"]))
 
 
 def _notify(post):
+    from x_post_media import resolve_media
+    photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
+    if photo_urls:
+        post = dict(post, images=photo_urls)
+    # Preserve safety if metadata is unavailable: never mislabel a potentially
+    # illustrated X post as confirmed text-only and display unrelated fanart.
+    uncertain_photo = not media_known
     banner = get_banner(X_GROUP) if X_GROUP else ""
     payload = unified_alert(
         "x", "하나요 히요리", banner, X_ROLE_ID,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
-        images=post.get("images", []),
+        images=post.get("images", []), media_url=video_preview,
         handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
+    if has_video:
+        payload["_abyss_has_video"] = True
+    if has_video:
+        # A stable clickable fallback even when the public thumbnail fails to render.
+        from urllib.parse import urlsplit
+        for c in payload.get("components",[]):
+            if c.get("type")==17:
+                for part in c.get("components",[]):
+                    if part.get("type")==10 and "𝕏 X" in str(part.get("content","")):
+                        part["content"] += "\n▶️ [원본 X 영상 보기]("+post["url"]+")"
+                        break
+    if uncertain_photo:
+        payload["_abyss_photo_unknown"] = True
+    if media_known and not photo_urls and not has_video and not video_preview:
+        payload["_abyss_verified_text_only"] = True
+    logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
+                 USERNAME,post.get("id"),len(photo_urls),has_video,media_known,
+                 bool(payload.get("_abyss_verified_text_only")))
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
         record_schedule(X_GROUP, "", post.get("text", ""), post.get("pub_date", ""), post["url"])
     except Exception:
         logging.exception("히요리 X 일정 추적 오류(알림은 정상 전송)")
+
+
+def _fx_image_map(username):
+    """Fallback account RSS media, matched by exact post ID."""
+    feed = "https://fxtwitter.com/" + username + "/feed.xml"
+    response = requests.get(feed, timeout=12, params={"count": 100},
+                            headers={"User-Agent": "abyss-bot/1.0 (RSS)"})
+    response.raise_for_status()
+    if len(response.content) > 5_000_000:
+        raise ValueError("Oversize RSS")
+    root = ET.fromstring(response.content)
+    found = {}
+    for item in root.findall("./channel/item"):
+        link = (item.findtext("link") or item.findtext("guid") or "").strip()
+        match = re.search(r"/status/([0-9]+)", link)
+        if match:
+            images = _post_images(item)
+            if images:
+                found[match.group(1)] = images
+    return found
 
 
 def _fetch_merged_posts(include_backups=True):
@@ -181,18 +236,25 @@ def _fetch_merged_posts(include_backups=True):
     if not feeds:
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
     with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
-        futures = {pool.submit(_fetch_posts, source): source for source in feeds}
+        futures = {pool.submit(feed_health.timed_fetch, _fetch_posts, source): source for source in feeds if feed_health.active(source)}
+        from x_fx_feed import fetch_creator_originals
+        fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+        if feed_health.active(fx_url):
+            futures[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, __import__("sys").modules[__name__]), fx_url)] = fx_url
         for future in as_completed(futures):
             source = futures[future]
             try:
                 items = future.result()
                 successes += 1
                 for post in items:
-                    posts_by_id.setdefault(post["id"], post)
+                    previous = posts_by_id.get(post["id"])
+                    if previous is None or (post.get("repost"),len(post.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
+                        posts_by_id[post["id"]] = post
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
+    # Do not block delivery on optional FxEmbed image lookups.
     return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
 
 def _post_latency(post):
@@ -232,7 +294,21 @@ def check_twitter():
             logging.info("X RSS 첫 실행: 기존 글 %d개 읽음 처리", len(posts))
             failures = 0
             return
+        from x_repost_notifier import is_repost_post, notify as notify_repost
+        repost_file=BASE_DIR / "x_repost_seen_posts.json"
+        try:
+            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
+        except (OSError,ValueError,TypeError):
+            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
+            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
+            if is_repost_post(post, USERNAME):
+                if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))
+                    notify_repost(X_GROUP,post,WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
+                continue
             if post["id"] in seen:
                 continue
             _notify(post)
