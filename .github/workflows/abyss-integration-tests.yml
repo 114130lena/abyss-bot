@@ -147,6 +147,23 @@ jobs:
           echo "PLATFORM_LAST_EVENTS_24H"
           sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso |
             grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DELIVERED|FANART_SELECTED|FANART_DISCOVERY_PROFILE|디스코드 알림 전송 성공|유튜브.*알림|카페.*알림|YouTube banner updated|X_MEDIA_TEXT_ONLY_VERIFIED' | tail -n 45 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "WARNING_FAMILIES_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections,re
+          hits=collections.Counter()
+          for line in sys.stdin:
+              if " [WARNING] " not in line and " [ERROR] " not in line: continue
+              msg=line.split("] ",1)[-1]
+              msg=re.sub(r"https?://\\S+","<URL>",msg)
+              msg=re.sub(r"\\b\\d{12,}\\b","<ID>",msg)
+              msg=re.sub(r"(?:HTTP|HTTPS)ConnectionPool\\([^)]*\\)","HTTPConnectionPool(<HOST>)",msg)
+              hits[msg[:75]]+=1
+          for key,n in hits.most_common(20):print(n,key)
+          '
+          echo "ALL_SERVICES_RECENT_FAILURES"
+          for unit in abyss-media-refresh.service abyss-fanart-rss-review.service abyss-official-profiles.service abyss-hiyoriclip-collector.service abyss-chzzk-hiyoriclip-collector.service; do
+            echo "$unit: $(systemctl show "$unit" --property=Result --value 2>/dev/null || true)"
+          done
           echo "BANNER_LAST_EVENTS"
           sudo journalctl -u abyss-guild-banner.service --since '30 hours ago' --no-pager -o cat | tail -n 20 || true
           echo "MEDIA_REFRESH_EVENTS"
