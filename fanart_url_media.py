@@ -21,7 +21,9 @@ def candidates(group):
     """
     posts = {}
     for item in read(QUEUE).values():
-        if not isinstance(item, dict) or item.get("group") != group or item.get("review_status") == "blocked":
+        if (not isinstance(item, dict) or item.get("group") != group
+                or item.get("review_status") != "approved"
+                or item.get("permission_confirmed") is not True):
             continue
         source = item.get("post_url", "")
         if not isinstance(source, str) or not source.startswith("https://x.com/"):
