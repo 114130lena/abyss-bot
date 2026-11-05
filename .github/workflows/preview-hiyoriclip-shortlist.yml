@@ -1,0 +1,40 @@
+name: Preview top Hiyoriclip videos from live cache, no Discord posts
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/preview-hiyoriclip-shortlist.yml]
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hiyoriclip-daily-recommendation
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify offline candidate scoring and shortlist modules
+        run: |
+          python -m py_compile hiyoriclip_shortlist.py daily_hiyoriclip_selector.py hiyoriclip_video_screen.py
+          python -m unittest -v test_daily_hiyoriclip_selector.py test_hiyoriclip_video_screen.py
+      - name: Inspect ranked videos on Oracle without modifying bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes hiyoriclip_shortlist.py daily_hiyoriclip_selector.py "$SSH_USER@$SSH_HOST:/tmp/"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          PYTHONPATH=/tmp:/home/ubuntu/chzzk-bot "$PY" /tmp/hiyoriclip_shortlist.py --index /home/ubuntu/chzzk-bot/creator_media/hiyoriclip_posts.json --limit 10
+          REMOTE
