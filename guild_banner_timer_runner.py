@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from guild_banner_safety import reconcile, run_change
-
 from guild_server_banner import (
     change_guild_banner, convert_banner, read_state, rotation_selection,
     write_state, approved_hanayo_art, collected_hanayo_art,
@@ -19,6 +17,7 @@ from guild_server_banner import (
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
+from guild_banner_safety import reconcile, run_change
 KST = ZoneInfo("Asia/Seoul")
 CHANNEL = "1567561255764500551"
 
