@@ -1,4 +1,5 @@
 name: Install ten playable Hiyori clips every four hours
+# Rerun regression with all ten video URLs mocked
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
