@@ -165,7 +165,9 @@ def apply(payload, group=None):
                 for index, image in enumerate(picked["images"])
             ]
             # Show the entire selected post as one set; credit it once.
-            part["content"] = "-# 🎨 FAN ART · 출처: " + str(picked["artist"]) + " · " + str(len(picked["images"])) + "장 · [원본 X 게시물](" + str(picked["post_url"]) + ")"
+            # The dedicated '원본 게시물' button already opens the source.
+            # Show artist credit and image count without a redundant inline link.
+            part["content"] = "-# 🎨 FAN ART · 출처: " + str(picked["artist"]) + " · " + str(len(picked["images"])) + "장"
             source = picked["post_url"]
             if not (isinstance(source,str) and source.startswith("https://x.com/")):
                 return payload,None
