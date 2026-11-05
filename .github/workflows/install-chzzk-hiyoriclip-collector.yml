@@ -1,0 +1,89 @@
+name: Install separate CHZZK Hiyori clip collector (no Discord posts)
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/install-chzzk-hiyoriclip-collector.yml]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hiyoriclip-daily-recommendation
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - name: Validate collector without posting
+        run: |
+          python -m py_compile chzzk_hiyoriclip_collector.py
+          python -m unittest -v test_chzzk_hiyoriclip_collector.py
+          ! grep -E 'send_webhook|discord.com/api' chzzk_hiyoriclip_collector.py
+      - name: Prepare existing SSH connection
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Install independent 30-minute metadata-only timer, staggered at 15 and 45
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          remote="$SSH_USER@$SSH_HOST"
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes chzzk_hiyoriclip_collector.py "$remote:/tmp/abyss-chzzk-hiyoriclip-collector.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python
+          elif [ -x .venv-test/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python
+          else echo "Missing Python virtualenv" >&2; exit 1; fi
+          "$PY" -m py_compile /tmp/abyss-chzzk-hiyoriclip-collector.py
+          install -m 644 /tmp/abyss-chzzk-hiyoriclip-collector.py chzzk_hiyoriclip_collector.py
+          mkdir -p creator_media
+          cat >/tmp/abyss-chzzk-hiyoriclip-collector.service <<EOF
+          [Unit]
+          Description=Read-only CHZZK Hanayo Hiyori clip metadata collection
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/home/ubuntu/chzzk-bot
+          ExecStart=/usr/bin/flock -n /home/ubuntu/chzzk-bot/creator_media/chzzk_hiyoriclip.lock $PY /home/ubuntu/chzzk-bot/chzzk_hiyoriclip_collector.py
+          TimeoutStartSec=210
+          NoNewPrivileges=true
+          EOF
+          cat >/tmp/abyss-chzzk-hiyoriclip-collector.timer <<'EOF'
+          [Unit]
+          Description=CHZZK Hiyori clip collection every 30 minutes
+
+          [Timer]
+          OnCalendar=*-*-* *:15,45:00 Asia/Seoul
+          AccuracySec=30s
+          RandomizedDelaySec=0
+          Persistent=true
+          Unit=abyss-chzzk-hiyoriclip-collector.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo install -m 644 /tmp/abyss-chzzk-hiyoriclip-collector.service /etc/systemd/system/abyss-chzzk-hiyoriclip-collector.service
+          sudo install -m 644 /tmp/abyss-chzzk-hiyoriclip-collector.timer /etc/systemd/system/abyss-chzzk-hiyoriclip-collector.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-chzzk-hiyoriclip-collector.timer
+          sudo systemctl is-active abyss-chzzk-hiyoriclip-collector.timer
+          /usr/bin/flock -w 80 creator_media/chzzk_hiyoriclip.lock "$PY" chzzk_hiyoriclip_collector.py
+          systemctl list-timers --all abyss-chzzk-hiyoriclip-collector.timer --no-pager
+          REMOTE
