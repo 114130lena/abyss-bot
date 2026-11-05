@@ -53,10 +53,12 @@ def resolve_mp4(clip_id, *, session=None):
                         parsed.path.lower().endswith(".mp4") and
                         parsed.username is None and parsed.password is None and len(url)<=2048):
                     candidates.append(url)
+    print("CHZZK_MP4_CANDIDATES count="+str(len(candidates)),flush=True)
     for url in candidates[:3]:
         try:
             check=session.head(url,headers={"Referer":f"https://chzzk.naver.com/clips/{clip_id}"},
                                timeout=(5,12),allow_redirects=True)
+            print("CHZZK_MP4_HEAD http="+str(check.status_code)+" mime="+str(check.headers.get("Content-Type",""))[:60],flush=True)
             if check.status_code==200 and "video/mp4" in check.headers.get("Content-Type",""):
                 return url
         except requests.RequestException:
