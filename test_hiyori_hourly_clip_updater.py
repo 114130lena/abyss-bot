@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import chzzk_hiyoriclip_collector as collector
 import hiyori_hourly_clip_updater as h
 
-NOW=datetime(2026,11,5,16,5,0,tzinfo=ZoneInfo("Asia/Seoul"))
+NOW=datetime(2026,11,5,8,5,0,tzinfo=ZoneInfo("Asia/Seoul"))
 UID1="KvK9UOrTYv"
 UID2="etEcAG0f3q"
 BOT="1567554486908493854"
@@ -49,7 +49,7 @@ class HourlyTests(unittest.TestCase):
         self.addCleanup(self.p1.stop);self.addCleanup(self.p2.stop)
     def test_overnight_and_morning_skip_without_collection(self):
         s=session()
-        for hour in (0,2,4,6,8,10,14,18,22,23):
+        for hour in (0,2,4,6,10,12,14,16,20,22,23):
             result=h.refresh(now=NOW.replace(hour=hour),session=s,collect_fn=lambda **kw: self.fail("must not collect outside active period"))
             self.assertEqual(result["status"],"outside_active_hours")
         s.post.assert_not_called()
@@ -75,7 +75,7 @@ class HourlyTests(unittest.TestCase):
         self.assertEqual(r["message_id"],MID)
         payload=s.post.call_args.kwargs["json"]
         body=json.dumps(payload,ensure_ascii=False)
-        self.assertIn("12:05 · 16:05 · 20:05 갱신",body)
+        self.assertIn("매일 08:05 · 18:05 갱신",body)
         self.assertIn("영상 목록",body)
         self.assertIn("example.org/x.mp4",body)
         self.assertEqual(len([i for i in payload["components"][0]["components"] if i["type"]==12]),1)
@@ -90,7 +90,7 @@ class HourlyTests(unittest.TestCase):
         with patch.object(h,"_identity",return_value=BOT):
             first=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
             again=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
-            next_hour=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
+            next_hour=h.refresh(now=NOW+timedelta(hours=10),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual((first["status"],again["status"],next_hour["status"]),
                          ("updated","already_updated_this_hour","updated"))
         s.post.assert_not_called()
@@ -103,7 +103,7 @@ class HourlyTests(unittest.TestCase):
         with patch.object(h,"_identity",return_value=BOT):
             with self.assertRaises(requests.Timeout):
                 h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
-            result=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
+            result=h.refresh(now=NOW+timedelta(hours=10),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual(result["status"],"pending_first_post_manual_reconciliation")
         self.assertTrue(collector.read(self.state)["create_pending"])
         s.post.assert_called_once()
