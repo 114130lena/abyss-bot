@@ -102,7 +102,7 @@ class HourlyTests(unittest.TestCase):
         s.post.side_effect=requests.Timeout()
         with patch.object(h,"_identity",return_value=BOT):
             with self.assertRaises(requests.Timeout):
-                h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:None)
+                h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
             result=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual(result["status"],"pending_first_post_manual_reconciliation")
         self.assertTrue(collector.read(self.state)["create_pending"])
