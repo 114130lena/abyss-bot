@@ -1,0 +1,25 @@
+name: Verify X video clips inline without notifying Discord
+on:
+  push:
+    branches: [feature/x-inline-clips-preview]
+    paths: [.github/workflows/verify-x-inline-clips.yml]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/x-inline-clips-preview
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify native MP4, GIF, photo and fallback handling
+        run: |
+          python -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py discord_v2.py resilience.py
+          python -m unittest -v test_x_inline_clips.py
+          python -m unittest -v test_bot.py
