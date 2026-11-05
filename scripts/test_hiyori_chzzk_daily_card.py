@@ -2,7 +2,7 @@
 
 Uses the existing Discord test thread; no daily scheduler or production alert
 changes. Discord Components V2: creator header -> topic -> title -> thumbnail
--> stats -> source button -> compact footer.
+-> source button -> compact footer.
 """
 import json
 import os
@@ -46,7 +46,6 @@ def make_card(clip, *, now=None, banner="", avatar="", video_url=""):
     media=video_url if video_url.startswith("https://") else thumbnail
     if media.startswith("https://"):
         components.append({"type":12,"items":[{"media":{"url":media},"description":"치지직 클립 영상" if video_url else "치지직 클립 썸네일"}]})
-    components.append(_txt("👁️ **조회수 "+format(views,",")+"회**  ·  🏆 최근 24시간 수집 클립 조회수 1위\n-# 선정 기준 · 조회수 (수집 시점 기준)"))
     components.append({"type":14,"divider":True,"spacing":1})
     components.append({"type":1,"components":[{"type":2,"style":5,"label":"🎬 치지직 클립 보기","url":url}]})
     if banner.startswith("https://") and len(components)<9:
