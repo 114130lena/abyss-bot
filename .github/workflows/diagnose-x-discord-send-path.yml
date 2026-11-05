@@ -1,0 +1,44 @@
+name: Diagnose X delivery critical path on Oracle
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/diagnose-x-discord-send-path.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Inspect active code and recent timing logs without sending
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,json
+          for name in ('x_repost_notifier.py','resilience.py','fanart_url_media.py','random_media.py','twitter_notifier.py','twitter_huya_notifier.py'):
+              p=Path(name)
+              if not p.exists():continue
+              lines=p.read_text().splitlines()
+              hits=[(i,l.strip()) for i,l in enumerate(lines,1) if re.search(r'notify|send_webhook|delivery_seconds|timeout=|ThreadPool|X_REPOST|fanart|_collect_x_image|attempts|X_POLL_INTERVAL|X_SOURCE_BACKOFF|_fetch_merged',l,re.I)]
+              print('FILE_CODE',name,'count',len(lines),'selected',json.dumps(hits[:95],ensure_ascii=False),flush=True)
+          PY
+          echo REPOST_EVENTS
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso |
+            grep -Ei 'X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST.*ERROR|X 새 게시글 알림 성공|후야 X 새 글 알림|X post picture URL fetch failed|Discord response timed out|FANART_SELECTED' | tail -n 70 || true
+          REMOTE
