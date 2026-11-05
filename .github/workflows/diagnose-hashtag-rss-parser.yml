@@ -1,0 +1,48 @@
+name: Diagnose hashtag RSS parser without publishing
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/diagnose-hashtag-rss-parser.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: See RSS item structure and filter outcomes only
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import requests,xml.etree.ElementTree as ET,re
+          from urllib.parse import quote,urlsplit
+          url='https://nitter.mie.foundation/search/rss?f=tweets&q='+quote('#huyart')
+          r=requests.get(url,headers={'User-Agent':'abyss-bot/1.0 (public fanart review)'},timeout=(3,6))
+          print('RSS_HTTP',r.status_code,'LEN',len(r.content))
+          if r.status_code==200:
+              root=ET.fromstring(r.content)
+              items=root.findall('./channel/item')
+              print('RSS_TOTAL',len(items))
+              for x in items[:5]:
+                  title=x.findtext('title') or ''
+                  description=x.findtext('description') or ''
+                  link=x.findtext('link') or ''
+                  guid=x.findtext('guid') or ''
+                  print('RSS_ITEM',{'title_sample':title[:130],'link_path':urlsplit(link).path,'guid_sample':guid[:70],
+                      'desc_has_tag':'#huyart' in description.casefold(),'title_has_tag':'#huyart' in title.casefold(),
+                      'desc_head':description[:140]})
+          PY
+          REMOTE
