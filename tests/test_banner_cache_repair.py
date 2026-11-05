@@ -71,6 +71,27 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.assertFalse(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
         self.assertEqual(fanart_url_media.candidates("hanayo"), [])
 
+    def test_future_server_banner_art_is_reserved_before_first_rotation(self):
+        self.assertEqual(fanart_usage.server_reserved_post_ids("hanayo"), {"12345"})
+        self.assertFalse(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
+        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
+
+    def test_notification_fanart_keeps_artist_credit_and_only_source_button(self):
+        from discord_v2 import alert
+        with patch.object(fanart_usage, "server_reserved_post_ids", return_value=set()):
+            card = alert("chzzk", "하나요 히요리", "https://example.com/banner.jpg",
+                         title="Test", url="https://chzzk.naver.com/live/123",
+                         avatar="https://example.com/avatar.jpg", ping=False)
+            changed, chosen = fanart_url_media.apply(card)
+        self.assertIsNotNone(chosen)
+        parts = next(x["components"] for x in changed["components"] if x["type"] == 17)
+        credit = next(x["content"] for x in parts if x.get("type") == 10 and "FAN ART" in x.get("content", ""))
+        self.assertIn("출처: @artist", credit)
+        self.assertNotIn("원본 X 게시물", credit)
+        row = next(x for x in parts if x.get("type") == 1)
+        self.assertEqual([b["label"] for b in row["components"]],
+                         ["원본 게시물", "CHZZK", "CAFE", "X", "YouTube"])
+
     def test_prohibited_cached_art_is_never_used_as_guild_banner(self):
         self.queue["hanayo:12345"]["text"] = "사용 금지"
         self.save_queue()
@@ -92,7 +113,10 @@ class BannerAndCacheRepairTests(unittest.TestCase):
     def test_legacy_cache_retired_does_not_block_public_x_preview(self):
         self.queue["hanayo:12345"]["cache_retired"] = True
         self.save_queue()
-        entries = fanart_url_media.candidates("hanayo")
+        # Isolate the legacy retirement behavior from the separate
+        # rule reserving landscape art for the Discord guild banner.
+        with patch.object(fanart_usage, "server_reserved_post_ids", return_value=set()):
+            entries = fanart_url_media.candidates("hanayo")
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["post_url"], self.source)
 
