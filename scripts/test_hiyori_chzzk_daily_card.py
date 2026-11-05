@@ -18,7 +18,7 @@ FLAGS=1<<15
 def _txt(value):
     return {"type":10,"content":str(value)[:4000]}
 
-def make_card(clip, *, now=None, banner="", avatar=""):
+def make_card(clip, *, now=None, banner="", avatar="", video_url=""):
     now=(now or datetime.now(KST)).astimezone(KST)
     if not isinstance(clip,dict) or not clip.get("id"):
         raise ValueError("No verified CHZZK clip")
@@ -39,12 +39,13 @@ def make_card(clip, *, now=None, banner="", avatar=""):
     else:
         head=_txt(header)
     components=[head,{"type":14,"divider":True,"spacing":1},
-        _txt("**🎬 TODAY'S HIYORI CLIP · 오늘의 히요리 클립**\n-# "+now.strftime("%Y.%m.%d")+" · CHZZK · TEST"),
+        _txt("**🎬 오늘의 히요리 클립**\n-# "+now.strftime("%Y.%m.%d")+" · CHZZK · TEST"),
         _txt("## ["+title+"]("+url+")"),
     ]
     thumbnail=str(clip.get("thumbnail_url") or "")
-    if thumbnail.startswith("https://"):
-        components.append({"type":12,"items":[{"media":{"url":thumbnail},"description":"치지직 클립 썸네일"}]})
+    media=video_url if video_url.startswith("https://") else thumbnail
+    if media.startswith("https://"):
+        components.append({"type":12,"items":[{"media":{"url":media},"description":"치지직 클립 영상" if video_url else "치지직 클립 썸네일"}]})
     components.append(_txt("👁️ **조회수 "+format(views,",")+"회**  ·  🏆 최근 24시간 수집 클립 조회수 1위\n-# 선정 기준 · 조회수 (수집 시점 기준)"))
     components.append({"type":14,"divider":True,"spacing":1})
     components.append({"type":1,"components":[{"type":2,"style":5,"label":"🎬 치지직 클립 보기","url":url}]})
@@ -76,6 +77,7 @@ def choose_clip(cache, *, now=None):
 
 if __name__=="__main__":
     import argparse
+    import requests
     from dotenv import load_dotenv
     from urllib.parse import parse_qsl,urlunsplit,urlencode
     p=argparse.ArgumentParser()
@@ -96,8 +98,14 @@ if __name__=="__main__":
         params=dict(parse_qsl(parts.query,keep_blank_values=True))
         params["thread_id"]=THREAD
         dest=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(params),parts.fragment))
-        payload=make_card(clip,banner=get_banner("hanayo"),avatar=avatar("hanayo"))
+        from chzzk_clip_video import resolve_mp4
+        try:
+            video_url=resolve_mp4(clip["id"])
+        except (ValueError,requests.RequestException) as exc:
+            video_url=None
+            print("CHZZK_VIDEO_RESOLVE_FAILED "+type(exc).__name__,flush=True)
+        payload=make_card(clip,banner=get_banner("hanayo"),avatar=avatar("hanayo"),video_url=video_url or "")
         send_webhook(dest,payload,attempts=1)
     print("CHZZK_CLIP_TEST "+json.dumps({"sent":opts.send,"thread":THREAD,"clip_id":clip["id"],
         "title":clip.get("title"),"views":clip.get("views"),"url":clip.get("url"),
-        "has_thumbnail":bool(clip.get("thumbnail_url"))},ensure_ascii=False))
+        "has_thumbnail":bool(clip.get("thumbnail_url")),"video_resolution_attempted":opts.send,"video_gallery_requested":bool(video_url) if opts.send else False},ensure_ascii=False))
