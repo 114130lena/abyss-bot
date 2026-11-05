@@ -9,6 +9,7 @@ import os
 import random
 from pathlib import Path
 from urllib.parse import urlsplit
+from fanart_usage import notification_allowed
 
 DATA_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 PROFILE_CACHE = DATA_DIR / "creator_profile_cache.json"
@@ -90,6 +91,10 @@ def _local_candidates(group, kind):
             continue
         if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp") or path.stat().st_size > 12*1024*1024:
             continue
+        # Avoid guild-banner-only files even when they are part of the legacy
+        # randomized local media index.
+        if kind == "banner" and not notification_allowed(group, item):
+            continue
         found.append((path, item.get("sha256", path.name)))
     # When post-gallery fanart is enabled, the URL decorator owns the entire
     # fanart footer set. Local random media must not select one isolated art.
@@ -97,7 +102,9 @@ def _local_candidates(group, kind):
             and os.getenv("ABYSS_FANART_URLS", "0") != "1"):
         fanart = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
         for item in fanart if isinstance(fanart, list) else []:
-            if not isinstance(item, dict) or item.get("approved") is not True or item.get("permission_confirmed") is not True:
+            if (not isinstance(item, dict) or item.get("approved") is not True
+                    or item.get("permission_confirmed") is not True
+                    or not notification_allowed(group, item)):
                 continue
             if item.get("hashtag") != ("#hiyoriart_" if group == "hanayo" else "#huyart"):
                 continue
