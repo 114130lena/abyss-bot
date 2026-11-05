@@ -158,6 +158,7 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
     # Bot token REST endpoints reject webhook-only username, so remove it.
     card.pop("username",None)
     card["allowed_mentions"]={"parse":[]}
+    was_created=not bool(msgid)
     if not msgid:
         # Reserve the first-message creation BEFORE HTTP request. If the POST
         # succeeds and the response is lost, next run adopts the existing card.
@@ -181,7 +182,7 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
                   "create_pending":False,"last_success_slot":slot,
                   "last_clip_id":chosen["id"],"last_updated_at":now.isoformat()})
     _persist(state)
-    return {"status":"created" if not state.get("_had_prior_message",bool(msgid)) else "updated",
+    return {"status":"created" if was_created else "updated",
             "slot":slot,"message_id":str(msgid),"clip_id":chosen["id"],
             "direct_video":bool(video)}
 
