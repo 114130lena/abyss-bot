@@ -10,7 +10,7 @@ from discord_v2 import alert
 def review_entry(id_, *, group="hanayo", approved=True):
     return {
         "group": group, "review_status": "approved" if approved else "pending",
-        "permission_confirmed": True, "artist": "@example",
+        "permission_confirmed": True, "artist": "@example", "hashtag": "#hiyoriart_",
         "post_url": "https://x.com/example/status/" + str(id_),
         "image_urls": ["https://pbs.twimg.com/media/art" + str(id_) + ".jpg"]
     }
@@ -48,15 +48,15 @@ class FanartSeparationTests(unittest.TestCase):
             self.assertFalse(fanart_usage.notification_allowed("hanayo", review_entry(303)))
             self.assertTrue(fanart_usage.notification_allowed("hanayo", review_entry(404)))
 
-    def test_unapproved_and_nonconsented_art_not_restored(self):
+    def test_pending_attributed_art_included_while_blocked_excluded(self):
         entries = {"pending": review_entry(1, approved=False),
-                   "unlicensed": dict(review_entry(2), permission_confirmed=False),
+                   "blocked": dict(review_entry(2), review_status="blocked"),
                    "approved": review_entry(3)}
         with patch.object(fanart_usage, "read", return_value={}), \\
              patch.object(fanart_url_media, "read", return_value=entries):
             result = fanart_url_media.candidates("hanayo")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["post_url"], "https://x.com/example/status/3")
+        self.assertEqual(len(result), 2)
+        self.assertEqual([x["post_url"] for x in result], ["https://x.com/example/status/1", "https://x.com/example/status/3"])
 
     def test_approved_art_replaces_existing_footer_with_original_button(self):
         original = alert(
