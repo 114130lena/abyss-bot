@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,18 +35,42 @@ def state_path():
 
 
 def read_state():
-    try:
-        data = json.loads(state_path().read_text("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (ValueError, OSError):
-        return {}
+    """Recover the latest intact backup if the primary JSON is damaged."""
+    original = state_path()
+    for path in (original, original.with_suffix(".json.bak"),
+                 original.with_suffix(".json.bak2")):
+        try:
+            data = json.loads(path.read_text("utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (ValueError, OSError):
+            continue
+    return {}
 
 
 def write_state(state):
+    """Atomic state replacement with two retained, private local backups."""
     destination = state_path()
     destination.parent.mkdir(parents=True, exist_ok=True)
     temp = destination.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    backup = destination.with_suffix(".json.bak")
+    older = destination.with_suffix(".json.bak2")
+    serialized = json.dumps(state, ensure_ascii=False, indent=2)
+    temp.write_text(serialized, encoding="utf-8")
+    temp.chmod(0o600)
+    if destination.exists():
+        # A damaged state file must not overwrite our last valid backup.
+        try:
+            existing = json.loads(destination.read_text("utf-8"))
+        except (ValueError, OSError):
+            existing = None
+        if isinstance(existing, dict):
+            if backup.exists():
+                shutil.copy2(backup, older)
+            shutil.copy2(destination, backup)
+            backup.chmod(0o600)
+            if older.exists():
+                older.chmod(0o600)
     temp.replace(destination)
 
 
