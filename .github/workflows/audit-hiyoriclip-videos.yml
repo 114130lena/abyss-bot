@@ -1,0 +1,29 @@
+name: Audit collected Hiyoriclip video eligibility and engagement
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/audit-hiyoriclip-videos.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Read-only filter of cached verified clip posts
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" hiyoriclip_video_screen.py --hours 24 --limit 8
+          systemctl is-active abyss-hiyoriclip-collector.timer
+          REMOTE
