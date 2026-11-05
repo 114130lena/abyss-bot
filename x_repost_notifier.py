@@ -26,20 +26,34 @@ def is_repost(title, description="", source=""):
     return False
 
 
+def original_status_from_feed(url):
+    """Resolve a real status author from RSS mirrors, not only x.com links.
+
+    RSS feeds commonly expose the ORIGINAL author's status using a Nitter URL.
+    Failure to recognize that URL routed retweets as creator originals.
+    """
+    import re
+    parsed = urlsplit(str(url or ""))
+    hostname = (parsed.hostname or "").lower()
+    trusted = (hostname in ("x.com", "www.x.com", "twitter.com",
+                            "www.twitter.com", "fxtwitter.com", "www.fxtwitter.com")
+               or hostname.startswith("nitter."))
+    if parsed.scheme not in ("http", "https") or not trusted:
+        return None
+    match = re.fullmatch(r"/([A-Za-z0-9_]{1,15})/status/([0-9]+)(?:/)?", parsed.path)
+    return match.groups() if match else None
+
+
 def is_repost_post(post, username):
     """Classify before routing, including off-author FxTwitter status links."""
-    from urllib.parse import urlsplit
-    import re
     if post.get("repost") is True:
         return True
     if is_repost(post.get("rss_title", ""), post.get("rss_description", "")):
         return True
     for key in ("url", "source_link"):
-        parsed = urlsplit(str(post.get(key) or ""))
-        match = re.fullmatch(r"/([^/]+)/status/([0-9]+)", parsed.path)
-        if parsed.hostname in ("x.com", "twitter.com", "www.x.com", "www.twitter.com") and match:
-            if match.group(1).casefold() != username.lstrip("@").casefold():
-                return True
+        status = original_status_from_feed(post.get(key))
+        if status and status[0].casefold() != username.lstrip("@").casefold():
+            return True
     return False
 
 
@@ -58,25 +72,21 @@ def notify(group,post,webhook):
     from x_post_media import resolve_media
     # Repost URLs can point to the original author's tweet. Resolve that author
     # from the URL instead of querying the retweeter's account.
-    from urllib.parse import urlsplit
-    import re
-    # Prefer the original author's X status when the RSS entry exposes it.
-    original_url=str(post.get("url",""))
-    for key in ("source_link",):
-        proposed=str(post.get(key) or "")
-        parsed=urlsplit(proposed)
-        if parsed.hostname in ("x.com","www.x.com","twitter.com","www.twitter.com"):
-            if re.fullmatch(r"/[^/]+/status/[0-9]+",parsed.path):
-                original_url="https://x.com"+parsed.path
-                break
-    match=re.fullmatch(r"/([^/]+)/status/([0-9]+)",urlsplit(original_url).path)
+    # Prefer the original author's X status even when the feed links to
+    # a Nitter mirror. Never attribute the original to the retweeting creator.
+    source_status = original_status_from_feed(post.get("source_link"))
+    own_status = original_status_from_feed(post.get("url"))
+    author_and_id = source_status or own_status
+    original_url = ("https://x.com/%s/status/%s" % author_and_id
+                    if author_and_id else str(post.get("url", "")))
+    match = author_and_id
     resolved_images=list(post.get("images") or [])
     photo_known=bool(resolved_images)
     video_preview=""
     has_video=False
     if match:
         found,video_preview,has_video,photo_known=resolve_media(
-            dict(post,id=match.group(2)),match.group(1))
+            dict(post,id=match[1]),match[0])
         if found:resolved_images=found
     logging.info("X_REPOST_MEDIA_RESOLVED creator=%s id=%s elapsed_seconds=%.2f",group,post.get("id"),time.monotonic()-started_total)
     payload=alert("x",creator,get_banner(group),role_id="",title="🔁 X 리트윗 · "+title[:160],
