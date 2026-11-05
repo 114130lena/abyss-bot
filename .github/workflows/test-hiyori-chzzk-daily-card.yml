@@ -1,4 +1,4 @@
-name: Send one Hiyori CHZZK Daily Clip V2 preview to test thread
+name: Send inline CHZZK daily clip video test card
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
       - name: Verify card module compiles and contains no pings
         run: |
-          python -m py_compile scripts/test_hiyori_chzzk_daily_card.py
+          python -m py_compile scripts/test_hiyori_chzzk_daily_card.py scripts/chzzk_clip_video.py
           python - <<'PY'
           import importlib.util
           from datetime import datetime,timezone
@@ -33,6 +33,8 @@ jobs:
           assert not any('content' in x for x in card['components'])
           assert len(card['components'][0]['components'])<=10
           assert card['flags']==32768
+          assert "TODAY'S HIYORI CLIP" not in str(card)
+          assert '오늘의 히요리 클립' in str(card)
           print('CHZZK_CLIP_CARD_FORMAT_VALID')
           PY
       - name: Prepare secure SSH
@@ -54,9 +56,10 @@ jobs:
           set -euo pipefail
           remote="$SSH_USER@$SSH_HOST"
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes scripts/test_hiyori_chzzk_daily_card.py "$remote:/tmp/abyss_hiyori_daily_clip_card_preview.py"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes scripts/chzzk_clip_video.py "$remote:/tmp/chzzk_clip_video.py"
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          PYTHONPATH=/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_hiyori_daily_clip_card_preview.py --send
+          PYTHONPATH=/tmp:/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_hiyori_daily_clip_card_preview.py --send
           REMOTE
