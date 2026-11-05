@@ -1,0 +1,39 @@
+name: Inspect exact deployed repost and image delivery code segments
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/inspect-repost-source-snippets.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Report necessary short source sections
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          from pathlib import Path
+          parts={'x_repost_notifier.py':[(1,69)],'resilience.py':[(25,80),(80,190)],
+                 'twitter_notifier.py':[(270,335)],'twitter_huya_notifier.py':[(150,204)]}
+          for filename,ranges in parts.items():
+              lines=Path(filename).read_text().splitlines()
+              for a,b in ranges:
+                  print('CODE_BEGIN',filename,a,b)
+                  for i in range(a,min(b,len(lines))+1):
+                      print(f'{i:03d} {lines[i-1]}')
+                  print('CODE_END',filename,a,b)
+          PY
+          REMOTE
