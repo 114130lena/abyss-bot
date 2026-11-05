@@ -41,6 +41,10 @@ jobs:
           # One manual verification only: allow current daytime hour, never
           # change the installed 12:05/16:05/20:05 systemd schedule.
           h.ACTIVE_HOURS=(*h.ACTIVE_HOURS,now.hour)
+          # Bypass only this hour's previous success guard in memory for one
+          # requested verification; leave durable state and timer untouched.
+          original_saved=h._saved
+          h._saved=lambda: {**original_saved(),"last_success_slot":""}
           outcome=h.refresh(now=now,banner=get_banner('hanayo'),avatar=avatar('hanayo'))
           print('HIYORI_TEN_VIDEO_MANUAL_UPDATE',json.dumps(outcome,ensure_ascii=False),flush=True)
           saved=h._saved()
