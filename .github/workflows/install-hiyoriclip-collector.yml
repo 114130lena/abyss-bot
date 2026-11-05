@@ -23,7 +23,7 @@ jobs:
       - name: Test collection is idempotent, hashtag-exact and no-Discord
         run: |
           python -m unittest -v test_hiyoriclip_collector.py test_hiyoriclip_discovery.py test_hiyoriclip_video_screen.py test_daily_hiyoriclip_selector.py
-          python -m py_compile hiyoriclip_collector.py hiyoriclip_discovery.py hiyoriclip_video_screen.py hiyoriclip_shortlist.py daily_hiyoriclip_selector.py
+          python -m py_compile hiyoriclip_collector.py hiyoriclip_discovery.py hiyoriclip_video_screen.py hiyoriclip_video_candidates.py hiyoriclip_shortlist.py daily_hiyoriclip_selector.py
           ! grep -E 'send_webhook|discord.com/api' hiyoriclip_collector.py
       - name: Prepare existing SSH connection
         env:
@@ -46,6 +46,7 @@ jobs:
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_collector.py "$remote:/tmp/abyss-hiyoriclip-collector.py"
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_discovery.py "$remote:/tmp/abyss-hiyoriclip-discovery.py"
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_video_screen.py "$remote:/tmp/abyss-hiyoriclip-video-screen.py"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_video_candidates.py "$remote:/tmp/abyss-hiyoriclip-video-candidates.py"
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_shortlist.py daily_hiyoriclip_selector.py "$remote:/tmp/"
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes config/hiyoriclip_accounts.txt "$remote:/tmp/abyss-hiyoriclip-accounts.txt"
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
@@ -55,8 +56,9 @@ jobs:
           if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python
           elif [ -x .venv-test/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python
           else echo "No Python virtualenv" >&2; exit 1; fi
-          "$PY" -m py_compile /tmp/abyss-hiyoriclip-collector.py /tmp/abyss-hiyoriclip-discovery.py /tmp/abyss-hiyoriclip-video-screen.py
+          "$PY" -m py_compile /tmp/abyss-hiyoriclip-collector.py /tmp/abyss-hiyoriclip-discovery.py /tmp/abyss-hiyoriclip-video-screen.py /tmp/abyss-hiyoriclip-video-candidates.py
           install -m 644 /tmp/abyss-hiyoriclip-video-screen.py hiyoriclip_video_screen.py
+          install -m 644 /tmp/abyss-hiyoriclip-video-candidates.py hiyoriclip_video_candidates.py
           install -m 644 /tmp/hiyoriclip_shortlist.py hiyoriclip_shortlist.py
           install -m 644 /tmp/daily_hiyoriclip_selector.py daily_hiyoriclip_selector.py
           install -m 644 /tmp/abyss-hiyoriclip-discovery.py hiyoriclip_discovery.py
@@ -78,6 +80,7 @@ jobs:
           WorkingDirectory=/home/ubuntu/chzzk-bot
           Environment=BOT_DATA_DIR=/home/ubuntu/chzzk-bot
           ExecStart=/usr/bin/flock -n /home/ubuntu/chzzk-bot/creator_media/hiyoriclip_collection.lock $PY /home/ubuntu/chzzk-bot/hiyoriclip_collector.py
+          ExecStartPost=$PY /home/ubuntu/chzzk-bot/hiyoriclip_video_candidates.py
           TimeoutStartSec=240
           NoNewPrivileges=true
           EOF
