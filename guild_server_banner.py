@@ -131,8 +131,58 @@ def approved_hanayo_art():
 
 
 def collected_hanayo_art():
-    """Unreviewed scraped fanart never qualifies for a public server banner."""
-    return []
+    """Use cached hashtag art for the separately attributed guild-banner flow.
+
+    This pool is opt-in and independent from notification footer art. Retain
+    creator attribution in state / existing guild source-information card.
+    """
+    if os.getenv("SERVER_BANNER_USE_COLLECTED", "0") != "1":
+        return []
+    from fanart_discovery import QUEUE, read, classify
+    base = media_base().resolve()
+    root = (base / "fanart_candidates" / "hanayo").resolve()
+    if not root.is_dir():
+        return []
+    result = []
+    seen = set()
+    for item in read(QUEUE).values():
+        if not isinstance(item, dict) or item.get("group") != "hanayo":
+            continue
+        if str(item.get("hashtag", "")).casefold() != "#hiyoriart_":
+            continue
+        if (item.get("decision") == "blocked"
+                or item.get("review_status") == "blocked"
+                or classify(item.get("text", "")) == "blocked"
+                or item.get("server_banner_excluded") is True):
+            continue
+        from fanart_usage import canonical_post
+        source = item.get("post_url", "")
+        artist = item.get("artist", "")
+        if not canonical_post(source) or not isinstance(artist, str) or not artist.startswith("@"):
+            continue
+        for rel in item.get("cached_files", [])[:4]:
+            if not isinstance(rel, str):
+                continue
+            path = (base / rel).resolve()
+            if root not in path.parents or path.suffix.lower() not in EXTS or not path.is_file():
+                continue
+            if not 0 < path.stat().st_size <= 12 * 1024 * 1024:
+                continue
+            try:
+                with Image.open(path) as img:
+                    if getattr(img, "is_animated", False):
+                        continue
+                    if not kind(*ImageOps.exif_transpose(img).size):
+                        continue
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+                continue
+            if digest in seen:
+                continue
+            seen.add(digest)
+            result.append((path, {"sha256": digest, "artist": artist,
+                                  "post_url": source, "source": "cached_hanayo_fanart"}))
+    return result
 
 
 def convert_banner(path):
