@@ -1,6 +1,6 @@
 """Maintain one editable '오늘의 히요리 클립' card with the EXISTING guild-banner bot.
 
-Every two hours 12:05-22:05 KST (sleep overnight). Scan the last 24 hours completely and select highest-view
+Every four hours 12:05, 16:05, 20:05 KST (sleep overnight). Scan the last 24 hours completely and select highest-view
 CHZZK clip. PATCH the same bot-owned message, refreshing signed MP4 if possible.
 First run creates one message; uncertain creation is never automatically retried.
 No role pings, no new Discord app, no changes to guild banner rotation.
@@ -28,8 +28,8 @@ GUILD="919216649880633465"
 API="https://discord.com/api/v10"
 MARKER="오늘의 히요리 클립"
 WINDOW=timedelta(hours=24)
-ACTIVE_HOURS=(12,14,16,18,20,22)
-SHOW_TOP=12
+ACTIVE_HOURS=(12,16,20)
+SHOW_TOP=10
 HISTORY_MAX=80
 
 def _now(now=None):
@@ -75,9 +75,9 @@ def _clip_link(clip):
     return "["+_markdown_title(clip.get("title"))+"](https://chzzk.naver.com/clips/"+str(clip["id"])+")"
 
 def _extra_links(top,history):
-    candidates=top[1:SHOW_TOP]
-    lines=["**📂 다른 인기 클립 · "+str(len(candidates))+"개**"]
-    lines.extend(str(index)+". "+_clip_link(item) for index,item in enumerate(candidates,2))
+    candidates=top[:SHOW_TOP]
+    lines=["**🎞️ 영상 목록 · "+str(len(candidates))+"개**"]
+    lines.extend(str(index)+". "+_clip_link(item) for index,item in enumerate(candidates,1))
     old=[]
     currently={str(item["id"]) for item in top[:SHOW_TOP]}
     for item in reversed(history):
@@ -190,7 +190,29 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         print("HOURLY_HIYORI_CLIP_VIDEO_FALLBACK "+type(exc).__name__,flush=True)
     # Reuse the existing creator/brand presentation, but no rank/metrics/time.
     card=make_card(chosen,now=now,banner=banner,avatar=avatar,video_url=video or "",
-                   preview=False,footer_text="12:05~22:05 · 2시간마다 갱신")
+                   preview=False,footer_text="12:05 · 16:05 · 20:05 갱신")
+    # One gallery, at most ten direct-play MP4s. Avoid banner gallery as that
+    # would consume one of Discord's per-message ten media slots.
+    media_items=[]
+    for item in top[:SHOW_TOP]:
+        try:
+            clip_video=(video if item["id"]==chosen["id"] else (video_fn or resolve_mp4)(item["id"]))
+        except (ValueError,TypeError,requests.RequestException) as exc:
+            clip_video=None
+            print("HIYORI_GALLERY_MEDIA_FALLBACK "+type(exc).__name__,flush=True)
+        if clip_video and clip_video.startswith("https://") and urlsplit(clip_video).path.lower().endswith(".mp4"):
+            media_items.append({"media":{"url":clip_video},
+                                "description":str(item.get("title") or "히요리 클립")[:200]})
+    # Keep the old message instead of replacing playable videos with stills
+    # when the source CDN is unreliable. No falsely advertised full gallery.
+    if len(media_items)<min(SHOW_TOP,len(top)):
+        return {"status":"video_sources_incomplete_keep_previous",
+                "slot":slot,"available":len(media_items),
+                "required":min(SHOW_TOP,len(top))}
+    parts=card["components"][0]["components"]
+    parts[:]=[part for part in parts if not (part.get("type")==12)]
+    # Put all videos together in the original media position.
+    parts.insert(4,{"type":12,"items":media_items})
     old_history=state.get("featured_history",[])
     if not isinstance(old_history,list):
         old_history=[]
@@ -222,9 +244,12 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         updated=response.json()
         if str(updated.get("id"))!=str(msgid) or not _is_ours(updated,bot_id):
             raise RuntimeError("Discord updated-message response mismatch")
-    if not old_history or old_history[-1].get("id")!=chosen["id"]:
-        old_history.append({"id":chosen["id"],"title":chosen.get("title",""),
-                            "featured_at":now.isoformat()})
+    already_seen={item.get("id") for item in old_history if isinstance(item,dict)}
+    for item in top[:SHOW_TOP]:
+        if item["id"] not in already_seen:
+            old_history.append({"id":item["id"],"title":item.get("title",""),
+                                "featured_at":now.isoformat()})
+            already_seen.add(item["id"])
     state.update({"featured_history":old_history[-HISTORY_MAX:],
                   "version":1,"channel_id":CHANNEL,"message_id":str(msgid),
                   "create_pending":False,"last_success_slot":slot,
