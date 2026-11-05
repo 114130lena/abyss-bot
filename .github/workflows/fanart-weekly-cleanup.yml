@@ -16,9 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: test/compact-footer-four-links
+          ref: main
           persist-credentials: false
-      - name: Weekly candidate cache prune
+      - name: Weekly orphan-only candidate cache prune
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
