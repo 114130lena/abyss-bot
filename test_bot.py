@@ -685,5 +685,47 @@ class RoutingTests(unittest.TestCase):
         self.assertTrue(banners._valid("https://yt3.googleusercontent.com/image"))
         self.assertFalse(banners._valid("https://evil.example.com/image"))
 
+class YouTubeFeedFallbackTests(unittest.TestCase):
+    @staticmethod
+    def response(status, channel_id="UCHAr9pWGS30akL4MQCQT4uQ"):
+        import requests
+        class Result:
+            content = ('<feed xmlns="http://www.w3.org/2005/Atom" '
+                       'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+                       '<yt:channelId>' + channel_id + '</yt:channelId>'
+                       '<title>Creator</title>'
+                       '<entry><yt:videoId>abc123</yt:videoId><title>New upload</title></entry>'
+                       '</feed>').encode()
+            def raise_for_status(self):
+                if status >= 400:
+                    err = requests.HTTPError(str(status))
+                    err.response = self
+                    raise err
+            status_code = status
+        return Result()
+
+    def test_404_uses_verified_upload_playlist_feed(self):
+        channel = "UCHAr9pWGS30akL4MQCQT4uQ"
+        with patch.object(yt.session,"get", side_effect=[
+            self.response(404), self.response(200)]) as requested:
+            uploads = yt._fetch_uploads(channel)
+        self.assertEqual([x["id"] for x in uploads], ["abc123"])
+        self.assertEqual(requested.call_count, 2)
+        self.assertEqual(requested.call_args_list[1].kwargs["params"],
+                         {"playlist_id": "UU" + channel[2:]})
+
+    def test_fallback_wrong_channel_fails_closed(self):
+        channel = "UCHAr9pWGS30akL4MQCQT4uQ"
+        with patch.object(yt.session,"get", side_effect=[
+            self.response(404), self.response(200, "UC0YQnenKBCu5sGb7H61n6HA")]):
+            with self.assertRaises(ValueError):
+                yt._fetch_uploads(channel)
+
+    def test_good_primary_feed_never_requests_fallback(self):
+        with patch.object(yt.session,"get", return_value=self.response(200)) as requested:
+            yt._fetch_uploads("UCHAr9pWGS30akL4MQCQT4uQ")
+        requested.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
