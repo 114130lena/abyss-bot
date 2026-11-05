@@ -1,0 +1,56 @@
+name: Check existing banner bot access to clip card channel
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-banner-bot-clip-channel.yml]
+permissions:
+  contents: read
+jobs:
+  access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect existing banner bot credentials and channel permissions without secrets in logs
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,requests
+          from dotenv import dotenv_values
+          auth=dotenv_values('.guild_banner_auth.env')
+          names=['DISCORD_BOT_TOKEN','BOT_TOKEN','DISCORD_TOKEN','TOKEN','DISCORD_GUILD_ID']
+          configured={k:bool(auth.get(k)) for k in names}
+          token=next((auth.get(k) for k in names[:4] if auth.get(k)),None)
+          result={'auth_file_exists':os.path.isfile('.guild_banner_auth.env'),
+                  'configured':configured,'target':'1567760518977167501'}
+          if token:
+              s=requests.Session();s.headers.update({'Authorization':'Bot '+token})
+              for url,label in [('https://discord.com/api/v10/users/@me','bot'),
+                                ('https://discord.com/api/v10/channels/1567760518977167501','target_channel')]:
+                  try:
+                      r=s.get(url,timeout=15)
+                      result[label]={'http':r.status_code}
+                      if r.status_code==200:
+                          x=r.json()
+                          if label=='bot':
+                              result[label]['id']=x.get('id')
+                          else:
+                              result[label].update({'type':x.get('type'),'guild_id':x.get('guild_id'),
+                                                    'name':x.get('name'),'parent_id':x.get('parent_id')})
+                      else:
+                          result[label]['error_code']=r.json().get('code')
+                  except Exception as exc:
+                      result[label]={'error':type(exc).__name__}
+          print('BANNER_BOT_CLIP_CHANNEL_DIAGNOSTIC',json.dumps(result,ensure_ascii=False))
+          PY
+          REMOTE
