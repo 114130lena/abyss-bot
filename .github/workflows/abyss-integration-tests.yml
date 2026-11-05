@@ -38,3 +38,44 @@ jobs:
         run: python -m unittest -v test_guild_server_banner.py
       - name: Existing baseline tests
         run: python -m unittest -v test_bot.py
+
+  fanart_collection_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/fanart-footer-pool-audit-20261105'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify recurring Oracle fanart collector activity without modifying data
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_audit_key
+          chmod 600 ~/.ssh/fanart_audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/fanart_audit_key "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import json, pathlib, datetime
+          from zoneinfo import ZoneInfo
+          root=pathlib.Path("creator_media")
+          queue=root/"fanart_discovery.json"
+          d=json.loads(queue.read_text("utf-8")) if queue.is_file() else {}
+          s={}
+          for group in ("hanayo","sakihane"):
+              items=[v for v in d.values() if isinstance(v,dict) and v.get('group')==group]
+              s[group]={"posts":len(items),"cached_images":sum(len(v.get("cached_files",[])) for v in items)}
+          s["queue_last_modified_kst"]=datetime.datetime.fromtimestamp(queue.stat().st_mtime,ZoneInfo("Asia/Seoul")).isoformat() if queue.is_file() else None
+          s["checked_kst"]=datetime.datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+          print("FANART_COLLECTION_INVENTORY "+json.dumps(s,ensure_ascii=False))
+          PY
+          echo FANART_COLLECTION_EVENTS_LAST_12H
+          sudo journalctl -u chzzk-bot.service --since '12 hours ago' --no-pager -o short-iso | grep -E 'FANART_DISCOVERY_PROFILE|FANART_DISCOVERY_API|FANART_REVIEW_CACHE|팬아트 후보 수집|fanart-discovery' | tail -n 30 || true
+          echo FANART_COLLECTION_EVENTS_LAST_24H_COUNT
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -c 'FANART_DISCOVERY_PROFILE' || true
+          REMOTE
