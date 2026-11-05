@@ -1,0 +1,101 @@
+name: Install hourly Hiyori clip message editor using banner bot
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/install-hiyori-hourly-clip.yml]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run offline safety and Discord card tests
+        run: |
+          python -m pip install requests python-dotenv
+          python -m py_compile hiyori_hourly_clip_updater.py scripts/test_hiyori_chzzk_daily_card.py scripts/chzzk_clip_video.py
+          PYTHONPATH=scripts:. python -m unittest -v test_hiyori_hourly_clip_updater.py test_hiyori_chzzk_daily_publisher.py test_chzzk_hiyoriclip_collector.py
+      - name: Set up SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST" && test -n "$KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Install hourly card, make first post and enable safe timer
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          remote="$USER@$HOST"
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes hiyori_hourly_clip_updater.py "$remote:/tmp/abyss_hiyori_hourly_clip_updater.py"
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes scripts/test_hiyori_chzzk_daily_card.py "$remote:/tmp/abyss_hourly_card_module.py"
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes scripts/chzzk_clip_video.py "$remote:/tmp/abyss_hourly_video_module.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python
+          elif [ -x .venv-test/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python
+          else echo "Missing bot Python runtime" >&2; exit 1; fi
+          "$PY" -m py_compile /tmp/abyss_hiyori_hourly_clip_updater.py /tmp/abyss_hourly_card_module.py /tmp/abyss_hourly_video_module.py
+          test -s .guild_banner_auth.env
+          test -s chzzk_hiyoriclip_collector.py
+          "$PY" -c 'import requests,dotenv'
+          mkdir -p creator_media
+          install -m 644 /tmp/abyss_hiyori_hourly_clip_updater.py hiyori_hourly_clip_updater.py
+          install -m 644 /tmp/abyss_hourly_card_module.py test_hiyori_chzzk_daily_card.py
+          install -m 644 /tmp/abyss_hourly_video_module.py chzzk_clip_video.py
+          # Do not reactivate the superseded 18:00 new-message publisher.
+          sudo systemctl disable --now abyss-hiyori-daily-clip.timer
+          # First create/update now, protected by the same collector flock.
+          /usr/bin/flock -w 180 creator_media/chzzk_hiyoriclip.lock "$PY" hiyori_hourly_clip_updater.py
+          cat >/tmp/abyss-hiyori-hourly-clip.service <<EOF
+          [Unit]
+          Description=Edit one Hiyori clip card using existing Discord banner bot
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/home/ubuntu/chzzk-bot
+          ExecStart=/usr/bin/flock -w 180 /home/ubuntu/chzzk-bot/creator_media/chzzk_hiyoriclip.lock $PY /home/ubuntu/chzzk-bot/hiyori_hourly_clip_updater.py
+          TimeoutStartSec=330
+          NoNewPrivileges=true
+          EOF
+          cat >/tmp/abyss-hiyori-hourly-clip.timer <<'EOF'
+          [Unit]
+          Description=Refresh one Discord Hiyori clip video card hourly
+
+          [Timer]
+          OnCalendar=*-*-* *:05:00 Asia/Seoul
+          AccuracySec=10s
+          RandomizedDelaySec=0
+          Persistent=false
+          Unit=abyss-hiyori-hourly-clip.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo install -m 644 /tmp/abyss-hiyori-hourly-clip.service /etc/systemd/system/abyss-hiyori-hourly-clip.service
+          sudo install -m 644 /tmp/abyss-hiyori-hourly-clip.timer /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-hiyori-hourly-clip.timer
+          sudo systemctl is-active abyss-hiyori-hourly-clip.timer
+          systemctl list-timers --all abyss-hiyori-hourly-clip.timer --no-pager
+          "$PY" hiyori_hourly_clip_updater.py --show
+          echo HIYORI_HOURLY_CLIP_INSTALLED
+          REMOTE
