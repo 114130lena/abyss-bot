@@ -1,0 +1,38 @@
+name: Inspect safe fanart review queue and RSS ingestion formats
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/inspect-fanart-review-source.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Print reviewed fanart pipeline code
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['fanart_discovery.py','fanart_review.py','fanart_candidate_cache.py']:
+              f=Path(name)
+              if f.exists():
+                  print('FILE',name)
+                  for n,line in enumerate(f.read_text().splitlines()[:180],1):
+                      print(f'{n:03d} {line}')
+                  print('END',name)
+          PY
+          REMOTE
