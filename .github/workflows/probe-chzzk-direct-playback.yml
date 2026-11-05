@@ -1,5 +1,5 @@
 name: Verify direct CHZZK clip playback metadata
-# Verify CHZZK content flags against valid MP4 access; redact signed URLs
+# Probe top selected KvK9UOrTYv clip and CDN availability without token disclosure
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
