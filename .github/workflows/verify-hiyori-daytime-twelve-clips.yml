@@ -1,0 +1,59 @@
+name: Verify and deploy Hiyori daytime twelve-clip board
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-hiyori-daytime-twelve-clips.yml]
+permissions:
+  contents: read
+jobs:
+  verify-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests python-dotenv
+      - name: Regression tests for daytime stop, twelve clips, history and existing bot
+        run: |
+          python -m py_compile hiyori_hourly_clip_updater.py
+          PYTHONPATH=scripts:. python -m unittest -v test_hiyori_hourly_clip_updater.py test_hiyori_chzzk_daily_publisher.py test_chzzk_hiyoriclip_collector.py
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST" && test -n "$KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Deploy and verify existing message update, without new message
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          remote="$USER@$HOST"
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes hiyori_hourly_clip_updater.py "$remote:/tmp/abyss_hiyori_daytime_twelve.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/abyss_hiyori_daytime_twelve.py
+          install -m 644 /tmp/abyss_hiyori_daytime_twelve.py hiyori_hourly_clip_updater.py
+          sudo sed -i 's#OnCalendar=\*-\*-\* 00/2:05:00 Asia/Seoul#OnCalendar=*-*-* 12/2:05:00 Asia/Seoul#' /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          grep -Fx 'OnCalendar=*-*-* 12/2:05:00 Asia/Seoul' /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          sudo systemctl daemon-reload
+          sudo systemctl restart abyss-hiyori-hourly-clip.timer
+          sudo systemctl is-active --quiet abyss-hiyori-hourly-clip.timer
+          systemctl list-timers --all abyss-hiyori-hourly-clip.timer --no-pager
+          /usr/bin/flock -w 180 creator_media/chzzk_hiyoriclip.lock "$PY" hiyori_hourly_clip_updater.py
+          "$PY" hiyori_hourly_clip_updater.py --show
+          echo HIYORI_DAYTIME_TWELVE_CLIPS_DEPLOYED
+          REMOTE
