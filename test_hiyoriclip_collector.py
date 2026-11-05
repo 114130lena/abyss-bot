@@ -55,7 +55,7 @@ class CollectorTests(unittest.TestCase):
             base=Path(folder)
             with patch.object(clip,"DEST",base),patch.object(clip,"INDEX",base/"index.json"),\
                  patch.object(clip,"STATUS",base/"state.json"),patch.object(clip,"ACCOUNTS",base/"accounts.txt"),\
-                 patch.object(clip,"URLS",base/"links.txt"),patch.dict(os.environ,{"X_BEARER_TOKEN":""}):
+                 patch.object(clip,"URLS",base/"links.txt"),patch.object(clip,"DISCOVERED",base/"discovered.txt"),patch.dict(os.environ,{"X_BEARER_TOKEN":""}):
                 (base/"links.txt").write_text("https://x.com/33ammi/status/2116841881615446466",encoding="utf-8")
                 with patch.object(clip,"fx_post",return_value=payload()):
                     result=clip.collect(session=Mock(),now=DATE+timedelta(hours=1))
