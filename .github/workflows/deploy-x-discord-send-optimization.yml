@@ -38,6 +38,7 @@ jobs:
           /usr/bin/flock -w 80 /tmp/abyss-x-delivery-deploy.lock bash -se <<'PATCH'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           BACKUP=$(mktemp -d /tmp/abyss-x-latency-backup.XXXXXX)
           STAGE=$(mktemp -d /tmp/abyss-x-latency-stage.XXXXXX)
           cp -p x_repost_notifier.py x_post_media.py resilience.py "$BACKUP"/
