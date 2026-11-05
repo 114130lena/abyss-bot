@@ -103,3 +103,57 @@ jobs:
             grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|X_FX_FEED|X_FX_REPOST_SCAN|Discord response timed out' |
             tail -n 120 || true
           REMOTE
+
+  full_bot_health_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'audit/full-bot-health-20261106'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read-only Oracle bot platform, timer and errors audit
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/audit_key
+          chmod 600 ~/.ssh/audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          for u in chzzk-bot.service abyss-guild-banner.timer abyss-media-refresh.timer abyss-guild-banner.service; do
+            echo "UNIT $u $(systemctl is-active "$u" 2>/dev/null || true)"
+          done
+          echo "TIMERS"
+          systemctl list-timers --all --no-pager | grep -E 'abyss|chzzk' || true
+          echo "BOT_LOG_COUNTS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections
+          lines=sys.stdin
+          keys=["ERROR","Traceback","failure #","WARNING","X 새 게시글 알림 성공","후야 X 새 글 알림","X_REPOST_DELIVERED","X_REPOST_DISCOVERED","X_FX_FEED","X_MEDIA_TEXT_ONLY_VERIFIED","X_MEDIA_RECHECK_FAILED","X_MEDIA_RECHECK_UNVERIFIED","X_MEDIA_UNVERIFIED_EMPTY","X_FANART_BLOCKED","FANART_SELECTED","FANART_DISCOVERY_PROFILE","FANART_REVIEW_CACHE","YouTube","유튜브","카페","치지직","WEBHOOK_DELIVERED","NAVER","X RSS 서버 조회 실패","DISCORD_WEBHOOK_DELIVERED"]
+          n=collections.Counter()
+          for line in lines:
+              for k in keys:
+                  if k in line:n[k]+=1
+          print(" ".join("%s=%d"%(k.replace(" ","_"),n[k]) for k in keys))
+          '
+          echo "RECENT_PROBLEMS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat |
+            grep -Ei 'ERROR|Traceback|failure #|X RSS 서버 조회 실패|후야 X RSS 소스 실패|FANART_FALLBACK|팬아트 링크 선택 실패|MEDIA_RECHECK_FAILED|NAVER_CAFE|HTTPError|Timeout' | tail -n 55 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "PLATFORM_LAST_EVENTS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso |
+            grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DELIVERED|FANART_SELECTED|FANART_DISCOVERY_PROFILE|디스코드 알림 전송 성공|유튜브.*알림|카페.*알림|YouTube banner updated|X_MEDIA_TEXT_ONLY_VERIFIED' | tail -n 45 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "BANNER_LAST_EVENTS"
+          sudo journalctl -u abyss-guild-banner.service --since '30 hours ago' --no-pager -o cat | tail -n 20 || true
+          echo "MEDIA_REFRESH_EVENTS"
+          sudo journalctl -u abyss-media-refresh.service --since '30 hours ago' --no-pager -o cat | tail -n 12 || true
+          echo "OPTIONS"
+          for key in ABYSS_RANDOM_MEDIA ABYSS_NOTIFICATION_FANART FANART_DISCOVERY_ENABLED FANART_CACHE_CANDIDATES SERVER_BANNER_USE_COLLECTED SERVER_BANNER_ALLOW_FIT; do
+            value=$(grep -m1 "^$key=" .env | cut -d= -f2- || true)
+            case "$value" in 0|1|true|false) echo "$key=$value";; *) echo "$key=default_or_unset";; esac
+          done
+          REMOTE
