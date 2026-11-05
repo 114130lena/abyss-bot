@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
+from hiyoriclip_discovery import candidates_from_rss, new_accounts
 
 ROOT=Path(os.getenv("BOT_DATA_DIR","/home/ubuntu/chzzk-bot"))
 DEST=ROOT/"creator_media"
@@ -28,6 +29,7 @@ INDEX=DEST/"hiyoriclip_posts.json"
 STATUS=DEST/"hiyoriclip_collect_status.json"
 ACCOUNTS=DEST/"hiyoriclip_accounts.txt"
 URLS=DEST/"hiyoriclip_post_urls.txt"
+DISCOVERED=DEST/"hiyoriclip_discovered_accounts.txt"
 TAG=re.compile(r"(?i)(?<!\w)#hiyoriclip_(?!\w)")
 POST=re.compile(r"^/(?:([A-Za-z0-9_]{1,15}))/status/([0-9]{10,25})$")
 MAX_BYTES=4_000_000
@@ -62,6 +64,11 @@ def handles():
         val=line.split("#",1)[0].strip().lstrip("@")
         if re.fullmatch(r"[A-Za-z0-9_]{1,15}",val) and val.casefold() not in [x.casefold() for x in results]:
             results.append(val)
+    if DISCOVERED.is_file():
+        for line in DISCOVERED.read_text("utf-8").splitlines():
+            val=line.split("#",1)[0].strip().lstrip("@")
+            if re.fullmatch(r"[A-Za-z0-9_]{1,15}",val) and val.casefold() not in [x.casefold() for x in results]:
+                results.append(val)
     return results[:70]
 
 
@@ -204,7 +211,13 @@ def account_feed(session,handle):
         body=(item.findtext("title") or "")+" "+" ".join(parser.words)
         if TAG.search(body):
             results.append(source)
-    return results
+    # A quoted/reposted original from another account can reveal a new creator.
+    # Do not trust RSS alone: each candidate is validated by fx_post+normalize.
+    references=candidates_from_rss(response.content.decode("utf-8","replace"),handle,TAG)
+    for author,post_id in references:
+        if (author,post_id) not in results:
+            results.append((author,post_id))
+    return results[:160]
 
 
 def official_search(session,token):
@@ -286,6 +299,28 @@ def collect(*, session=None, now=None):
                 new+=1
         except (requests.RequestException,ValueError,TypeError,KeyError,OverflowError) as exc:
             errors+=1
+    # Discover additional creator accounts only from original verified video clips.
+    # Never promote a feed reference or a failed lookup alone.
+    known=handles()
+    proposed=new_accounts(catalog,known,min_clips=1,limit=30)
+    existing_discovered=[]
+    if DISCOVERED.is_file():
+        existing_discovered=[v.strip() for v in DISCOVERED.read_text("utf-8").splitlines()
+                             if re.fullmatch(r"[A-Za-z0-9_]{1,15}",v.strip())]
+    seen_names={x.casefold() for x in existing_discovered}
+    additions=[]
+    for name in proposed:
+        if name.casefold() not in seen_names and len(existing_discovered)+len(additions)<30:
+            additions.append(name)
+            seen_names.add(name.casefold())
+    if additions:
+        _write_accounts=DISCOVERED.with_suffix(".tmp")
+        _write_accounts.parent.mkdir(parents=True,exist_ok=True)
+        _write_accounts.write_text("\\n".join(existing_discovered+additions)+"\\n",encoding="utf-8")
+        _write_accounts.chmod(0o600)
+        _write_accounts.replace(DISCOVERED)
+    sources["verified_account_discovery"]={"new_accounts":additions,
+                                         "discovered_account_total":len(existing_discovered)+len(additions)}
     # Never delete historical clips/selection records merely due to source outage.
     if len(catalog)>MAX_POSTS:
         raise RuntimeError("Clip index reached its safety limit; manual retention review required")
