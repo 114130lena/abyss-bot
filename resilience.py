@@ -135,7 +135,7 @@ def send_webhook(url, payload, attempts=3):
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
-            if not native_post_photo and os.getenv("ABYSS_FANART_URLS", "1") == "1":
+            if not native_post_photo and os.getenv("ABYSS_NOTIFICATION_FANART", "1").lower() not in ("0", "false", "no"):
                 try:
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
@@ -152,8 +152,25 @@ def send_webhook(url, payload, attempts=3):
             prepared = copy.deepcopy(prepared)
             for private_key in ("_abyss_photo_unknown","_abyss_has_video","_abyss_verified_text_only"):
                 prepared.pop(private_key,None)
+            # A curated local fanart image requires a real Discord attachment;
+            # using attachment:// without uploading the file leaves a blank card.
+            local_fanart = None
+            if selected_urls and selected_urls.get("local_path"):
+                from fanart_discovery import BASE as fanart_base
+                candidate = Path(selected_urls["local_path"]).resolve()
+                root = fanart_base.resolve()
+                if (root in candidate.parents and candidate.is_file()
+                        and candidate.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                        and 0 < candidate.stat().st_size <= 8_000_000):
+                    local_fanart = candidate
+                else:
+                    # Do not send an invalid dangling attachment reference.
+                    logging.warning("FANART_LOCAL_INVALID; restoring original footer")
+                    prepared = dict(payload)
+                    selected_urls = None
+                    chosen = None
             x_photos = _collect_x_image_attachments(prepared)
-            if chosen or x_photos:
+            if chosen or x_photos or local_fanart:
                 from contextlib import ExitStack
                 import io
                 with ExitStack() as stack:
@@ -170,6 +187,13 @@ def send_webhook(url, payload, attempts=3):
                         offset = 2
                     for i,(filename,data,mime) in enumerate(x_photos):
                         uploaded[f"files[{i+offset}]"] = (filename,io.BytesIO(data),mime)
+                    if local_fanart:
+                        extension = local_fanart.suffix.lower()
+                        mime = ("image/png" if extension == ".png" else
+                                "image/webp" if extension == ".webp" else "image/jpeg")
+                        filename = "abyss_notification_fanart" + extension
+                        uploaded[f"files[{offset + len(x_photos)}]"] = (
+                            filename, stack.enter_context(local_fanart.open("rb")), mime)
                     response = requests.post(url, data={"payload_json": json.dumps(prepared, ensure_ascii=False)},
                                              files=uploaded, timeout=35)
             else:
@@ -190,7 +214,7 @@ def send_webhook(url, payload, attempts=3):
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
                              attempt + 1, time.monotonic() - delivery_started,
-                             len(x_photos) + (2 if chosen else 0))
+                             len(x_photos) + (2 if chosen else 0) + (1 if local_fanart else 0))
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()
