@@ -1,4 +1,5 @@
 name: Probe hiyoriclip hashtag search API without publishing
+# Distinguish empty hashtag from unavailable API using control queries.
 on:
   push:
     branches: [feature/hiyoriclip-daily-recommendation]
