@@ -135,7 +135,7 @@ def send_webhook(url, payload, attempts=3):
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
-            if not native_post_photo and os.getenv("ABYSS_FANART_URLS", "0") == "1":
+            if not native_post_photo and os.getenv("ABYSS_FANART_URLS", "1") == "1":
                 try:
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
