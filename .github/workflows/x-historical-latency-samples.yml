@@ -1,0 +1,94 @@
+name: X historical delivery delay and banner fanart candidate status
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/x-historical-latency-samples.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Structured production delivery and source publication delays
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import re,json,subprocess,statistics,os
+          from pathlib import Path
+          from datetime import datetime,timezone
+          from dotenv import dotenv_values
+          s=subprocess.run(['sudo','journalctl','-u','chzzk-bot.service','--since','96 hours ago','--no-pager','-o','short-iso'],capture_output=True,text=True,timeout=35)
+          lines=s.stdout.splitlines()
+          print('JOURNAL_LINE_COUNT',len(lines),flush=True)
+          def stamp(line):
+              try:
+                  return datetime.fromisoformat(line.split(' ',1)[0])
+              except Exception:return None
+          events={'hiyori_original':[],'huya_original':[],'hiyori_repost':[],'huya_repost':[]}
+          for line in lines:
+              group=None
+              if 'X_REPOST_DELIVERED' in line:
+                  group='huya_repost' if 'creator=sakihane' in line else 'hiyori_repost'
+              elif 'X 새 게시글 알림 성공:' in line:
+                  group='hiyori_original'
+              elif '후야 X 새 글 알림:' in line or 'X_POST_DELIVERED creator=sakihane' in line:
+                  group='huya_original'
+              elif 'X_POST_DELIVERED creator=hanayo' in line:
+                  group='hiyori_original'
+              if not group:continue
+              t=stamp(line)
+              ids=re.findall(r'\b\d{18,20}\b',line)
+              seconds_match=re.search(r'(?:작성 후 지연|delivery_seconds|latency_seconds|delay_seconds)[=:](\d+(?:\.\d+)?)',line)
+              entry={'time':t.isoformat() if t else None,'id':ids[0] if ids else None}
+              if seconds_match:entry['logged_delay_seconds']=float(seconds_match.group(1))
+              if t and entry['id'] and entry['id'].isdigit():
+                  # X snowflake timestamp is post ID creation time, may be
+                  # the original post time rather than repost activity time.
+                  created=(int(entry['id'])>>22)+1288834974657
+                  age=(t.timestamp()*1000-created)/1000
+                  if 0<=age<30*86400:entry['snowflake_age_seconds']=round(age)
+              events[group].append(entry)
+          for group,arr in events.items():
+              dedup={}
+              for x in arr:
+                  if x['id'] not in dedup:dedup[x['id']]=x
+              arr=list(dedup.values())
+              ages=[x['snowflake_age_seconds'] for x in arr if 'snowflake_age_seconds' in x]
+              logs=[x['logged_delay_seconds'] for x in arr if 'logged_delay_seconds' in x]
+              ages_sorted=sorted(ages)
+              print('DELIVERY_SAMPLES',group,json.dumps({
+                'unique_delivery_events':len(arr),
+                'median_snowflake_age_seconds':round(statistics.median(ages)) if ages else None,
+                'max_snowflake_age_seconds':max(ages) if ages else None,
+                'logged_delay_median_seconds':round(statistics.median(logs),1) if logs else None,
+                'samples':arr[-7:]},ensure_ascii=False),flush=True)
+          for pattern in ('X_REPOST_DISCOVERED','X_SOURCE_BACKOFF','X RSS 서버 조회 실패','X_RSS_FETCH','X_POST_DELIVERED'):
+              count=sum(pattern in line for line in lines)
+              print('LOG_EVENT_COUNT',json.dumps({'event':pattern,'count':count}),flush=True)
+          for name in ['abyss-guild-banner.timer','abyss-media-sync.timer','abyss-fanart-collect.timer','abyss-fanart.timer']:
+              state=subprocess.run(['systemctl','is-active',name],capture_output=True,text=True).stdout.strip()
+              print('TIMER',name,state,flush=True)
+          for f in ('creator_media','fanart','assets'):
+              p=Path(f)
+              if p.exists():
+                  imgs=list(p.glob('*fanart*'))
+                  print('FANART_PATH',f,json.dumps({'fanart_named_files':len(imgs),'latest_mtime':max((x.stat().st_mtime for x in imgs),default=None)}),flush=True)
+          PY
+          REMOTE
