@@ -4,6 +4,7 @@ from datetime import datetime,timezone
 from urllib.parse import urlsplit
 from pathlib import Path
 from fanart_discovery import BASE, QUEUE, read, write
+from fanart_usage import notification_allowed
 
 HISTORY=BASE/'fanart_url_used.json'
 LOCK=threading.RLock()
@@ -23,7 +24,8 @@ def candidates(group):
     for item in read(QUEUE).values():
         if (not isinstance(item, dict) or item.get("group") != group
                 or item.get("review_status") != "approved"
-                or item.get("permission_confirmed") is not True):
+                or item.get("permission_confirmed") is not True
+                or not notification_allowed(group, item)):
             continue
         source = item.get("post_url", "")
         if not isinstance(source, str) or not source.startswith("https://x.com/"):
@@ -89,7 +91,7 @@ def apply(payload, group=None):
         return payload,None
     pool=candidates(group)
     if not pool:
-        logging.warning("FANART_FALLBACK group=%s reason=no_eligible_candidates",group)
+        logging.warning("FANART_FALLBACK group=%s reason=no_eligible_notification_candidates",group)
         return out,None
     # Unused artworks first; after exhaustion recycle the least recently used.
     # Preserve history across restarts, and never fall back merely because all were shown.
