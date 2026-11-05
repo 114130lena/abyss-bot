@@ -1,6 +1,6 @@
 """Maintain one editable '오늘의 히요리 클립' card with the EXISTING guild-banner bot.
 
-Hourly at :05 KST. Scan the last 24 hours completely and select highest-view
+Every two hours at even-hour :05 KST. Scan the last 24 hours completely and select highest-view
 CHZZK clip. PATCH the same bot-owned message, refreshing signed MP4 if possible.
 First run creates one message; uncertain creation is never automatically retried.
 No role pings, no new Discord app, no changes to guild banner rotation.
@@ -154,7 +154,7 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         print("HOURLY_HIYORI_CLIP_VIDEO_FALLBACK "+type(exc).__name__,flush=True)
     # Reuse the existing creator/brand presentation, but no rank/metrics/time.
     card=make_card(chosen,now=now,banner=banner,avatar=avatar,video_url=video or "",
-                   preview=False,footer_text="매시간 최신 클립 갱신")
+                   preview=False,footer_text="2시간마다 최신 클립 갱신")
     # Bot token REST endpoints reject webhook-only username, so remove it.
     card.pop("username",None)
     card["allowed_mentions"]={"parse":[]}
