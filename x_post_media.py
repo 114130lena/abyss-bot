@@ -55,7 +55,9 @@ def _recheck_empty(post, username, post_id, primary_tweet):
         if not isinstance(media, list):
             return None
         # An explicit mediaURLs list is stronger evidence than absent media.
-        if media or data.get("has_video") or data.get("videoURL") or data.get("video"):
+        if (media or data.get("hasMedia") or data.get("media_extended")
+                or data.get("combinedMediaUrl") or data.get("videoURL")
+                or data.get("has_video") or data.get("video")):
             logging.info("X_MEDIA_RECHECK_UNVERIFIED username=%s post=%s reason=secondary_has_media", username, post_id)
             return None
         if not isinstance(data.get("text"), str) or not data["text"].strip():
