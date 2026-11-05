@@ -1,0 +1,45 @@
+name: Verify CHZZK Hiyori clip collector on real public API
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-chzzk-clip-collector-live.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - name: Test 24-hour pagination, mature filtering and dedup
+        run: |
+          python -m py_compile chzzk_hiyoriclip_collector.py
+          python -m unittest -v test_chzzk_hiyoriclip_collector.py
+      - name: Collect real CHZZK clips in temporary GitHub runner, no Discord
+        env:
+          BOT_DATA_DIR: /tmp/chzzk-hiyori-collection-test
+        run: |
+          python -u chzzk_hiyoriclip_collector.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('creator_media')
+          report=json.loads((root/'chzzk_hiyoriclip_status.json').read_text())
+          entries=json.loads((root/'chzzk_hiyoriclip_posts.json').read_text())['clips']
+          recent=sorted(entries.values(),key=lambda x:x['views'],reverse=True)[:5]
+          print('CHZZK_CLIP_COMPARISON',json.dumps({
+            'scan_complete':report['complete_24h_scan'],
+            'pages':report['pages'],
+            'recent_count':report['recent_video_count'],
+            'views_present':sum(type(x.get('views')) is int for x in entries.values()),
+            'top_five':[{'title':x['title'],'views':x['views'],'url':x['url']} for x in recent],
+            'discord_publishing_enabled':report['discord_publishing_enabled']
+          },ensure_ascii=False))
+          PY
