@@ -25,14 +25,13 @@ def load_json(path, default):
         return default
 
 def _collect_x_image_attachments(prepared):
-    """Resolve only X media photo URLs and attach verified image bytes.
-
-    Original URL remains untouched if fetching the photo fails.
-    """
+    """Fetch up to four X photos concurrently; preserve original URLs on errors."""
     import io
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from urllib.parse import urlsplit
     from PIL import Image
-    attachments = []
+
+    candidates = []
     for container in prepared.get("components", []):
         for block in container.get("components", []):
             if block.get("type") != 12:
@@ -41,33 +40,57 @@ def _collect_x_image_attachments(prepared):
                 media = item.get("media", {})
                 source = media.get("url", "")
                 parsed = urlsplit(source)
-                if parsed.scheme != "https" or parsed.hostname != "pbs.twimg.com" or not parsed.path.startswith("/media/"):
-                    continue
-                if len(attachments) >= 4:
-                    return attachments
-                try:
-                    with requests.get(source, stream=True, timeout=12, allow_redirects=False) as res:
-                        res.raise_for_status()
-                        if not res.headers.get("Content-Type", "").lower().startswith("image/"):
-                            continue
-                        raw = bytearray()
-                        for part in res.iter_content(65536):
-                            raw.extend(part)
-                            if len(raw) > 8_000_000:
-                                raise ValueError("X image exceeds attachment limit")
-                    with Image.open(io.BytesIO(raw)) as im:
-                        im.verify()
-                    with Image.open(io.BytesIO(raw)) as im:
-                        if im.format not in ("JPEG", "PNG", "WEBP"):
-                            continue
-                        kind = im.format
-                    ext = ".png" if kind == "PNG" else ".webp" if kind == "WEBP" else ".jpg"
-                    name = "abyss_x_media_" + str(len(attachments)) + ext
-                    media["url"] = "attachment://" + name
-                    mime = "image/png" if ext == ".png" else "image/webp" if ext == ".webp" else "image/jpeg"
-                    attachments.append((name, bytes(raw), mime))
-                except (requests.RequestException, ValueError, OSError, TypeError) as exc:
-                    logging.warning("X post picture URL fetch failed; original URL retained: %s", type(exc).__name__)
+                if parsed.scheme == "https" and parsed.hostname == "pbs.twimg.com" and parsed.path.startswith("/media/"):
+                    candidates.append((media, source))
+                if len(candidates) >= 4:
+                    break
+            if len(candidates) >= 4:
+                break
+        if len(candidates) >= 4:
+            break
+
+    if not candidates:
+        return []
+
+    def fetch(index, source):
+        try:
+            with requests.get(source, stream=True, timeout=(2, 5), allow_redirects=False) as res:
+                res.raise_for_status()
+                if not res.headers.get("Content-Type", "").lower().startswith("image/"):
+                    return None
+                raw = bytearray()
+                for part in res.iter_content(65536):
+                    raw.extend(part)
+                    if len(raw) > 8_000_000:
+                        raise ValueError("X image exceeds attachment limit")
+            with Image.open(io.BytesIO(raw)) as im:
+                im.verify()
+            with Image.open(io.BytesIO(raw)) as im:
+                if im.format not in ("JPEG", "PNG", "WEBP"):
+                    return None
+                kind = im.format
+            ext = ".png" if kind == "PNG" else ".webp" if kind == "WEBP" else ".jpg"
+            mime = "image/png" if kind == "PNG" else "image/webp" if kind == "WEBP" else "image/jpeg"
+            return (index, "abyss_x_media_" + str(index) + ext, bytes(raw), mime)
+        except (requests.RequestException, ValueError, OSError, TypeError) as exc:
+            logging.warning("X photo fetch failed, retaining original URL: %s", type(exc).__name__)
+            return None
+
+    results = {}
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+        futures = [pool.submit(fetch, index, source) for index, (_, source) in enumerate(candidates)]
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                results[result[0]] = result
+    attachments = []
+    for index in sorted(results):
+        _, name, raw, mime = results[index]
+        candidates[index][0]["url"] = "attachment://" + name
+        attachments.append((name, raw, mime))
+    logging.info("X_MEDIA_DOWNLOAD count=%d success=%d elapsed_seconds=%.2f",
+                 len(candidates), len(attachments), time.monotonic() - started)
     return attachments
 
 def send_webhook(url, payload, attempts=3):
@@ -78,6 +101,7 @@ def send_webhook(url, payload, attempts=3):
         separator = "&" if "?" in url else "?"
         url = url + separator + "with_components=true"
     for attempt in range(attempts):
+        delivery_started = time.monotonic()
         try:
             # Internal metadata is stripped before the Discord API request.
             photo_unknown = bool(payload.get('_abyss_photo_unknown'))
@@ -164,6 +188,9 @@ def send_webhook(url, payload, attempts=3):
                         mark_delivered(*chosen)
                     except Exception as exc:
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
+                logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
+                             attempt + 1, time.monotonic() - delivery_started,
+                             len(x_photos) + (2 if chosen else 0))
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()

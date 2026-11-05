@@ -1,6 +1,5 @@
 """Discover images and video on an X status before choosing Discord footer media."""
 import logging
-import time
 from urllib.parse import urlsplit
 import requests
 
@@ -24,20 +23,16 @@ def resolve_media(post, username):
         endpoint=f"https://api.fxtwitter.com/{username}/status/{post_id}"
         media=None
         tweet={}
-        for attempt in range(3):
-            response=requests.get(endpoint,timeout=(2.5,4),headers={"User-Agent":"abyss-bot/1.0"})
-            response.raise_for_status()
-            data=response.json()
-            candidate=data.get("tweet") if isinstance(data,dict) else None
-            if not isinstance(candidate,dict):
-                return existing,"",False,False
-            tweet=candidate
-            media=tweet.get("media")
-            if isinstance(media,dict):
-                break
-            # Missing metadata is not proof the original post is text-only.
-            if attempt<2:
-                time.sleep(2)
+        # One bounded enrichment attempt. RSS photos remain as fallback;
+        # repeated upstream waits must not block Discord delivery.
+        response=requests.get(endpoint,timeout=(1.5,3),headers={"User-Agent":"abyss-bot/1.0"})
+        response.raise_for_status()
+        data=response.json()
+        candidate=data.get("tweet") if isinstance(data,dict) else None
+        if not isinstance(candidate,dict):
+            return existing,"",False,False
+        tweet=candidate
+        media=tweet.get("media")
         if media is None:
             logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
             return existing,"",False,False
