@@ -1,0 +1,65 @@
+name: Monitor guild banner scheduled updates
+on:
+  schedule:
+    # 08:40 and 18:40 Asia/Seoul, after multiple Oracle retries.
+    - cron: '40 23 * * *'
+    - cron: '40 9 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: abyss-guild-banner-health
+  cancel-in-progress: false
+jobs:
+  health:
+    if: github.repository == '114130lena/abyss-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Prepare SSH
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Check actual Oracle banner state, open issue only if unhealthy
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          report="$(mktemp)"
+          if ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
+            'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" guild_banner_healthcheck.py' > "$report" 2>&1; then
+            cat "$report"
+            echo "GUILD_BANNER_HEALTH=ok"
+            exit 0
+          fi
+          cat "$report"
+          # A single open issue prevents notification spam on repeated retries.
+          title="[guild-banner] Scheduled server banner needs attention"
+          existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
+            --jq '.[] | select(.title == "[guild-banner] Scheduled server banner needs attention") | .number' | head -n 1)"
+          if [ -z "$existing" ]; then
+            {
+              echo "A scheduled Discord server banner slot is missing or unconfirmed."
+              echo
+              echo "GitHub Actions: https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+              echo
+              echo "Oracle systemd: abyss-guild-banner.timer / abyss-guild-banner.service"
+              echo
+              echo "Check the latest logs, pending transaction and channel card state. The main notification service was not restarted."
+            } > /tmp/banner_issue.txt
+            gh issue create --repo "$REPO" --title "$title" --body-file /tmp/banner_issue.txt
+          else
+            echo "GUILD_BANNER_HEALTH existing_issue=$existing (not creating duplicate)"
+          fi
+          exit 1
