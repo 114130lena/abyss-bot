@@ -23,4 +23,10 @@ jobs:
         run: |
           python -m py_compile x_post_media.py twitter_notifier.py twitter_huya_notifier.py x_repost_notifier.py discord_v2.py resilience.py
           python -m unittest -v test_x_inline_clips.py
-          python -m unittest -v test_bot.py
+          python -m unittest -v \
+            test_bot.RoutingTests.test_x_rss_description_preserves_paragraphs \
+            test_bot.RoutingTests.test_x_rss_description_falls_back_to_title \
+            test_bot.RoutingTests.test_x_rss_merges_backup_posts_without_duplicates \
+            test_bot.RoutingTests.test_x_rss_every_source_checked_each_cycle \
+            test_bot.RoutingTests.test_x_rss_primary_failure_tries_backup_immediately \
+            test_bot.RoutingTests.test_x_rss_runs_sources_concurrently
