@@ -1,4 +1,4 @@
-name: Verify initial live fanart RSS review collection
+name: Verify fixed public fanart RSS candidate collection
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
