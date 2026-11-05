@@ -103,26 +103,39 @@ def send_webhook(url, payload, attempts=3):
     for attempt in range(attempts):
         delivery_started = time.monotonic()
         try:
-            prepared = payload
+            # Internal metadata is stripped before the Discord API request.
+            photo_unknown = bool(payload.get('_abyss_photo_unknown'))
+            has_video = bool(payload.get('_abyss_has_video'))
+            verified_text_only = bool(payload.get('_abyss_verified_text_only'))
+            prepared = dict(payload)
+            prepared.pop('_abyss_photo_unknown', None)
+            prepared.pop('_abyss_has_video', None)
+            prepared.pop('_abyss_verified_text_only', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
             # Skip randomized local attachments entirely for those notifications.
-            native_post_photo = False
+            native_post_photo = photo_unknown or has_video
             try:
                 from fanart_url_media import has_post_photos
-                native_post_photo = has_post_photos(payload)
+                native_post_photo = native_post_photo or has_post_photos(payload)
                 tag = " ".join(c.get("content","") for box in payload.get("components",[]) if box.get("type")==17 for c in box.get("components",[]) if c.get("type")==10)
                 native_post_photo = native_post_photo or "YOUTUBE" in tag or ("CHZZK" in tag and "다시보기" in tag)
+                # X may list a photo-free item before its photo metadata arrives.
+                # Only confirmed original-media absence can authorize fanart.
+                if "𝕏 X" in tag and not verified_text_only:
+                    native_post_photo = True
+                    logging.info("X_FANART_BLOCKED reason=unverified_media")
             except Exception as exc:
                 logging.warning("게시글 이미지 확인 실패: %s", exc)
+                native_post_photo = True
             if not native_post_photo and os.getenv("ABYSS_RANDOM_MEDIA", "0").lower() in ("1", "true", "yes"):
                 try:
                     from random_media import prepare_payload
                     prepared, chosen = prepare_payload(payload)
                 except Exception as exc:
                     logging.warning("랜덤 이미지 준비 실패, 기존 이미지 사용: %s", exc)
-            if os.getenv("ABYSS_FANART_URLS", "0") == "1":
+            if not native_post_photo and os.getenv("ABYSS_FANART_URLS", "0") == "1":
                 try:
                     from fanart_url_media import apply as apply_fanart_urls
                     linked, selected_urls = apply_fanart_urls(prepared)
@@ -133,11 +146,12 @@ def send_webhook(url, payload, attempts=3):
                         logging.info('FANART_SELECTED group=%s source=%s', selected_urls.get('group'), selected_urls.get('banner', ('','',''))[2])
                 except Exception as exc:
                     logging.warning("팬아트 링크 선택 실패: %s", exc)
-            # Attach X post photos alongside the existing random header/footer images.
-            # Work from a fresh payload copy so retries never use stale attachment URLs.
-            if prepared is payload:
-                import copy
-                prepared = copy.deepcopy(payload)
+            # Sanitize after all media decorators: they may return the original
+            # payload, which still contains internal classification markers.
+            import copy
+            prepared = copy.deepcopy(prepared)
+            for private_key in ("_abyss_photo_unknown","_abyss_has_video","_abyss_verified_text_only"):
+                prepared.pop(private_key,None)
             x_photos = _collect_x_image_attachments(prepared)
             if chosen or x_photos:
                 from contextlib import ExitStack
