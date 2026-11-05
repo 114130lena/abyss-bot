@@ -168,6 +168,24 @@ jobs:
           sudo journalctl -u abyss-guild-banner.service --since '30 hours ago' --no-pager -o cat | tail -n 20 || true
           echo "MEDIA_REFRESH_EVENTS"
           sudo journalctl -u abyss-media-refresh.service --since '30 hours ago' --no-pager -o cat | tail -n 12 || true
+          echo 'WEBSUB_SETUP'
+          for key in YOUTUBE_WEBSUB_CALLBACK_URL YOUTUBE_WEBSUB_SECRET YOUTUBE_WEBSUB_PORT; do
+            if grep -q "^$key=" .env; then
+              if [ "$key" = YOUTUBE_WEBSUB_CALLBACK_URL ]; then
+                value=$(grep -m1 "^$key=" .env | cut -d= -f2-)
+                case "$value" in https://*) echo "$key=HTTPS_CONFIGURED";; *) echo "$key=INVALID_OR_EMPTY";; esac
+              else
+                echo "$key=CONFIGURED"
+              fi
+            else echo "$key=ABSENT"; fi
+          done
+          echo "WEBSUB_LISTEN $(ss -lnt | grep -c ':8765 ' || true)"
+          echo "PROXY_TOOLS"
+          for tool in caddy nginx certbot tailscale cloudflared; do command -v "$tool" || true; done
+          echo "PROXY_UNITS"
+          for unit in caddy nginx apache2 cloudflared tailscaled; do echo "$unit=$(systemctl is-active "$unit" 2>/dev/null || true)"; done
+          echo "PROXY_WEB_CONF_EXISTS"
+          for file in /etc/caddy/Caddyfile /etc/nginx/sites-enabled/default; do if [ -f "$file" ]; then echo "$file yes"; fi; done
           echo "OPTIONS"
           for key in ABYSS_RANDOM_MEDIA ABYSS_NOTIFICATION_FANART FANART_DISCOVERY_ENABLED FANART_CACHE_CANDIDATES SERVER_BANNER_USE_COLLECTED SERVER_BANNER_ALLOW_FIT; do
             value=$(grep -m1 "^$key=" .env | cut -d= -f2- || true)
