@@ -15,6 +15,7 @@ from youtube_notifier import check_youtube
 from x_spaces_notifier import check_spaces
 from youtube_websub import start_websub
 from banner_manager import get_banner, run_banner_refresh
+from guild_server_banner import run_server_banner_scheduler
 from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import chzzk_group, role_for
@@ -167,6 +168,7 @@ def main():
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
     threading.Thread(target=run_banner_refresh, name="youtube-banners", daemon=True).start()
+    threading.Thread(target=run_server_banner_scheduler, name="guild-server-banner", daemon=True).start()
     start_websub()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):

@@ -1,0 +1,42 @@
+name: Verify active Oracle banner timer and shared state
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/verify-oracle-banner-timer.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Connect to Oracle without restarting main bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          test "$(stat -c '%a' .guild_banner_auth.env)" = "600"
+          systemctl is-enabled abyss-guild-banner.timer
+          systemctl is-active abyss-guild-banner.timer
+          systemctl list-timers --all abyss-guild-banner.timer --no-pager
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          from guild_server_banner import read_state
+          state=read_state()
+          print("BANNER_LAST_SLOT="+str(state.get("last_slot")))
+          print("BANNER_LAST_ARTIST="+str(state.get("artist")))
+          print("BANNER_CARD_PENDING="+str(state.get("info_card_pending",False)))
+          print("BANNER_MESSAGE_ID="+str(state.get("info_message_id")))
+          PY
+          echo "TIMER_RECENT_JOURNAL:"
+          sudo journalctl -u abyss-guild-banner.service -n 12 --no-pager -o cat | tail -n 12 || true
+          REMOTE

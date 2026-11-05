@@ -1,0 +1,64 @@
+name: Inspect collected fanart for guild banner
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/inspect-collected-fanart.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect current fanart queue, no image upload or Discord writes
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'cd /home/ubuntu/chzzk-bot; if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" -' <<'PY'
+          import json,pathlib,collections, re
+          from PIL import Image, ImageOps
+          b=pathlib.Path('/home/ubuntu/chzzk-bot/creator_media')
+          def read(name):
+              try:return json.loads((b/name).read_text('utf-8'))
+              except (OSError,ValueError):return {}
+          q=read('fanart_discovery.json')
+          items=[v for v in q.values() if isinstance(v,dict) and v.get('group')=='hanayo']
+          status=collections.Counter(str(v.get('review_status','pending')) for v in items)
+          decision=collections.Counter(str(v.get('decision','unknown')) for v in items)
+          cached=sum(len([p for p in v.get('cached_files',[]) if isinstance(p,str) and (b/p).is_file()]) for v in items)
+          with_media=sum(bool(v.get('image_urls')) for v in items)
+          forbidden=sum(any(t in str(v.get('text','')).lower() for t in ('転載禁止','使用禁止','배포 금지','사용 금지','do not repost','do not use')) for v in items)
+          idx=read('fanart_index.json')
+          approved=sum(bool(v.get('approved') and v.get('permission_confirmed')) for v in idx.get('hanayo',[]) if isinstance(v,dict))
+          valid=0
+          mixed=0
+          eligible_posts=0
+          for v in items:
+              text=str(v.get('text','')).lower()
+              if '#huyart' in text or '#nanart_' in text:
+                  mixed+=1
+                  continue
+              any_valid=False
+              for rel in v.get('cached_files',[]):
+                  p=(b/rel).resolve() if isinstance(rel,str) else None
+                  if not p or b.resolve() not in p.parents or not p.is_file():continue
+                  try:
+                      with Image.open(p) as img:
+                          width,height=ImageOps.exif_transpose(img).size
+                          ratio=width/height
+                          if width>=960 and height>=540 and (abs(ratio-16/9)<=.035 or abs(ratio-16/10)<=.03):
+                              valid+=1
+                              any_valid=True
+                  except (OSError,ValueError):pass
+              eligible_posts+=bool(any_valid)
+          print('BANNER_ASPECT_COUNT '+json.dumps({'eligible_images':valid,'eligible_posts':eligible_posts,'mixed_tag_posts_excluded':mixed}))
+          print('COLLECTED_FANART_SUMMARY '+json.dumps({'hanayo_posts':len(items),'post_with_images':with_media,'cached_local_images':cached,'statuses':dict(status),'permission_decisions':dict(decision),'explicit_restrictions_found':forbidden,'approved_hanayo_images':approved},ensure_ascii=False))
+          PY

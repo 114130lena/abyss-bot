@@ -1,0 +1,115 @@
+name: Install independent Oracle guild banner systemd timer
+# Reinstall with crash-safe state and health tests.
+on:
+  push:
+    branches: [feature/hanayo-approved-fanart-server-banner]
+    paths: [.github/workflows/install-guild-banner-timer.yml]
+permissions:
+  contents: read
+concurrency:
+  group: abyss-banner-timer-install
+  cancel-in-progress: false
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hanayo-approved-fanart-server-banner
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test independent timer and unchanged banner/card logic
+        run: |
+          python -m pip install 'Pillow>=10,<13' 'requests>=2.30,<3'
+          python -m unittest -v test_guild_server_banner.py test_guild_banner_info_card.py test_guild_banner_timer_runner.py test_guild_banner_safety.py
+          python -m py_compile guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py scripts/guild_banner_info_card.py scripts/guild_banner_safety.py
+      - name: Prepare existing SSH
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Install isolated modules and restricted Discord credentials
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" && test -n "$DISCORD_BOT_TOKEN" && test -n "$DISCORD_GUILD_ID"
+          remote="$SSH_USER@$SSH_HOST"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" \
+            'mkdir -p /home/ubuntu/chzzk-bot/scripts /home/ubuntu/chzzk-bot/creator_media'
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+            guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py \
+            "$remote:/home/ubuntu/chzzk-bot/"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+            scripts/guild_banner_info_card.py scripts/guild_banner_safety.py "$remote:/home/ubuntu/chzzk-bot/scripts/"
+          # Never log the token or pass it through a process command argument on Oracle.
+          umask 077
+          auth_file="$(mktemp)"
+          trap 'rm -f "$auth_file"' EXIT
+          printf 'DISCORD_BOT_TOKEN=%s\nDISCORD_GUILD_ID=%s\n' \
+            "$DISCORD_BOT_TOKEN" "$DISCORD_GUILD_ID" > "$auth_file"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+            "$auth_file" "$remote:/home/ubuntu/chzzk-bot/.guild_banner_auth.env.new"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          mv .guild_banner_auth.env.new .guild_banner_auth.env
+          chmod 600 .guild_banner_auth.env
+          if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python
+          elif [ -x .venv-test/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python
+          else echo "Python virtualenv unavailable" >&2; exit 1; fi
+          "$PY" -m py_compile guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py scripts/guild_banner_info_card.py scripts/guild_banner_safety.py
+          # Validate the KST expression before touching systemd.
+          systemd-analyze calendar '*-*-* 08,18:00/5:00 Asia/Seoul'
+          cat > /tmp/abyss-guild-banner.service <<EOF
+          [Unit]
+          Description=Rotate Hanayo guild banner without touching Discord notifications
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/home/ubuntu/chzzk-bot
+          EnvironmentFile=/home/ubuntu/chzzk-bot/.guild_banner_auth.env
+          Environment=SERVER_BANNER_USE_COLLECTED=1
+          Environment=SERVER_BANNER_ALLOW_FIT=1
+          ExecStart=/usr/bin/flock -n /home/ubuntu/chzzk-bot/creator_media/guild_banner_rotation.lock $PY /home/ubuntu/chzzk-bot/guild_banner_timer_runner.py
+          TimeoutStartSec=180
+          NoNewPrivileges=true
+          EOF
+          cat > /tmp/abyss-guild-banner.timer <<'EOF'
+          [Unit]
+          Description=Retry Hanayo guild banner at KST 08:00 and 18:00 every five minutes
+
+          [Timer]
+          OnCalendar=*-*-* 08,18:00/5:00 Asia/Seoul
+          AccuracySec=1s
+          RandomizedDelaySec=0
+          Persistent=true
+          Unit=abyss-guild-banner.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo install -m 644 /tmp/abyss-guild-banner.service /etc/systemd/system/abyss-guild-banner.service
+          sudo install -m 644 /tmp/abyss-guild-banner.timer /etc/systemd/system/abyss-guild-banner.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-guild-banner.timer
+          sudo systemctl is-active abyss-guild-banner.timer
+          systemctl list-timers --all abyss-guild-banner.timer --no-pager
+          echo "BANNER_TIMER_INSTALLED=1"
+          REMOTE
