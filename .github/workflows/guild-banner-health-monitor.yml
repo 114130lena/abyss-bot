@@ -41,6 +41,13 @@ jobs:
             'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" guild_banner_healthcheck.py' > "$report" 2>&1; then
             cat "$report"
             echo "GUILD_BANNER_HEALTH=ok"
+            resolved="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
+              --jq '.[] | select(.title == "[guild-banner] Scheduled server banner needs attention") | .number' | head -n 1)"
+            if [ -n "$resolved" ]; then
+              gh issue comment "$resolved" --repo "$REPO" --body "Scheduled banner has recovered. Verified by Actions run $GITHUB_RUN_ID."
+              gh issue close "$resolved" --repo "$REPO"
+              echo "GUILD_BANNER_HEALTH resolved_issue=$resolved"
+            fi
             exit 0
           fi
           cat "$report"
