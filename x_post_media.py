@@ -24,8 +24,7 @@ def _resolve_media_all(post, username):
     """Return (photos, video_preview, has_video, known, direct_mp4).
 
     An unreachable/ambiguous API response is unknown, never a confirmed text-only post.
-    Prefer a public video thumbnail with a clickable original X post link:
-    remote MP4 URLs cannot be assumed to embed correctly in Discord.
+    Preserve the video thumbnail and original X link as fallback if an\n    external MP4 cannot be embedded by the Discord client.
     """
     existing=list(post.get("images") or [])
     post_id=str(post.get("id",""))
@@ -51,10 +50,10 @@ def _resolve_media_all(post, username):
                 time.sleep(2)
         if media is None:
             logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
-            return existing,"",False,False
+            return existing,"",False,False,""
         if not isinstance(media,dict) or not media:
             logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
-            return existing,"",False,False
+            return existing,"",False,False,""
         photos=[]
         for item in media.get("photos",[]) or []:
             if not isinstance(item,dict):continue
@@ -90,7 +89,7 @@ def _resolve_media_all(post, username):
         return photos[:4],preview,has_video,confirmed,direct_mp4
     except (requests.RequestException,ValueError,TypeError) as exc:
         logging.warning("X_MEDIA_UNKNOWN username=%s post=%s reason=%s",username,post_id,str(exc)[:120])
-        return existing,"",False,False
+        return existing,"",False,False,""
 
 def resolve_media(post, username):
     """Compatibility API for existing photo-safety callers."""
