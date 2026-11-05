@@ -121,6 +121,7 @@ jobs:
                   if w>=600 and h>=600 and .5<=a<=2.5:c['fit']+=1
           print('DIAG_IMAGE_DIMENSIONS '+json.dumps(c))
           PY
+          echo "DIAG_POST_DEPLOY_20261105"
           echo "DIAG_BANNER_LOGS_START"
           sudo journalctl -u abyss-guild-banner.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | tail -n 40 || true
           sudo journalctl -u chzzk-bot.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | grep -Ei 'banner|배너' | tail -n 35 || true
