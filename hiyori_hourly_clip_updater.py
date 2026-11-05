@@ -28,7 +28,7 @@ GUILD="919216649880633465"
 API="https://discord.com/api/v10"
 MARKER="오늘의 히요리 클립"
 WINDOW=timedelta(hours=24)
-ACTIVE_HOURS=(12,16,20)
+ACTIVE_HOURS=(8,18)
 SHOW_TOP=10
 HISTORY_MAX=80
 
