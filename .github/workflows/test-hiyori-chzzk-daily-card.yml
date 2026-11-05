@@ -1,4 +1,5 @@
 name: Send inline CHZZK daily clip video test card
+# Diagnose public MP4 candidates without logging signed CDN URLs
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
