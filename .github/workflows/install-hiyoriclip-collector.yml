@@ -1,0 +1,96 @@
+name: Install isolated Hiyoriclip metadata collector (no Discord posts)
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/install-hiyoriclip-collector.yml]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hiyoriclip-daily-recommendation
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'requests>=2.30,<3'
+      - name: Test collection is idempotent, hashtag-exact and no-Discord
+        run: |
+          python -m unittest -v test_hiyoriclip_collector.py
+          python -m py_compile hiyoriclip_collector.py
+          ! grep -E 'send_webhook|discord.com/api' hiyoriclip_collector.py
+      - name: Prepare existing SSH connection
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Install separate collection timer without restarting notification bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          remote="$SSH_USER@$SSH_HOST"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes hiyoriclip_collector.py "$remote:/tmp/abyss-hiyoriclip-collector.py"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes config/hiyoriclip_accounts.txt "$remote:/tmp/abyss-hiyoriclip-accounts.txt"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          mkdir -p creator_media
+          if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python
+          elif [ -x .venv-test/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python
+          else echo "No Python virtualenv" >&2; exit 1; fi
+          "$PY" -m py_compile /tmp/abyss-hiyoriclip-collector.py
+          install -m 644 /tmp/abyss-hiyoriclip-collector.py hiyoriclip_collector.py
+          if [ ! -s creator_media/hiyoriclip_accounts.txt ]; then
+            install -m 600 /tmp/abyss-hiyoriclip-accounts.txt creator_media/hiyoriclip_accounts.txt
+          fi
+          systemd-analyze calendar '*-*-* *:00/30:00 Asia/Seoul'
+          cat >/tmp/abyss-hiyoriclip-collector.service <<EOF
+          [Unit]
+          Description=Collect #hiyoriclip_ X post metadata only
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/home/ubuntu/chzzk-bot
+          Environment=BOT_DATA_DIR=/home/ubuntu/chzzk-bot
+          ExecStart=/usr/bin/flock -n /home/ubuntu/chzzk-bot/creator_media/hiyoriclip_collection.lock $PY /home/ubuntu/chzzk-bot/hiyoriclip_collector.py
+          TimeoutStartSec=240
+          NoNewPrivileges=true
+          EOF
+          cat >/tmp/abyss-hiyoriclip-collector.timer <<'EOF'
+          [Unit]
+          Description=Collect public Hiyoriclip metadata every 30 minutes
+
+          [Timer]
+          OnCalendar=*-*-* *:00/30:00 Asia/Seoul
+          AccuracySec=30s
+          RandomizedDelaySec=0
+          Persistent=true
+          Unit=abyss-hiyoriclip-collector.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo install -m 644 /tmp/abyss-hiyoriclip-collector.service /etc/systemd/system/abyss-hiyoriclip-collector.service
+          sudo install -m 644 /tmp/abyss-hiyoriclip-collector.timer /etc/systemd/system/abyss-hiyoriclip-collector.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-hiyoriclip-collector.timer
+          sudo systemctl is-active abyss-hiyoriclip-collector.timer
+          systemctl list-timers --all abyss-hiyoriclip-collector.timer --no-pager
+          echo HIYORICLIP_COLLECTOR_INSTALLED
+          REMOTE
