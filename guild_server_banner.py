@@ -55,6 +55,17 @@ def write_state(state):
     temp = destination.with_suffix(".tmp")
     backup = destination.with_suffix(".json.bak")
     older = destination.with_suffix(".json.bak2")
+    # Preserve a permanent list of posts used for guild banners even when
+    # rotation_used resets at the end of a cycle. The notification footer
+    # must never reuse one of those source posts.
+    from fanart_usage import canonical_post
+    historical = read_state()
+    ids = [x for x in historical.get("all_used_post_ids", []) if isinstance(x, str) and x.isdigit()]
+    ids.extend(x for x in state.get("all_used_post_ids", []) if isinstance(x, str) and x.isdigit())
+    current_id = canonical_post(state.get("post_url"))
+    if current_id:
+        ids.append(current_id)
+    state = {**state, "all_used_post_ids": list(dict.fromkeys(ids))}
     serialized = json.dumps(state, ensure_ascii=False, indent=2)
     temp.write_text(serialized, encoding="utf-8")
     temp.chmod(0o600)
