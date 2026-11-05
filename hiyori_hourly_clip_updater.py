@@ -1,6 +1,6 @@
 """Maintain one editable '오늘의 히요리 클립' card with the EXISTING guild-banner bot.
 
-Every two hours at even-hour :05 KST. Scan the last 24 hours completely and select highest-view
+Every two hours 12:05-22:05 KST (sleep overnight). Scan the last 24 hours completely and select highest-view
 CHZZK clip. PATCH the same bot-owned message, refreshing signed MP4 if possible.
 First run creates one message; uncertain creation is never automatically retried.
 No role pings, no new Discord app, no changes to guild banner rotation.
@@ -28,6 +28,9 @@ GUILD="919216649880633465"
 API="https://discord.com/api/v10"
 MARKER="오늘의 히요리 클립"
 WINDOW=timedelta(hours=24)
+ACTIVE_HOURS=(12,14,16,18,20,22)
+SHOW_TOP=12
+HISTORY_MAX=80
 
 def _now(now=None):
     current=now or datetime.now(KST)
@@ -38,7 +41,7 @@ def _now(now=None):
 def _slot(now):
     return _now(now).strftime("%Y-%m-%dT%H")
 
-def choose(catalog,now):
+def ranked(catalog,now):
     now=_now(now).astimezone(timezone.utc)
     start=now-WINDOW
     result=[]
@@ -56,7 +59,37 @@ def choose(catalog,now):
         if item.get("url")!="https://chzzk.naver.com/clips/"+str(item.get("id")):
             continue
         result.append(item)
-    return sorted(result,key=lambda x:(-x["views"],x.get("created_at",""),x["id"]))[0] if result else None
+    return sorted(result,key=lambda x:(-x["views"],x.get("created_at",""),x["id"]))
+
+def choose(catalog,now):
+    top=ranked(catalog,now)
+    return top[0] if top else None
+
+def _markdown_title(value):
+    title=str(value or "제목 없음").replace("\\","\\\\").replace("\n"," ")[:80]
+    for ch in ("[","]","(",")","*","_","~","`"):
+        title=title.replace(ch,"\\"+ch)
+    return title
+
+def _clip_link(clip):
+    return "["+_markdown_title(clip.get("title"))+"](https://chzzk.naver.com/clips/"+str(clip["id"])+")"
+
+def _extra_links(top,history):
+    candidates=top[1:SHOW_TOP]
+    lines=["**📂 다른 인기 클립 · "+str(len(candidates))+"개**"]
+    lines.extend(str(index)+". "+_clip_link(item) for index,item in enumerate(candidates,2))
+    old=[]
+    currently={str(item["id"]) for item in top[:SHOW_TOP]}
+    for item in reversed(history):
+        if isinstance(item,dict) and item.get("id") and item["id"] not in currently:
+            old.append(item)
+        if len(old)>=8:
+            break
+    if old:
+        lines.extend(["","**🕘 이전에 소개한 클립**"])
+        lines.extend("• "+_clip_link(item) for item in old)
+    return "\n".join(lines)[:3700]
+
 
 def _auth():
     values=dotenv_values(BANNER_AUTH)
@@ -125,6 +158,8 @@ def _ensure_message_id(session,bot_id,state):
 def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avatar="",dry_run=False):
     now=_now(now)
     slot=_slot(now)
+    if now.hour not in ACTIVE_HOURS or now.minute<5:
+        return {"status":"outside_active_hours","slot":slot}
     state=_saved()
     if state.get("last_success_slot")==slot:
         return {"status":"already_updated_this_hour","slot":slot,"message_id":state.get("message_id")}
@@ -136,7 +171,8 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
     if not checked or abs((checked-now.astimezone(timezone.utc)).total_seconds())>240:
         raise RuntimeError("CHZZK data freshness check failed")
     source=collector.read(collector.INDEX).get("clips",{})
-    chosen=choose(source,now)
+    top=ranked(source,now)
+    chosen=top[0] if top else None
     if not chosen:
         return {"status":"no_eligible_recent_clips_keep_previous","slot":slot}
     if dry_run:
@@ -154,7 +190,15 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         print("HOURLY_HIYORI_CLIP_VIDEO_FALLBACK "+type(exc).__name__,flush=True)
     # Reuse the existing creator/brand presentation, but no rank/metrics/time.
     card=make_card(chosen,now=now,banner=banner,avatar=avatar,video_url=video or "",
-                   preview=False,footer_text="2시간마다 최신 클립 갱신")
+                   preview=False,footer_text="12:05~22:05 · 2시간마다 갱신")
+    old_history=state.get("featured_history",[])
+    if not isinstance(old_history,list):
+        old_history=[]
+    extras=_extra_links(top,old_history)
+    if extras:
+        card["components"][0]["components"].insert(-1,{"type":10,"content":extras})
+    if len(card["components"][0]["components"])>10:
+        raise RuntimeError("Discord V2 card components exceed maximum")
     # Bot token REST endpoints reject webhook-only username, so remove it.
     card.pop("username",None)
     card["allowed_mentions"]={"parse":[]}
@@ -178,7 +222,11 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         updated=response.json()
         if str(updated.get("id"))!=str(msgid) or not _is_ours(updated,bot_id):
             raise RuntimeError("Discord updated-message response mismatch")
-    state.update({"version":1,"channel_id":CHANNEL,"message_id":str(msgid),
+    if not old_history or old_history[-1].get("id")!=chosen["id"]:
+        old_history.append({"id":chosen["id"],"title":chosen.get("title",""),
+                            "featured_at":now.isoformat()})
+    state.update({"featured_history":old_history[-HISTORY_MAX:],
+                  "version":1,"channel_id":CHANNEL,"message_id":str(msgid),
                   "create_pending":False,"last_success_slot":slot,
                   "last_clip_id":chosen["id"],"last_updated_at":now.isoformat()})
     _persist(state)
