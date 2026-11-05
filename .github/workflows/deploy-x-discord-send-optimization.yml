@@ -1,0 +1,76 @@
+name: Safely optimize live X repost Discord delivery delays
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/deploy-x-discord-send-optimization.yml]
+permissions: {contents: read}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - name: Syntax-check patch and install SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/optimize_x_delivery.py
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Validate against real deployed source; deploy with atomic backup
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes scripts/optimize_x_delivery.py "$USER@$HOST:/tmp/abyss_optimize_x_delivery.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 80 /tmp/abyss-x-delivery-deploy.lock bash -se <<'PATCH'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          BACKUP=$(mktemp -d /tmp/abyss-x-latency-backup.XXXXXX)
+          STAGE=$(mktemp -d /tmp/abyss-x-latency-stage.XXXXXX)
+          cp -p x_repost_notifier.py x_post_media.py resilience.py "$BACKUP"/
+          cp -p x_repost_notifier.py x_post_media.py resilience.py "$STAGE"/
+          restore() {
+            cp -p "$BACKUP"/x_repost_notifier.py "$BACKUP"/x_post_media.py "$BACKUP"/resilience.py .
+            sudo systemctl restart chzzk-bot.service || true
+          }
+          trap 'restore' ERR
+          "$PY" /tmp/abyss_optimize_x_delivery.py "$STAGE" --write
+          "$PY" -m py_compile "$STAGE"/x_repost_notifier.py "$STAGE"/x_post_media.py "$STAGE"/resilience.py
+          # Resolve a simulated FxTwitter response only once; original URLs and
+          # uncertain media classification are retained on missing metadata.
+          PYTHONPATH="$STAGE:$PWD" "$PY" - <<'PY'
+          from unittest.mock import patch
+          import x_post_media
+          class Fake:
+              def raise_for_status(self): pass
+              def json(self): return {'tweet':{'media':{}}}
+          with patch.object(x_post_media.requests,'get',return_value=Fake()) as mocked:
+              with patch.object(x_post_media.time,'sleep',side_effect=AssertionError('unexpected sleep')):
+                  found,preview,has_video,known=x_post_media.resolve_media(
+                      {'id':'2117894836623978630','images':['https://pbs.twimg.com/media/example.jpg']},'Example')
+              assert found==['https://pbs.twimg.com/media/example.jpg']
+              assert known is False
+              assert mocked.call_count==1
+          print('X_MEDIA_ONE_ATTEMPT_FALLBACK_VALID')
+          PY
+          cp -p "$STAGE"/x_repost_notifier.py "$STAGE"/x_post_media.py "$STAGE"/resilience.py .
+          sudo systemctl restart chzzk-bot.service
+          sleep 3
+          sudo systemctl is-active --quiet chzzk-bot.service
+          trap - ERR
+          echo X_REPOST_DELIVERY_OPTIMIZATION_DEPLOYED
+          PATCH
+          REMOTE
