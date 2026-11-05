@@ -1,0 +1,62 @@
+name: Send one Hiyori CHZZK Daily Clip V2 preview to test thread
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/test-hiyori-chzzk-daily-card.yml]
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify card module compiles and contains no pings
+        run: |
+          python -m py_compile scripts/test_hiyori_chzzk_daily_card.py
+          python - <<'PY'
+          import importlib.util
+          from datetime import datetime,timezone
+          from zoneinfo import ZoneInfo
+          spec=importlib.util.spec_from_file_location('card','scripts/test_hiyori_chzzk_daily_card.py')
+          c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
+          now=datetime(2026,11,5,12,0,tzinfo=ZoneInfo('Asia/Seoul'))
+          clip={'id':'KvK9UOrTYv','url':'https://chzzk.naver.com/clips/KvK9UOrTYv','title':'헉','views':2752,'thumbnail_url':'https://example.org/example.jpg'}
+          card=c.make_card(clip,now=now)
+          assert card['allowed_mentions']=={'parse':[]}
+          assert not any('content' in x for x in card['components'])
+          assert len(card['components'][0]['components'])<=10
+          assert card['flags']==32768
+          print('CHZZK_CLIP_CARD_FORMAT_VALID')
+          PY
+      - name: Prepare secure SSH
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Send exactly one non-pinging preview to existing test thread
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          remote="$SSH_USER@$SSH_HOST"
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes scripts/test_hiyori_chzzk_daily_card.py "$remote:/tmp/abyss_hiyori_daily_clip_card_preview.py"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$remote" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          PYTHONPATH=/home/ubuntu/chzzk-bot "$PY" /tmp/abyss_hiyori_daily_clip_card_preview.py --send
+          REMOTE
