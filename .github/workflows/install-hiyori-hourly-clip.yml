@@ -63,7 +63,7 @@ jobs:
           /usr/bin/flock -w 180 creator_media/chzzk_hiyoriclip.lock "$PY" hiyori_hourly_clip_updater.py
           cat >/tmp/abyss-hiyori-hourly-clip.service <<EOF
           [Unit]
-          Description=Edit one Hiyori clip card using existing Discord banner bot
+          Description=Edit one Hiyori clip card every two hours with existing banner bot
           After=network-online.target
           Wants=network-online.target
 
@@ -78,10 +78,10 @@ jobs:
           EOF
           cat >/tmp/abyss-hiyori-hourly-clip.timer <<'EOF'
           [Unit]
-          Description=Refresh one Discord Hiyori clip video card hourly
+          Description=Refresh one Discord Hiyori clip video card every two hours
 
           [Timer]
-          OnCalendar=*-*-* *:05:00 Asia/Seoul
+          OnCalendar=*-*-* 00/2:05:00 Asia/Seoul
           AccuracySec=10s
           RandomizedDelaySec=0
           Persistent=false
