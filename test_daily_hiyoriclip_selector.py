@@ -2,9 +2,9 @@
 import unittest
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
-from daily_hiyoriclip_selector import select_one, rank_clips
+from daily_hiyoriclip_selector import select_one, rank_clips, DAILY_RECOMMENDATION_HOUR_KST
 
-NOW=datetime(2026,11,5,21,0,tzinfo=ZoneInfo("Asia/Seoul"))
+NOW=datetime(2026,11,5,12,0,tzinfo=ZoneInfo("Asia/Seoul"))
 
 def clip(id, age=1, views=500, likes=30, reposts=5, tag="#hiyoriclip_", video=True):
     return {"id":str(id),"text":"테스트 "+tag,
@@ -14,6 +14,10 @@ def clip(id, age=1, views=500, likes=30, reposts=5, tag="#hiyoriclip_", video=Tr
             "views":views,"likes":likes,"reposts":reposts}
 
 class ClipTests(unittest.TestCase):
+    def test_daily_publication_at_noon(self):
+        self.assertEqual(DAILY_RECOMMENDATION_HOUR_KST,12)
+        self.assertEqual(NOW.hour,12)
+
     def test_selects_highest_overall(self):
         rows=[clip(1,views=100,likes=1,reposts=0),clip(2,views=1000,likes=200,reposts=100)]
         self.assertEqual(select_one(rows,now=NOW)["id"],"2")
