@@ -125,47 +125,18 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "AUDIT_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
-          for unit in chzzk-bot.service abyss-guild-banner.timer abyss-guild-banner.service abyss-media-refresh.timer; do
-            printf 'AUDIT_UNIT %s %s\n' "$unit" "$(systemctl is-active "$unit" 2>/dev/null || true)"
-          done
-          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          "$PY" - <<'PY'
-          import os,json,pathlib,datetime,collections
-          from zoneinfo import ZoneInfo
-          root=pathlib.Path('/home/ubuntu/chzzk-bot/creator_media')
-          def read(p):
-              try:
-                  z=json.loads(p.read_text('utf-8'))
-                  return z if isinstance(z,dict) else {}
-              except (OSError,ValueError):return {}
-          q=read(root/'fanart_discovery.json')
-          state=read(root/'guild_banner_rotation_state.json')
-          used=read(root/'fanart_url_used.json')
-          from fanart_url_media import candidates
-          from guild_server_banner import approved_hanayo_art,collected_hanayo_art
-          from fanart_usage import server_reserved_post_ids,canonical_post
-          date=lambda p: datetime.datetime.fromtimestamp(p.stat().st_mtime,ZoneInfo('Asia/Seoul')).isoformat() if p.exists() else None
-          result={'queue_posts':dict(collections.Counter(v.get('group') for v in q.values() if isinstance(v,dict))),
-                  'queue_modified_kst':date(root/'fanart_discovery.json'),
-                  'notification_pool':{g:len(candidates(g)) for g in ('hanayo','sakihane')},
-                  'notification_delivered_history':{g:len(used.get(g,{})) for g in ('hanayo','sakihane')},
-                  'last_notification_history_kst':{g:max((str(t) for t in used.get(g,{}).values()),default=None) for g in ('hanayo','sakihane')},
-                  'banner_pool_size':len(approved_hanayo_art())+len(collected_hanayo_art()),
-                  'server_reserved_future_posts':len(server_reserved_post_ids('hanayo')),
-                  'banner_last_slot':state.get('last_slot'),
-                  'banner_used_rotation_count':len(state.get('rotation_used',[])),
-                  'banner_last_post_id':canonical_post(state.get('post_url')),
-                  'banner_historical_post_count':len(state.get('all_used_post_ids',[])),
-                  'banner_state_modified_kst':date(root/'guild_banner_rotation_state.json')}
-          pool1={canonical_post(x['post_url']) for x in candidates('hanayo')}
-          reserved=server_reserved_post_ids('hanayo') | set(state.get('all_used_post_ids',[]))
-          result['notification_server_overlap_count']=len(pool1 & reserved)
-          print('FANART_BANNER_AUDIT '+json.dumps(result,ensure_ascii=False,default=str))
+          echo 'AUDIT_X_MAIN_POSTS'
+          sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o short-iso |
+            grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_SEND_MEDIA_GUARD|X_MEDIA_CLASSIFIED|X_MEDIA_UNKNOWN|X_MEDIA_UNVERIFIED|X_MEDIA_EMPTY_UNVERIFIED|X_FANART_BLOCKED|FANART_PICK|FANART_SELECTED|FANART_FALLBACK|DISCORD_WEBHOOK_DELIVERED|X_MEDIA_DOWNLOAD|팬아트 링크 선택 실패' |
+            tail -n 110 || true
+          echo 'AUDIT_X_CONFIG'
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('.env')
+          if p.exists():
+              for line in p.read_text().splitlines():
+                  if line.startswith(('ABYSS_RANDOM_MEDIA=','ABYSS_NOTIFICATION_FANART=','ABYSS_FANART_URLS=')):
+                      print(line)
           PY
-          echo 'AUDIT_FANART_COLLECTION_LAST'
-          sudo journalctl -u chzzk-bot.service --since '10 hours ago' --no-pager -o short-iso |
-            grep -E 'FANART_DISCOVERY_PROFILE|FANART_DISCOVERY_API|FANART_REVIEW_CACHE|FANART_SELECTED|FANART_PICK|FANART_FALLBACK|fanart-discovery|FANART_LOCAL_INVALID|팬아트 링크 선택 실패' | tail -n 24 || true
-          echo 'AUDIT_GUILD_BANNER_LAST'
-          sudo journalctl -u abyss-guild-banner.service --since '36 hours ago' --no-pager -o short-iso |
-            grep -E 'GUILD_BANNER_TIMER|failed|Failed|Started|Finished|banner_changed|card=' | tail -n 25 || true
           REMOTE
