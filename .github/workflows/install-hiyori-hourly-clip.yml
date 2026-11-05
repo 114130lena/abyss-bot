@@ -1,4 +1,4 @@
-name: Install hourly Hiyori clip message editor using banner bot
+name: Install Hiyori clip editor every two hours using banner bot
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
