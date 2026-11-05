@@ -98,8 +98,29 @@ jobs:
           systemctl cat abyss-guild-banner.service | grep -E '^ExecStart=|^EnvironmentFile=|^WorkingDirectory=|^Type=' || true
           echo "DIAG_BANNER_RUNNER" 
           if [ -f guild_banner_timer_runner.py ]; then grep -nE 'def |return |status|error|sys.exit|exit\(|rotation|candidate|no_|success|failed|changed|SOURCE|auth|enable' guild_banner_timer_runner.py | head -n 100; fi
-          echo "DIAG_SERVER_POOL" 
-          find creator_media/fanart_candidates/hanayo -type f -name '*.jpg' | wc -l
+          echo "DIAG_SERVER_POOL"
+          "$PY" - <<'PY'
+          import json,pathlib
+          from PIL import Image
+          root=pathlib.Path('creator_media')
+          q=json.loads((root/'fanart_discovery.json').read_text('utf-8'))
+          c={'entries':0,'file_references':0,'file_exists':0,'widescreen':0,'fit':0,'blocked':0}
+          for v in q.values():
+              if not isinstance(v,dict) or v.get('group')!='hanayo':continue
+              c['entries']+=1
+              if v.get('review_status')=='blocked' or v.get('decision')=='blocked':c['blocked']+=1;continue
+              for rel in v.get('cached_files',[]):
+                  if not isinstance(rel,str):continue
+                  c['file_references']+=1
+                  p=root/rel
+                  if not p.is_file():continue
+                  c['file_exists']+=1
+                  with Image.open(p) as img:w,h=img.size
+                  a=w/max(h,1)
+                  if w>=960 and h>=540 and (abs(a-16/9)<=.035 or abs(a-16/10)<=.03):c['widescreen']+=1
+                  if w>=600 and h>=600 and .5<=a<=2.5:c['fit']+=1
+          print('DIAG_IMAGE_DIMENSIONS '+json.dumps(c))
+          PY
           echo "DIAG_BANNER_LOGS_START"
           sudo journalctl -u abyss-guild-banner.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | tail -n 40 || true
           sudo journalctl -u chzzk-bot.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | grep -Ei 'banner|배너' | tail -n 35 || true
