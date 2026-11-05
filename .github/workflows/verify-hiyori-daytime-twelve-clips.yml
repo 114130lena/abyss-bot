@@ -1,4 +1,5 @@
 name: Verify and deploy Hiyori daytime twelve-clip board
+# Re-run with correct two-hour slot regression tests
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
