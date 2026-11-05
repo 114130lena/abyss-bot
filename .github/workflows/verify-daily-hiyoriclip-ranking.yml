@@ -1,0 +1,21 @@
+name: Validate offline daily Hiyori clip ranking (publishing disabled)
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/verify-daily-hiyoriclip-ranking.yml]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hiyoriclip-daily-recommendation
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m py_compile daily_hiyoriclip_selector.py
+          python -m unittest -v test_daily_hiyoriclip_selector.py
