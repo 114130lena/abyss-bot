@@ -1,4 +1,5 @@
 name: Inspect actual Hiyoriclip collector results on Oracle
+# Confirm expanded verified-author discovery in production.
 on:
   push:
     branches: [feature/hiyoriclip-daily-recommendation]
@@ -29,4 +30,6 @@ jobs:
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           /usr/bin/flock -w 60 creator_media/hiyoriclip_collection.lock "$PY" hiyoriclip_collector.py
           "$PY" hiyoriclip_collector.py --show
+          echo DISCOVERED_ACCOUNTS
+          if [ -s creator_media/hiyoriclip_discovered_accounts.txt ]; then cat creator_media/hiyoriclip_discovered_accounts.txt; else echo none; fi
           REMOTE
