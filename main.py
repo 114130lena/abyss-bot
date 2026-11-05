@@ -157,6 +157,11 @@ def main():
     if not WEBHOOK_URL.startswith("https://"):
         raise SystemExit("DISCORD_WEBHOOK_URL을 .env에 설정해 주세요.")
     threading.Thread(target=run_banner_refresh, name="youtube-banners", daemon=True).start()
+    # Guild banner rotation is independent and explicitly opt-in.
+    if os.getenv("SERVER_BANNER_ENABLED", "0") == "1":
+        from guild_server_banner import run_server_banner_scheduler
+        threading.Thread(target=run_server_banner_scheduler,
+                         name="guild-banner-rotation", daemon=True).start()
     start_websub()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
