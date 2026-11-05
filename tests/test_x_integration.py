@@ -158,5 +158,55 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(get.call_count,1)
 
 
+
+class XProviderBackoffTests(unittest.TestCase):
+    def setUp(self):
+        import x_feed_health
+        self.feed = x_feed_health
+        self.feed._until.clear()
+        self.feed._host_until.clear()
+        self.feed._failures.clear()
+
+    def tearDown(self):
+        self.feed._until.clear()
+        self.feed._host_until.clear()
+        self.feed._failures.clear()
+
+    def test_one_creator_timeout_pauses_other_creator_on_same_host(self):
+        with patch.object(self.feed.time, "monotonic", return_value=1000):
+            source = "https://fxtwitter.com/HanayoHiyori/feed.xml"
+            second = "https://fxtwitter.com/SakihaneHuya/feed.xml"
+            other = "https://nitter.mie.foundation/HanayoHiyori/rss"
+            self.feed.note_failure(source, TimeoutError("feed timeout"))
+            self.assertFalse(self.feed.active(source))
+            self.assertFalse(self.feed.active(second))
+            self.assertTrue(self.feed.active(other))
+        with patch.object(self.feed.time, "monotonic", return_value=1181):
+            self.assertTrue(self.feed.active(second))
+
+    def test_429_is_thirty_minute_shared_provider_pause(self):
+        import requests
+        error = requests.HTTPError("rate limited")
+        error.response = type("Response", (), {"status_code": 429})()
+        with patch.object(self.feed.time, "monotonic", return_value=2000):
+            self.feed.note_failure("https://fxtwitter.com/A/feed.xml", error)
+            self.assertFalse(self.feed.active("https://fxtwitter.com/B/feed.xml"))
+        with patch.object(self.feed.time, "monotonic", return_value=3799):
+            self.assertFalse(self.feed.active("https://fxtwitter.com/B/feed.xml"))
+        with patch.object(self.feed.time, "monotonic", return_value=3801):
+            self.assertTrue(self.feed.active("https://fxtwitter.com/B/feed.xml"))
+
+    def test_repeated_timeout_expands_cooldown(self):
+        url = "https://nitter.mie.foundation/A/rss"
+        with patch.object(self.feed.time, "monotonic", return_value=100):
+            self.feed.note_failure(url, TimeoutError())
+        with patch.object(self.feed.time, "monotonic", return_value=290):
+            self.feed.note_failure(url, TimeoutError())
+            self.assertFalse(self.feed.active(url))
+        with patch.object(self.feed.time, "monotonic", return_value=651):
+            self.assertTrue(self.feed.active(url))
+
+
+
 if __name__ == "__main__":
     unittest.main()

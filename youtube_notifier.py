@@ -150,14 +150,36 @@ def _save_seen(seen):
 
 
 def _fetch_uploads(channel_id):
-    res = session.get("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}, timeout=15)
-    res.raise_for_status()
+    """Channel RSS, then public uploads-playlist RSS during transient 404/5xx.
+
+    The fallback must explicitly identify the requested creator channel.
+    Never treat a broken feed as an empty upload list or reset seen history.
+    """
+    feed = "https://www.youtube.com/feeds/videos.xml"
+    fallback = False
+    try:
+        res = session.get(feed, params={"channel_id": channel_id}, timeout=15)
+        res.raise_for_status()
+    except requests.HTTPError as exc:
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        if code not in (404, 500, 502, 503, 504):
+            raise
+        # YouTube sometimes serves 404 for existing channels. The uploads
+        # playlist is an independent public RSS URL (UU + UC suffix).
+        fallback = True
+        logging.warning("YOUTUBE_RSS_FALLBACK channel=%s status=%s", channel_id, code)
+        res = session.get(feed, params={"playlist_id": "UU" + channel_id[2:]}, timeout=15)
+        res.raise_for_status()
     root = ET.fromstring(res.content)
     if root.tag != ATOM + "feed":
         raise ValueError("Unexpected YouTube feed format")
     actual_id = (root.findtext(YT + "channelId") or "").strip()
+    if fallback and not actual_id:
+        raise ValueError("YouTube fallback feed channel ID missing; refusing unrelated uploads")
     if actual_id and actual_id != channel_id and "UC" + actual_id != channel_id:
         raise ValueError(f"YouTube feed channel mismatch: requested={channel_id}, returned={actual_id}")
+    if fallback:
+        logging.info("YOUTUBE_RSS_FALLBACK_OK channel=%s", channel_id)
     channel_name = root.findtext(ATOM + "title") or channel_id
     videos = []
     for entry in root.findall(ATOM + "entry"):
