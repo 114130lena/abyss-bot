@@ -1,0 +1,63 @@
+name: Validate requested Discord clip destination and prevent wrong-channel posts
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/route-hiyori-daily-to-channel.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check requested ID as destination thread, install only if confirmed
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os,json,requests,subprocess
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          target="919216649880633468"
+          base=os.getenv('DISCORD_WEBHOOK_URL','').split('?')[0]
+          # Thread post is explicitly directed to user's target, never main channel.
+          url=base+"?thread_id="+target+"&wait=true"
+          payload={"content":"[오늘의 히요리 클립] 발송 채널 연결 확인 테스트입니다. (역할 멘션 없음)","allowed_mentions":{"parse":[]}}
+          try:
+              response=requests.post(url,json=payload,timeout=20)
+              status=response.status_code
+              reply=response.json() if response.headers.get("Content-Type","").startswith("application/json") else {}
+              actual=reply.get("channel_id") if isinstance(reply,dict) else None
+              confirmed=status in (200,201) and actual==target and bool(reply.get("id"))
+              print("HIYORI_DESTINATION_TEST",json.dumps({"http":status,"delivered_to_requested_id":confirmed,
+                "returned_channel_id":actual,"discord_error_code":reply.get("code") if isinstance(reply,dict) else None}))
+          except requests.RequestException as exc:
+              confirmed=False
+              print("HIYORI_DESTINATION_TEST",json.dumps({"error":type(exc).__name__,"delivered_to_requested_id":False}))
+          if confirmed:
+              # Persist explicit safe thread route, separate from the primary bot's env.
+              subprocess.run(["sudo","mkdir","-p","/etc/systemd/system/abyss-hiyori-daily-clip.service.d"],check=True)
+              override="/tmp/abyss-hiyori-daily-target.conf"
+              with open(override,'w') as f:
+                  f.write("[Service]\nEnvironment=CHZZK_DAILY_CLIP_THREAD_ID="+target+"\n")
+              subprocess.run(["sudo","install","-m","644",override,
+                  "/etc/systemd/system/abyss-hiyori-daily-clip.service.d/destination.conf"],check=True)
+              subprocess.run(["sudo","systemctl","daemon-reload"],check=True)
+              subprocess.run(["sudo","systemctl","enable","--now","abyss-hiyori-daily-clip.timer"],check=True)
+              print("HIYORI_DAILY_ROUTE_CONFIRMED_AND_ENABLED")
+          else:
+              # Never send the scheduled daily clip to the webhook's original channel.
+              subprocess.run(["sudo","systemctl","disable","--now","abyss-hiyori-daily-clip.timer"],check=True)
+              print("HIYORI_DAILY_SCHEDULE_PAUSED_UNTIL_CORRECT_CHANNEL_WEBHOOK")
+          PY
+          REMOTE
