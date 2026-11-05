@@ -91,7 +91,7 @@ def _local_candidates(group, kind):
         if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp") or path.stat().st_size > 12*1024*1024:
             continue
         found.append((path, item.get("sha256", path.name)))
-    if kind == "banner" and os.getenv("ABYSS_FANART_ENABLED", "0") == "1":
+    # When post-gallery fanart is enabled, the URL decorator owns the entire\n    # fanart footer set. Local random media must not select one isolated art.\n    if (kind == "banner" and os.getenv("ABYSS_FANART_ENABLED", "0") == "1"\n            and os.getenv("ABYSS_FANART_URLS", "0") != "1"):
         fanart = _load(MEDIA_ROOT / "fanart_index.json").get(group, [])
         for item in fanart if isinstance(fanart, list) else []:
             if not isinstance(item, dict) or item.get("approved") is not True or item.get("permission_confirmed") is not True:
