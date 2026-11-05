@@ -8,7 +8,7 @@ import requests
 
 URL = "https://api.fxtwitter.com/2/search"
 HASHTAG = "#hiyoriclip_"
-QUERIES = [HASHTAG + " filter:videos", HASHTAG]
+QUERIES = [HASHTAG + " filter:videos", HASHTAG, "puppies", "HanayoHiyori"]
 
 def metric(v):
     return v if type(v) is int and v >= 0 else None
@@ -66,6 +66,21 @@ def main():
             all_results[query]=result
         except (requests.RequestException,ValueError) as e:
             all_results[query]={"error":type(e).__name__,"message":str(e)[:110]}
+    search_endpoints = [
+        "https://nitter.meowing.monster/search/rss",
+        "https://nitter.mie.foundation/search/rss",
+        "https://nitter.mizuki.st/search/rss",
+    ]
+    for endpoint in search_endpoints:
+        host=urlparse(endpoint).hostname
+        try:
+            r=session.get(endpoint,params={"f":"tweets","q":HASHTAG},
+                          timeout=8,headers={"User-Agent":"abyss-bot/1.0 daily-clip-probe"})
+            all_results["rss:"+str(host)]={"http":r.status_code,
+                "is_rss":r.text.lstrip().startswith('<?xml') or '<rss' in r.text[:500],
+                "bytes":len(r.content)}
+        except requests.RequestException as e:
+            all_results["rss:"+str(host)]={"error":type(e).__name__}
     print("HIYORICLIP_DIAGNOSTIC "+json.dumps(all_results,ensure_ascii=False))
 if __name__=="__main__":
     main()
