@@ -1,4 +1,5 @@
 """Independent Huya X RSS watcher; reuses the existing validated RSS parsing helpers."""
+import x_feed_health as feed_health
 import json
 import logging
 import os
@@ -35,7 +36,7 @@ failures = 0
 
 
 def _fetch_posts(feed):
-    response = requests.get(feed, timeout=8, headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
+    response = requests.get(feed, timeout=(2.5, 4), headers={"User-Agent": "abyss-bot/1.0 (RSS polling)"})
     response.raise_for_status()
     root = ET.fromstring(response.content)
     if root.tag != "rss":
@@ -46,14 +47,14 @@ def _fetch_posts(feed):
     posts = []
     for item in channel.findall("item"):
         post_id = (item.findtext("guid") or "").strip()
-        if not post_id.isdigit() or not common._original_post(item):
+        if not post_id.isdigit() or (not common._original_post(item) and not __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or "")):
             continue
         posts.append({
             "id": post_id, "text": common._post_body(item),
             "url": f"https://x.com/{USERNAME}/status/{post_id}",
             "images": common._post_images(item),
             "pub_date": item.findtext("pubDate") or "",
-            "source": feed,
+            "source": feed, "rss_title": item.findtext("title") or "", "source_link": item.findtext("link") or "", "rss_description": item.findtext("description") or "", "repost": __import__("x_repost_notifier").is_repost(item.findtext("title") or "", item.findtext("description") or ""),
         })
     return posts
 
@@ -62,17 +63,24 @@ def _fetch_merged_posts():
     posts = {}
     successes = 0
     with ThreadPoolExecutor(max_workers=min(3, len(FEEDS))) as pool:
-        jobs = {pool.submit(_fetch_posts, url): url for url in FEEDS}
+        jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
+        from x_fx_feed import fetch_creator_originals
+        fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+        if feed_health.active(fx_url):
+            jobs[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, common), fx_url)] = fx_url
         for job in as_completed(jobs):
             try:
                 items = job.result()
                 successes += 1
                 for item in items:
-                    posts.setdefault(item["id"], item)
+                    previous = posts.get(item["id"])
+                    if previous is None or (item.get("repost"),len(item.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
+                        posts[item["id"]] = item
             except (requests.RequestException, ValueError, ET.ParseError, OSError) as exc:
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
     if successes == 0:
         raise ValueError("All Huya X RSS sources failed")
+    # Do not block alert delivery on optional FxEmbed media enrichment.
     return sorted(posts.values(), key=lambda item: int(item["id"]))
 
 
@@ -94,12 +102,37 @@ def _save_seen(ids):
 
 
 def _notify(post):
+    from x_post_media import resolve_media
+    photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
+    if photo_urls:
+        post = dict(post, images=photo_urls)
+    # Preserve safety if metadata is unavailable: never mislabel a potentially
+    # illustrated X post as confirmed text-only and display unrelated fanart.
+    uncertain_photo = not media_known
     payload = unified_alert(
         "x", "사키하네 후야", get_banner(GROUP), ROLE,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
-        images=post.get("images", []),
+        images=post.get("images", []), media_url=video_preview,
         handle=creator_handle(GROUP), avatar=creator_avatar(GROUP))
+    if has_video:
+        payload["_abyss_has_video"] = True
+    if has_video:
+        # A stable clickable fallback even when the public thumbnail fails to render.
+        from urllib.parse import urlsplit
+        for c in payload.get("components",[]):
+            if c.get("type")==17:
+                for part in c.get("components",[]):
+                    if part.get("type")==10 and "𝕏 X" in str(part.get("content","")):
+                        part["content"] += "\n▶️ [원본 X 영상 보기]("+post["url"]+")"
+                        break
+    if uncertain_photo:
+        payload["_abyss_photo_unknown"] = True
+    if media_known and not photo_urls and not has_video and not video_preview:
+        payload["_abyss_verified_text_only"] = True
+    logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
+                 USERNAME,post.get("id"),len(photo_urls),has_video,media_known,
+                 bool(payload.get("_abyss_verified_text_only")))
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
@@ -133,7 +166,21 @@ def check_huya_x():
             logging.info("후야 X 감시 초기화: 기존 %d개 읽음 처리", len(posts))
             failures = 0
             return
+        from x_repost_notifier import is_repost_post, notify as notify_repost
+        repost_file=BASE_DIR / "x_huya_repost_seen_posts.json"
+        try:
+            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
+        except (OSError,ValueError,TypeError):
+            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
+            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
         for post in posts:
+            if is_repost_post(post, USERNAME):
+                if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s",post["id"],post.get("source","?"))
+                    notify_repost(GROUP,post,WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
+                continue
             if post["id"] in seen:
                 continue
             _notify(post)
