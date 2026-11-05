@@ -1,4 +1,5 @@
 name: Verify X video clips inline without notifying Discord
+# Recheck corrected MP4 component and legacy API assertions.
 on:
   push:
     branches: [feature/x-inline-clips-preview]
