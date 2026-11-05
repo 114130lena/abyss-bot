@@ -36,7 +36,22 @@ def excluded_notification_art(group):
         if isinstance(last, str) and last:
             used.add(last)
     reserved_sha = set(used)
-    reserved_posts = set()
+    reserved_posts = {x for x in state.get("all_used_post_ids", [])
+                      if isinstance(x, str) and x.isdigit()} if isinstance(state, dict) else set()
+    # Cached guild-banner artwork lives in the discovery queue, not necessarily
+    # the curated index. Exclude any post whose cached artwork was selected.
+    if group == "hanayo" and used:
+        queue = read(BASE / "fanart_discovery.json")
+        for item in queue.values():
+            if not isinstance(item, dict) or item.get("group") != group:
+                continue
+            for rel in item.get("cached_files", []):
+                from pathlib import PurePosixPath
+                if isinstance(rel, str) and PurePosixPath(rel).stem in used:
+                    post_id = canonical_post(item.get("post_url"))
+                    if post_id:
+                        reserved_posts.add(post_id)
+                    break
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
             continue
