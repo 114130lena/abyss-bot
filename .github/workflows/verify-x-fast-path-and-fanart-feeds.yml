@@ -1,0 +1,67 @@
+name: Validate optimized X metadata latency and free fanart discovery feeds
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/verify-x-fast-path-and-fanart-feeds.yml]
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Read-only metadata timing and public hashtag RSS test
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import time,json,requests,xml.etree.ElementTree as ET
+          import x_post_media as m
+          from urllib.parse import quote,urlsplit
+          samples=[
+            ('SakihaneHuya','2117906118420865199'),
+            ('SakihaneHuya','2117451946202415606'),
+            ('HanayoHiyori','2118008936679055594'),
+          ]
+          for user,uid in samples:
+              begin=time.monotonic()
+              try:
+                  photos,video,has_video,known=m.resolve_media({'id':uid,'images':[]},user)
+                  print('MEDIA_PROBE',json.dumps({'id':uid,'elapsed_s':round(time.monotonic()-begin,2),
+                    'photos':len(photos),'video':has_video,'known':known,'has_preview':bool(video)}),flush=True)
+              except Exception as e:
+                  print('MEDIA_PROBE_ERROR',uid,type(e).__name__,flush=True)
+          for hashtag in ('hiyoriart_','huyart'):
+              for host in ('nitter.mie.foundation','nitter.meowing.monster'):
+                  url=f'https://{host}/search/rss?f=tweets&q={quote(chr(35)+hashtag)}'
+                  start=time.monotonic()
+                  try:
+                      response=requests.get(url,headers={'User-Agent':'abyss-bot/1.0'},timeout=(3,6))
+                      typ=response.headers.get('Content-Type','')
+                      items=0
+                      if response.status_code==200 and 'xml' in typ.lower():
+                          root=ET.fromstring(response.content)
+                          items=len(root.findall('./channel/item'))
+                      print('FANART_RSS_PROBE',json.dumps({'tag':hashtag,'host':host,
+                        'http':response.status_code,'content_type':typ[:55],
+                        'items':items,'seconds':round(time.monotonic()-start,2)}),flush=True)
+                  except Exception as exc:
+                      print('FANART_RSS_PROBE_ERROR',hashtag,host,type(exc).__name__,round(time.monotonic()-start,2),flush=True)
+          PY
+          echo AFTER_PATCH_SERVICE
+          systemctl is-active chzzk-bot.service
+          sudo journalctl -u chzzk-bot.service --since '10 minutes ago' -o short-iso --no-pager |
+            grep -E 'X_REPOST_E2E|X_DELIVERY_PHASES|X_REPOST_DELIVERED|Traceback|Error' | tail -n 25 || true
+          REMOTE
