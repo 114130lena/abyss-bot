@@ -1,4 +1,4 @@
-name: Install Hiyori clip editor between noon and 22:05 KST every two hours using banner bot
+name: Install ten playable Hiyori clips every four hours
 on:
   push:
     branches: [feature/chzzk-clips-platform-probe]
@@ -63,7 +63,7 @@ jobs:
           /usr/bin/flock -w 180 creator_media/chzzk_hiyoriclip.lock "$PY" hiyori_hourly_clip_updater.py
           cat >/tmp/abyss-hiyori-hourly-clip.service <<EOF
           [Unit]
-          Description=Edit one Hiyori clip card every two hours with existing banner bot
+          Description=Edit one Hiyori clip card every four hours with existing banner bot
           After=network-online.target
           Wants=network-online.target
 
@@ -81,7 +81,7 @@ jobs:
           Description=Refresh one Discord Hiyori clip video card every two hours
 
           [Timer]
-          OnCalendar=*-*-* 12/2:05:00 Asia/Seoul
+          OnCalendar=*-*-* 12/4:05:00 Asia/Seoul
           AccuracySec=10s
           RandomizedDelaySec=0
           Persistent=false
