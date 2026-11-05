@@ -41,7 +41,7 @@ def candidates_from_rss(content,group,hashtag):
         link=entry.findtext("link") or ""
         address=urlsplit(link)
         match=PARSER_RE.match(address.path)
-        if address.scheme!="https" or not match:
+        if address.scheme not in ("http","https") or address.hostname not in HOSTS or not match:
             continue
         artist,post_id=match.groups()
         if post_id in seen:continue
