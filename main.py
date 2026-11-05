@@ -163,6 +163,13 @@ def main():
         threading.Thread(target=run_server_banner_scheduler,
                          name="guild-banner-rotation", daemon=True).start()
     start_websub()
+    # Check public profile feeds every 2 hours. Entries enter a private review
+    # queue and can never become public fanart without explicit permission.
+    if os.getenv("FANART_DISCOVERY_ENABLED", "1") == "1":
+        from fanart_refresh import check_fanart
+        threading.Thread(target=run_worker,
+                         args=("팬아트 후보 수집", check_fanart, 7200),
+                         name="fanart-discovery", daemon=True).start()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
         raise SystemExit("live_state.json 형식이 올바르지 않습니다.")
