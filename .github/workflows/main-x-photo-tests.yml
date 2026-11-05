@@ -1,0 +1,20 @@
+name: Main X photo delivery tests
+on:
+  pull_request:
+    paths:
+      - 'resilience.py'
+      - 'tests/test_main_x_photo_fast.py'
+      - '.github/workflows/main-x-photo-tests.yml'
+  push:
+    branches:
+      - 'fix/main-x-photo-fast-20261105'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_main_x_photo_fast.py' -v
