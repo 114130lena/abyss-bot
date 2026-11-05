@@ -217,7 +217,7 @@ def account_feed(session,handle):
     for author,post_id in references:
         if (author,post_id) not in results:
             results.append((author,post_id))
-    return results[:160]
+    return results[:120]
 
 
 def official_search(session,token):
@@ -316,7 +316,7 @@ def collect(*, session=None, now=None):
     if additions:
         _write_accounts=DISCOVERED.with_suffix(".tmp")
         _write_accounts.parent.mkdir(parents=True,exist_ok=True)
-        _write_accounts.write_text("\\n".join(existing_discovered+additions)+"\\n",encoding="utf-8")
+        _write_accounts.write_text("\n".join(existing_discovered+additions)+"\n",encoding="utf-8")
         _write_accounts.chmod(0o600)
         _write_accounts.replace(DISCOVERED)
     sources["verified_account_discovery"]={"new_accounts":additions,
