@@ -89,8 +89,8 @@ class HourlyTests(unittest.TestCase):
         s=session(existing=MID)
         with patch.object(h,"_identity",return_value=BOT):
             first=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
-            again=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:None)
-            next_hour=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:None)
+            again=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
+            next_hour=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual((first["status"],again["status"],next_hour["status"]),
                          ("updated","already_updated_this_hour","updated"))
         s.post.assert_not_called()
@@ -103,7 +103,7 @@ class HourlyTests(unittest.TestCase):
         with patch.object(h,"_identity",return_value=BOT):
             with self.assertRaises(requests.Timeout):
                 h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:None)
-            result=h.refresh(now=NOW+timedelta(hours=2),session=s,collect_fn=fetch,video_fn=lambda uid:None)
+            result=h.refresh(now=NOW+timedelta(hours=4),session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual(result["status"],"pending_first_post_manual_reconciliation")
         self.assertTrue(collector.read(self.state)["create_pending"])
         s.post.assert_called_once()
@@ -126,7 +126,7 @@ class HourlyTests(unittest.TestCase):
             return session().get(url,**kwargs)
         s.get.side_effect=get
         with patch.object(h,"_identity",return_value=BOT):
-            result=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:None)
+            result=h.refresh(now=NOW,session=s,collect_fn=fetch,video_fn=lambda uid:"https://example.org/"+uid+".mp4")
         self.assertEqual(result["status"],"updated")
         s.post.assert_not_called()
         s.patch.assert_called_once()
