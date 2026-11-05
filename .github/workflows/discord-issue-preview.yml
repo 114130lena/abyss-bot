@@ -452,7 +452,7 @@ jobs:
           REMOTE
 
   deploy_random_media:
-    if: ${{ github.event.issue.title == '[abyss-deploy] random-media' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -536,7 +536,7 @@ jobs:
           REMOTE
 
   deploy_media_refresh:
-    if: ${{ github.event.issue.title == '[abyss-deploy] media-refresh' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
@@ -583,7 +583,7 @@ jobs:
           REMOTE
 
   enable_approved_fanart:
-    if: ${{ github.event.issue.title == '[abyss-deploy] approved-fanart' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
@@ -643,7 +643,7 @@ jobs:
           REMOTE
 
   deploy_x_images:
-    if: ${{ github.event.issue.title == '[abyss-deploy] x-post-images' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
@@ -704,7 +704,7 @@ jobs:
           REMOTE
 
   deploy_x_reposts_spaces:
-    if: ${{ github.event.issue.title == '[abyss-deploy] x-reposts-spaces' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
@@ -766,7 +766,7 @@ jobs:
           REMOTE
 
   deploy_repost_fix:
-    if: ${{ github.event.issue.title == '[abyss-deploy] repost-fix' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -886,7 +886,7 @@ jobs:
           REMOTE
 
   fix_live_layout:
-    if: ${{ github.event.issue.title == '[abyss-deploy] latest-layout' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -1215,7 +1215,7 @@ jobs:
           REMOTE
 
   deploy_final_layout_and_x_photos:
-    if: ${{ github.event.issue.title == '[abyss-deploy] final-layout-x-photos' }}
+    if: false # Retired one-off deploy; use current main deploy.yml only
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:

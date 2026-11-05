@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - name: Validate audit script
         run: python -m py_compile scripts/operational_audit.py
-      - name: Check bot, media timer, disk and safe cache cleanup
+      - name: Check bot, media timer and disk (read-only; weekly job owns cleanup)
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
@@ -39,5 +39,5 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          "$PY" /tmp/abyss_operational_audit.py --prune
+          "$PY" /tmp/abyss_operational_audit.py
           REMOTE

@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   sync:
-    if: ${{ github.event.issue.title == '[abyss-deploy] media-sync' && github.event.issue.user.login == github.repository_owner }}
+    if: false # Retired one-off deployment; only deploy.yml may update live code
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

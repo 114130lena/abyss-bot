@@ -30,7 +30,6 @@ def candidates(group):
             continue
         if (item.get("review_status") == "blocked"
                 or item.get("decision") == "blocked"
-                or item.get("cache_retired")
                 or classify(item.get("text", "")) == "blocked"
                 or not notification_allowed(group, item)):
             continue

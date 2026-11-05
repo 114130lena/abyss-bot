@@ -7,7 +7,7 @@ permissions:
   issues: read
 jobs:
   deploy:
-    if: ${{ github.event.issue.title == '[abyss-deploy] hiyorireplay-channel' && github.event.issue.user.login == github.repository_owner }}
+    if: false # Retired one-off deployment; only deploy.yml may update live code
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
