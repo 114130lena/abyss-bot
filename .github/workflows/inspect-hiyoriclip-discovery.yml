@@ -1,0 +1,47 @@
+name: Inspect expanded Hiyoriclip sources without Discord posts
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/inspect-hiyoriclip-discovery.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read current collector and discovered creator accounts
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          systemctl is-active abyss-hiyoriclip-collector.timer
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 120 creator_media/hiyoriclip_collection.lock "$PY" hiyoriclip_collector.py
+          "$PY" - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("creator_media")
+          status=json.loads((root/"hiyoriclip_collect_status.json").read_text("utf-8"))
+          file=root/"hiyoriclip_discovered_accounts.txt"
+          discovered=file.read_text("utf-8").splitlines() if file.is_file() else []
+          print("HIYORICLIP_EXPANSION",json.dumps({
+            "total":status.get("total"),
+            "within_24h":status.get("within_24h"),
+            "new":status.get("new"),
+            "updated":status.get("updated"),
+            "source_status":status.get("sources"),
+            "discovered_accounts":discovered,
+            "global_hashtag_search_confirmed":status.get("global_hashtag_search_confirmed")
+          },ensure_ascii=False),flush=True)
+          PY
+          REMOTE
