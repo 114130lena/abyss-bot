@@ -57,7 +57,7 @@ class HourlyTests(unittest.TestCase):
         self.assertEqual(r["message_id"],MID)
         payload=s.post.call_args.kwargs["json"]
         body=json.dumps(payload,ensure_ascii=False)
-        self.assertIn("매시간 최신 클립 갱신",body)
+        self.assertIn("2시간마다 최신 클립 갱신",body)
         self.assertIn("example.org/x.mp4",body)
         for invalid in ("조회수","재생시간","🏆","1위","TODAY'S HIYORI CLIP","<@&"):
             self.assertNotIn(invalid,body)
