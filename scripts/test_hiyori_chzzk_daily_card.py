@@ -18,7 +18,7 @@ FLAGS=1<<15
 def _txt(value):
     return {"type":10,"content":str(value)[:4000]}
 
-def make_card(clip, *, now=None, banner="", avatar="", video_url=""):
+def make_card(clip, *, now=None, banner="", avatar="", video_url="", preview=True):
     now=(now or datetime.now(KST)).astimezone(KST)
     if not isinstance(clip,dict) or not clip.get("id"):
         raise ValueError("No verified CHZZK clip")
@@ -39,7 +39,7 @@ def make_card(clip, *, now=None, banner="", avatar="", video_url=""):
     else:
         head=_txt(header)
     components=[head,{"type":14,"divider":True,"spacing":1},
-        _txt("**🎬 오늘의 히요리 클립**\n-# "+now.strftime("%Y.%m.%d")+" · CHZZK · TEST"),
+        _txt("**🎬 오늘의 히요리 클립**\n-# "+now.strftime("%Y.%m.%d")+" · CHZZK"+(" · TEST" if preview else "")),
         _txt("## ["+title+"]("+url+")"),
     ]
     thumbnail=str(clip.get("thumbnail_url") or "")
@@ -50,7 +50,7 @@ def make_card(clip, *, now=None, banner="", avatar="", video_url=""):
     components.append({"type":1,"components":[{"type":2,"style":5,"label":"🎬 치지직 클립 보기","url":url}]})
     if banner.startswith("https://") and len(components)<9:
         components.append({"type":12,"items":[{"media":{"url":banner},"description":"히요리 공식 채널 배너"}]})
-    components.append(_txt("-# ABYSS BOT · 매일 12:00 KST · TEST PREVIEW"))
+    components.append(_txt("-# ABYSS BOT · 매일 18:00 KST"+(" · TEST PREVIEW" if preview else "")))
     if len(components)>10:
         raise ValueError("Discord component count exceeded")
     return {"username":"어비스봇","flags":FLAGS,"components":[
