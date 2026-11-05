@@ -190,7 +190,7 @@ def refresh(*,now=None,session=None,collect_fn=None,video_fn=None,banner="",avat
         print("HOURLY_HIYORI_CLIP_VIDEO_FALLBACK "+type(exc).__name__,flush=True)
     # Reuse the existing creator/brand presentation, but no rank/metrics/time.
     card=make_card(chosen,now=now,banner=banner,avatar=avatar,video_url=video or "",
-                   preview=False,footer_text="12:05 · 16:05 · 20:05 갱신")
+                   preview=False,footer_text="매일 08:05 · 18:05 갱신")
     # One gallery, at most ten direct-play MP4s. Avoid banner gallery as that
     # would consume one of Discord's per-message ten media slots.
     media_items=[]
