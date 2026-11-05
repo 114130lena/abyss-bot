@@ -1,0 +1,43 @@
+name: Verify live video-only Hiyoriclip index
+on:
+  push:
+    branches: [feature/hiyoriclip-daily-recommendation]
+    paths: [.github/workflows/verify-hiyoriclip-video-export.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Build and inspect verified video-only shortlist, no Discord posts
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" hiyoriclip_video_candidates.py
+          "$PY" - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path("creator_media/hiyoriclip_video_candidates.json")
+          data=json.loads(path.read_text("utf-8"))
+          print("VIDEO_ONLY_EXPORT_VERIFIED",json.dumps({
+              "unique_videos":data["unique_videos"],
+              "direct_mp4":data["with_direct_mp4"],
+              "all_metrics":data["with_all_metrics"],
+              "duplicates_removed":data["duplicate_video_reposts"],
+              "sample_urls":[x["url"] for x in data["candidates"][:3]]
+          },ensure_ascii=False),flush=True)
+          PY
+          systemctl is-active abyss-hiyoriclip-collector.timer
+          REMOTE
