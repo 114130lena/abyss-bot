@@ -1,0 +1,116 @@
+name: Read-only X posts and reposts live delivery latency audit
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/x-live-delay-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Measure public RSS and compare live bot delivery records (no posts)
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,time,os,subprocess,re,statistics
+          from pathlib import Path
+          from datetime import datetime,timezone
+          from email.utils import parsedate_to_datetime
+          from urllib.parse import urlsplit
+          from dotenv import load_dotenv
+          import requests,xml.etree.ElementTree as ET
+          load_dotenv('.env')
+          now=datetime.now(timezone.utc)
+          print('AUDIT_AT',now.isoformat(),flush=True)
+          print('SERVICE_STATE',subprocess.run(['systemctl','is-active','chzzk-bot.service'],capture_output=True,text=True).stdout.strip(),flush=True)
+          print('POLL_INTERVAL_CONFIG',os.getenv('X_POLL_INTERVAL','30'),flush=True)
+          mods=[]
+          import twitter_notifier as hi, twitter_huya_notifier as hu
+          mods=[('hiyori',hi,hi.ALL_FEEDS),('huya',hu,hu.FEEDS)]
+          for label,mod,feeds in mods:
+              try:
+                  begin=time.monotonic()
+                  posts=mod._fetch_merged_posts()
+                  ages=[]
+                  for post in posts:
+                      try:
+                          published=parsedate_to_datetime(post['pub_date']).astimezone(timezone.utc)
+                          ages.append(max(0,round((now-published).total_seconds())))
+                      except Exception:pass
+                  print('NORMAL_MERGED',label,json.dumps({'fetch_s':round(time.monotonic()-begin,2),
+                    'count':len(posts),'recent_ids':[x['id'] for x in posts[-5:]],
+                    'freshest_age_s':min(ages) if ages else None}),flush=True)
+              except Exception as exc:
+                  print('NORMAL_MERGED_ERROR',label,type(exc).__name__,str(exc)[:125],flush=True)
+              for url in feeds:
+                  start=time.monotonic()
+                  host=urlsplit(url).hostname
+                  try:
+                      resp=requests.get(url,timeout=9,headers={'User-Agent':'abyss-bot read-only RSS latency audit'})
+                      root=ET.fromstring(resp.content) if resp.status_code==200 else None
+                      items=root.findall('./channel/item') if root is not None else []
+                      normal=[];repost=[]
+                      for item in items:
+                          guid=(item.findtext('guid') or '').strip()
+                          if not guid.isdigit():continue
+                          title=(item.findtext('title') or '').strip()
+                          kind='repost' if re.match(r'^(?:RT by|Retweeted by)\b',title,re.I) else 'normal' if mod==hi and hi._original_post(item) else 'other'
+                          pub=item.findtext('pubDate')
+                          try: age=round((now-parsedate_to_datetime(pub).astimezone(timezone.utc)).total_seconds()) if pub else None
+                          except Exception:age=None
+                          record={'id':guid,'age_s':age}
+                          if kind=='repost':repost.append(record)
+                          elif kind=='normal':normal.append(record)
+                      normal.sort(key=lambda x:int(x['id']),reverse=True)
+                      repost.sort(key=lambda x:int(x['id']),reverse=True)
+                      print('RSS_SOURCE',label,json.dumps({'host':host,'http':resp.status_code,
+                          'fetch_s':round(time.monotonic()-start,2),'items':len(items),
+                          'latest_normal':normal[:3],'latest_repost':repost[:3]}),flush=True)
+                  except Exception as exc:
+                      print('RSS_SOURCE_ERROR',label,json.dumps({'host':host,'fetch_s':round(time.monotonic()-start,2),
+                          'error':type(exc).__name__,'detail':str(exc)[:100]}),flush=True)
+          for label,filename in [('hiyori_normal','x_seen_posts.json'),('huya_normal','x_huya_seen_posts.json'),
+                  ('hiyori_repost','x_repost_seen_posts.json'),('huya_repost','x_huya_repost_seen_posts.json')]:
+              p=Path(filename)
+              try:
+                  ids=json.loads(p.read_text())
+                  print('SEEN',label,json.dumps({'count':len(ids),'newest_ids':sorted(map(str,ids),key=lambda x:int(x) if x.isdigit() else 0)[-5:],
+                     'mtime_utc':datetime.fromtimestamp(p.stat().st_mtime,timezone.utc).isoformat()}),flush=True)
+              except Exception as e:print('SEEN_ERROR',label,type(e).__name__,flush=True)
+          for modname in ('x_repost_notifier','x_repost_worker','guild_banner_timer_runner'):
+              try:
+                  mod=__import__(modname)
+                  print('MODULE',modname,'present',True,
+                      'thread_id',getattr(mod,'THREAD_ID','not_set') if 'repost' in modname else 'not_applicable',flush=True)
+              except Exception as e:print('MODULE',modname,'present',False,'reason',type(e).__name__,flush=True)
+          PY
+          echo "DELIVERY_EVENT_LOGS_START"
+          sudo journalctl -u chzzk-bot.service --since '48 hours ago' --no-pager -o short-iso |
+            grep -Ei 'X 새 게시글 알림|후야 X 새 글 알림|리트윗|repost|REPOST|작성 후 지연|RSS 서버 조회 실패|후야 X RSS 소스 실패|X RSS [0-9]+초|429|X_SOURCE_BACKOFF|X_RSS_FETCH' |
+            tail -n 115 || true
+          echo "DELIVERY_EVENT_LOGS_END"
+          echo "BANNER_COLLECTION_STATUS"
+          for unit in abyss-guild-banner.timer abyss-guild-banner.service; do
+            echo -n "$unit ";systemctl is-active "$unit" || true
+          done
+          systemctl list-timers --all abyss-guild-banner.timer --no-pager
+          REMOTE
