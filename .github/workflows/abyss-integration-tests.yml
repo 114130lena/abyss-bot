@@ -38,3 +38,57 @@ jobs:
         run: python -m unittest -v test_guild_server_banner.py
       - name: Existing baseline tests
         run: python -m unittest -v test_bot.py
+
+  recover_banner_1800:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ops/recover-banner-1800-20261105'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Recover today's missed 18:00 guild banner slot once
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/banner_repair_key
+          chmod 600 ~/.ssh/banner_repair_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/banner_repair_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "RECOVER_KST_TIME $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S %Z')"
+          if [ "$(TZ=Asia/Seoul date '+%Y-%m-%d')" != '2026-11-05' ]; then
+            echo 'RECOVER_CANCELLED_DATE_MISMATCH'
+            exit 1
+          fi
+          if [ "$(TZ=Asia/Seoul date '+%H')" != '18' ]; then
+            echo 'RECOVER_CANCELLED_OUTSIDE_18_HOUR'
+            exit 1
+          fi
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import guild_server_banner as m
+          available=len(m.approved_hanayo_art())+len(m.collected_hanayo_art())
+          print('RECOVER_ELIGIBLE_CANDIDATES',available)
+          if available==0:raise SystemExit(3)
+          PY
+          if ! sudo systemctl start abyss-guild-banner.service; then
+            echo 'RECOVER_SERVICE_FAILED'
+            sudo journalctl -u abyss-guild-banner.service --since '10 minutes ago' -n 30 --no-pager -o cat | tail -n 20
+            exit 2
+          fi
+          "$PY" - <<'PY'
+          import guild_server_banner as m
+          state=m.read_state()
+          print('RECOVER_LAST_SLOT',state.get('last_slot'))
+          print('RECOVER_SOURCE_PRESENT',bool(state.get('post_url')))
+          print('RECOVER_USED_POSTS',len(state.get('all_used_post_ids',[])))
+          if state.get('last_slot') != '2026-11-05 18:00':
+              raise SystemExit(4)
+          print('RECOVER_BANNER_1800_VERIFIED')
+          PY
+          sudo systemctl is-active --quiet chzzk-bot.service
+          REMOTE
