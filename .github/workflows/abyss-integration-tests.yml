@@ -36,3 +36,66 @@ jobs:
         run: python -m unittest -v test_guild_server_banner.py
       - name: Existing baseline tests
         run: python -m unittest -v test_bot.py
+
+  fanart_inventory:
+    if: github.event_name == 'pull_request' && github.head_ref == 'inspect/fanart-counts-20261105'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Read-only fanart counts from Oracle bot data
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/oracle_key "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import pathlib
+          import collections
+          import subprocess
+          from datetime import datetime, timezone
+          base=pathlib.Path('/home/ubuntu/chzzk-bot/creator_media')
+          def load(name):
+              try:
+                  data=json.loads((base/name).read_text(encoding='utf-8'))
+                  return data if isinstance(data,dict) else {}
+              except (OSError,ValueError,TypeError):
+                  return {}
+          queue=load('fanart_discovery.json')
+          index=load('fanart_index.json')
+          guild=load('guild_banner_rotation_state.json')
+          data={}
+          for group in ('hanayo','sakihane'):
+              items=[v for v in queue.values() if isinstance(v,dict) and v.get('group')==group]
+              status=collections.Counter(str(v.get('review_status','pending')) for v in items)
+              sources=collections.Counter(str(v.get('source','unknown')) for v in items)
+              photos=sum(len(v.get('image_urls',[])) for v in items if isinstance(v.get('image_urls'),list))
+              cached=sum(sum((base/p).is_file() for p in v.get('cached_files',[]) if isinstance(p,str) and '..' not in pathlib.PurePosixPath(p).parts) for v in items)
+              local=index.get(group,[]) if isinstance(index.get(group,[]),list) else []
+              approved=[v for v in local if isinstance(v,dict) and v.get('approved') is True and v.get('permission_confirmed') is True]
+              data[group]={'discovered_posts':len(items),'status':dict(status),
+                           'sources':dict(sources),'image_urls':photos,'cached_files':cached,
+                           'approved_local_images':len(approved)}
+          data['guild_banner_used_unique']=len(set(str(s) for s in guild.get('rotation_used',[]) if isinstance(s,str)))
+          data['queue_exists']=(base/'fanart_discovery.json').is_file()
+          data['index_exists']=(base/'fanart_index.json').is_file()
+          data['checked_utc']=datetime.now(timezone.utc).isoformat()
+          try:
+              result=subprocess.run(['sudo','journalctl','-u','chzzk-bot','--since','24 hours ago','--no-pager'],
+                                     stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=15)
+              log=result.stdout if result.returncode==0 else ''
+              data['last_24h_logs']={k:log.count(k) for k in
+                  ('FANART_DISCOVERY_PROFILE','FANART_SELECTED','FANART_FALLBACK','FANART_PICK')}
+          except (OSError,subprocess.TimeoutExpired):
+              data['last_24h_logs']='unavailable'
+          print('FANART_LIVE_INVENTORY '+json.dumps(data,ensure_ascii=False,sort_keys=True))
+          PY
