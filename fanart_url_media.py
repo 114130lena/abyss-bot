@@ -3,6 +3,7 @@ import copy,json,logging,os,random,threading
 from datetime import datetime,timezone
 from urllib.parse import urlsplit
 from pathlib import Path
+from hashlib import sha256
 from fanart_discovery import BASE, QUEUE, read, write
 from fanart_usage import notification_allowed
 
@@ -38,6 +39,38 @@ def candidates(group):
         for url in images:
             if url not in post["images"] and len(post["images"]) < 4:
                 post["images"].append(url)
+    # Restore previously approved local artwork even when it never entered the
+    # newer X discovery review queue. Local entries have no public media URL.
+    # Their curated banner JPEG is attached to Discord in send_webhook.
+    library = read(BASE / "fanart_index.json")
+    entries = library.get(group, []) if isinstance(library, dict) else []
+    root = BASE.resolve()
+    for item in entries if isinstance(entries, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("approved") is not True or item.get("permission_confirmed") is not True:
+            continue
+        if not notification_allowed(group, item):
+            continue
+        source = item.get("post_url", "")
+        if not isinstance(source, str) or not source.startswith("https://x.com/"):
+            continue
+        if source in posts:
+            continue
+        relative = item.get("path")
+        if not isinstance(relative, str) or not relative.startswith("fanart_banners/"):
+            continue
+        path = (BASE / relative).resolve()
+        if root not in path.parents or not path.is_file():
+            continue
+        if path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+            continue
+        if not 0 < path.stat().st_size <= 8_000_000:
+            continue
+        # The path is local and will be uploaded as a Discord attachment.
+        posts[source] = {"post_url": source, "artist": item.get("artist", ""),
+                         "images": ["attachment://abyss_notification_fanart" + path.suffix.lower()],
+                         "local_path": str(path)}
     return list(posts.values())
 
 
@@ -138,7 +171,11 @@ def apply(payload, group=None):
                 return payload,None
             row["components"]=[button]+base_buttons
             assert len(row["components"])==5
-            return out,{"group":group,"post_url":source,"banner":(picked["images"][0], picked["artist"], source)}
+            selection = {"group":group,"post_url":source,
+                         "banner":(picked["images"][0], picked["artist"], source)}
+            if picked.get("local_path"):
+                selection["local_path"] = picked["local_path"]
+            return out, selection
     logging.warning("FANART_FALLBACK group=%s reason=no_footer_gallery",group)
     return payload,None
 
