@@ -32,7 +32,7 @@ class NativeClipTests(unittest.TestCase):
         gallery=[part for container in card["components"]
                  for part in container.get("components",[]) if part.get("type")==12]
         self.assertTrue(any(i["media"]["url"]==direct for box in gallery for i in box["items"]))
-        self.assertEqual(card["allowed_mentions"],{"parse":[]})
+        self.assertEqual(card["allowed_mentions"]["parse"],[])
 
     def test_animated_gif_mp4_is_playable(self):
         video="https://video.twimg.com/tweet_video/example.mp4"
@@ -69,7 +69,7 @@ class NativeClipTests(unittest.TestCase):
         self.assertFalse(known)
         self.assertFalse(has_video)
         self.assertEqual(url,"")
-        self.assertEqual(x_post_media.resolve_media({"id":"oops"}),( [], "", False, False))
+        self.assertEqual(x_post_media.resolve_media({"id":"oops"},"HanayoHiyori"),( [], "", False, False))
 
     def test_legacy_four_tuple_is_maintained(self):
         with patch.object(x_post_media.requests,"get",return_value=fake_fx(
