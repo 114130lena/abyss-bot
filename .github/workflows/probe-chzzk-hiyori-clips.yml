@@ -1,4 +1,5 @@
 name: Probe Hanayo Hiyori CHZZK clips from Oracle read only
+# Validate cursor pagination and complete read-only playback metadata calls.
 on:
   push:
     branches: [feature/hiyoriclip-daily-recommendation]
