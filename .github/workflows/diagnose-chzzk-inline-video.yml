@@ -1,0 +1,26 @@
+name: Diagnose CHZZK inline MP4 resolver without posting
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/diagnose-chzzk-inline-video.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - run: |
+          PYTHONPATH=scripts python - <<'PY'
+          from chzzk_clip_video import resolve_mp4
+          url=resolve_mp4('KvK9UOrTYv')
+          print('CHZZK_INLINE_VIDEO_AVAILABLE',bool(url))
+          PY
