@@ -168,8 +168,8 @@ def _fetch_posts(feed_url=None):
 
 
 def _notify(post):
-    from x_post_media import resolve_media
-    photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
+    from x_post_media import resolve_media_with_video
+    photo_urls, video_preview, has_video, media_known, direct_video = resolve_media_with_video(post, USERNAME)
     if photo_urls:
         post = dict(post, images=photo_urls)
     # Preserve safety if metadata is unavailable: never mislabel a potentially
@@ -180,7 +180,7 @@ def _notify(post):
         "x", "하나요 히요리", banner, X_ROLE_ID,
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
-        images=post.get("images", []), media_url=video_preview,
+        images=post.get("images", []), media_url=direct_video or video_preview,
         handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
     if has_video:
         payload["_abyss_has_video"] = True
