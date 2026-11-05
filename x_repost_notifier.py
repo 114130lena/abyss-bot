@@ -37,7 +37,7 @@ def notify(group,post,webhook):
     creator="하나요 히요리" if group=="hanayo" else "사키하네 후야"
     title=str(post.get("rss_title") or "리트윗").strip()
     body=post.get("text","")[:2300]
-    from x_post_media import resolve_media
+    from x_post_media import resolve_media_with_video
     # Repost URLs can point to the original author's tweet. Resolve that author
     # from the URL instead of querying the retweeter's account.
     from urllib.parse import urlsplit
@@ -46,13 +46,14 @@ def notify(group,post,webhook):
     resolved_images=list(post.get("images") or [])
     photo_known=bool(resolved_images)
     video_preview=""
+    direct_video=""
     has_video=False
     if match:
-        found,video_preview,has_video,photo_known=resolve_media(
+        found,video_preview,has_video,photo_known,direct_video=resolve_media_with_video(
             dict(post,id=match.group(2)),match.group(1))
         if found:resolved_images=found
     payload=alert("x",creator,get_banner(group),role_id="",title="🔁 X 리트윗 · "+title[:160],
-        body=body,url=post["url"],images=resolved_images,media_url=video_preview,date=post.get("pub_date",""),
+        body=body,url=post["url"],images=resolved_images,media_url=direct_video or video_preview,date=post.get("pub_date",""),
         handle=handle(group),avatar=avatar(group),ping=False)
     if has_video:
         payload["_abyss_has_video"] = True
