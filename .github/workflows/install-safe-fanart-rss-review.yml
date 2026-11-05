@@ -1,0 +1,104 @@
+name: Install safe token-free fanart review candidate collector
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/install-safe-fanart-rss-review.yml]
+permissions: {contents: read}
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chzzk-clips-platform-probe
+          persist-credentials: false
+      - name: Validate script
+        run: python -m py_compile scripts/fanart_public_rss_review.py
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Deploy isolated review-only source with tests and 6h timer
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/key -o IdentitiesOnly=yes scripts/fanart_public_rss_review.py "$USER@$HOST:/tmp/abyss_fanart_public_rss_review.py"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=/home/ubuntu/chzzk-bot/.venv/bin/python; else PY=/home/ubuntu/chzzk-bot/.venv-test/bin/python; fi
+          "$PY" -m py_compile /tmp/abyss_fanart_public_rss_review.py
+          test -s fanart_discovery.py
+          test -s fanart_review.py
+          "$PY" - <<'PY'
+          import sys,tempfile
+          from pathlib import Path
+          from unittest.mock import Mock
+          sys.path.insert(0,'/tmp')
+          import abyss_fanart_public_rss_review as rss
+          xml=b'<rss><channel><item><title>#huyart original illustration</title><description>new sketch</description><link>https://nitter.mie.foundation/SomeArtist/status/2117906118420865199</link></item></channel></rss>'
+          rows=rss.candidates_from_rss(xml,'sakihane','huyart')
+          assert len(rows)==1 and rows[0]['artist']=='SomeArtist'
+          class Session:
+              def get(self,url,**kw):
+                  x=Mock(content=xml if 'huyart' in url else b'<rss><channel/></rss>')
+                  x.raise_for_status.return_value=None
+                  return x
+          with tempfile.TemporaryDirectory() as temp:
+              path=Path(temp)/'review.json'
+              resolver=lambda p,a:(['https://pbs.twimg.com/media/sample.jpg'],'',False,True)
+              data=rss.collect(session=Session(),resolver=resolver,queue=path)
+              from fanart_discovery import read
+              record=read(path)
+              assert data['added_for_review']==1 and len(record)==1
+              assert all(x['review_status']=='pending' for x in record.values())
+              assert data['publicly_approved']==0
+          print('FANART_RSS_REVIEW_ONLY_TESTS_PASSED')
+          PY
+          install -m 644 /tmp/abyss_fanart_public_rss_review.py fanart_public_rss_review.py
+          cat >/tmp/abyss-fanart-rss-review.service <<EOF
+          [Unit]
+          Description=Collect public hashtag fanart candidates for manual permission review only
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/home/ubuntu/chzzk-bot
+          ExecStart=/usr/bin/flock -w 150 /home/ubuntu/chzzk-bot/creator_media/fanart_discovery.lock $PY /home/ubuntu/chzzk-bot/fanart_public_rss_review.py
+          TimeoutStartSec=240
+          NoNewPrivileges=true
+          EOF
+          cat >/tmp/abyss-fanart-rss-review.timer <<'EOF'
+          [Unit]
+          Description=Collect fanart review candidates every six hours
+
+          [Timer]
+          OnCalendar=*-*-* 03,09,15,21:20:00 Asia/Seoul
+          AccuracySec=1min
+          RandomizedDelaySec=0
+          Persistent=false
+          Unit=abyss-fanart-rss-review.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo install -m 644 /tmp/abyss-fanart-rss-review.service /etc/systemd/system/abyss-fanart-rss-review.service
+          sudo install -m 644 /tmp/abyss-fanart-rss-review.timer /etc/systemd/system/abyss-fanart-rss-review.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-fanart-rss-review.timer
+          sudo systemctl is-active --quiet abyss-fanart-rss-review.timer
+          systemctl list-timers --all abyss-fanart-rss-review.timer --no-pager
+          echo FANART_RSS_REVIEW_TIMER_INSTALLED
+          REMOTE
