@@ -91,6 +91,72 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(photos, [])
         self.assertFalse(video)
 
+    def test_two_matching_text_only_sources_allow_fanart(self):
+        class Response:
+            def __init__(self, data): self.data=data
+            def raise_for_status(self): pass
+            def json(self): return self.data
+        fx={"tweet":{"id":"123","author":{"screen_name":"HanayoHiyori"},
+                     "text":"새로운 공지", "media":{}}}
+        vx={"tweetID":"123","user_screen_name":"HanayoHiyori",
+            "text":"새로운 공지","mediaURLs":[],"hasMedia":False}
+        with patch.object(media.requests,"get",side_effect=[Response(fx),Response(vx)]) as get:
+            photos,preview,video,known=media.resolve_media(
+                {"id":"123","images":[]},"HanayoHiyori")
+        self.assertEqual((photos,preview,video,known),([], "", False, True))
+        self.assertEqual(get.call_count,2)
+
+    def test_second_source_media_blocks_text_only(self):
+        class Response:
+            def __init__(self, data): self.data=data
+            def raise_for_status(self): pass
+            def json(self): return self.data
+        fx={"tweet":{"id":"123","author":{"screen_name":"HanayoHiyori"},
+                     "text":"새로운 공지","media":None}}
+        vx={"tweetID":"123","user_screen_name":"HanayoHiyori",
+            "text":"새로운 공지","mediaURLs":["https://pbs.twimg.com/media/p.jpg"]}
+        with patch.object(media.requests,"get",side_effect=[Response(fx),Response(vx)]):
+            _,_,_,known=media.resolve_media({"id":"123","images":[]},"HanayoHiyori")
+        self.assertFalse(known)
+
+    def test_incomplete_or_wrong_secondary_is_not_text_only(self):
+        class Response:
+            def __init__(self, data): self.data=data
+            def raise_for_status(self): pass
+            def json(self): return self.data
+        fx={"tweet":{"id":"123","author":{"screen_name":"HanayoHiyori"},
+                     "text":"새로운 공지","media":{}}}
+        vx={"tweetID":"123","user_screen_name":"OtherAccount",
+            "text":"새로운 공지","mediaURLs":[]}
+        with patch.object(media.requests,"get",side_effect=[Response(fx),Response(vx)]):
+            _,_,_,known=media.resolve_media({"id":"123","images":[]},"HanayoHiyori")
+        self.assertFalse(known)
+
+    def test_photo_in_rss_never_triggers_secondary_text_only(self):
+        class Response:
+            def raise_for_status(self): pass
+            def json(self):
+                return {"tweet":{"id":"123","author":{"screen_name":"HanayoHiyori"},
+                                 "text":"사진 있음","media":{}}}
+        with patch.object(media.requests,"get",return_value=Response()) as get:
+            photos,_,_,known=media.resolve_media(
+                {"id":"123","images":["https://pbs.twimg.com/media/abc.jpg"]},
+                "HanayoHiyori")
+        self.assertEqual(len(photos),1)
+        self.assertFalse(known)
+        self.assertEqual(get.call_count,1)
+
+    def test_photo_in_primary_retained(self):
+        class Response:
+            def raise_for_status(self): pass
+            def json(self):
+                return {"tweet":{"media":{"photos":[{"url":"https://pbs.twimg.com/media/abc.jpg"}]}}}
+        with patch.object(media.requests,"get",return_value=Response()) as get:
+            photos,_,_,known=media.resolve_media({"id":"123","images":[]},"HanayoHiyori")
+        self.assertEqual(photos,["https://pbs.twimg.com/media/abc.jpg"])
+        self.assertTrue(known)
+        self.assertEqual(get.call_count,1)
+
 
 if __name__ == "__main__":
     unittest.main()
