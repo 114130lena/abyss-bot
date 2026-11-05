@@ -1,0 +1,36 @@
+name: Check media refresh candidate health without changes
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/check-media-refresh-status.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Report fanart collector status and recent refresh outcome
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          systemctl show abyss-media-refresh.timer --no-pager --property=ActiveState,NextElapseUSecRealtime
+          systemctl show abyss-media-refresh.service --no-pager --property=Result,ExecMainStatus,ActiveState
+          echo MEDIA_RECENT
+          sudo journalctl -u abyss-media-refresh.service --since '48 hours ago' -o short-iso --no-pager |
+            grep -Ei 'fanart|candidate|refresh|collect|error|failed|success|media|index|discovery' | tail -n 38 || true
+          REMOTE
