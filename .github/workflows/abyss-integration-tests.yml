@@ -94,6 +94,12 @@ jobs:
           except Exception as exc:data['main_banner_import_error']=type(exc).__name__+': '+str(exc)[:150]
           print('BANNER_1800_DIAGNOSTIC '+json.dumps(data,ensure_ascii=False))
           PY
+          echo "DIAG_BANNER_UNIT" 
+          systemctl cat abyss-guild-banner.service | grep -E '^ExecStart=|^EnvironmentFile=|^WorkingDirectory=|^Type=' || true
+          echo "DIAG_BANNER_RUNNER" 
+          if [ -f guild_banner_timer_runner.py ]; then grep -nE 'def |return |status|error|sys.exit|exit\(|rotation|candidate|no_|success|failed|changed|SOURCE|auth|enable' guild_banner_timer_runner.py | head -n 100; fi
+          echo "DIAG_SERVER_POOL" 
+          find creator_media/fanart_candidates/hanayo -type f -name '*.jpg' | wc -l
           echo "DIAG_BANNER_LOGS_START"
           sudo journalctl -u abyss-guild-banner.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | tail -n 40 || true
           sudo journalctl -u chzzk-bot.service --since '2026-11-05 08:40 UTC' --no-pager -o cat | grep -Ei 'banner|배너' | tail -n 35 || true
