@@ -1,0 +1,43 @@
+name: Set Hiyori clip card updates to every two hours
+on:
+  push:
+    branches: [feature/chzzk-clips-platform-probe]
+    paths: [.github/workflows/set-hiyori-clip-two-hour-timer.yml]
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Prepare SSH
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST" && test -n "$KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Change only isolated clip card timer and verify next execution
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          test -s /home/ubuntu/chzzk-bot/hiyori_hourly_clip_updater.py
+          test -f /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          sudo cp /etc/systemd/system/abyss-hiyori-hourly-clip.timer /tmp/abyss-hiyori-hourly-clip.timer.previous
+          sudo sed -i 's#OnCalendar=\*-\*-\* \*:05:00 Asia/Seoul#OnCalendar=*-*-* 00/2:05:00 Asia/Seoul#' /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          grep -F 'OnCalendar=*-*-* 00/2:05:00 Asia/Seoul' /etc/systemd/system/abyss-hiyori-hourly-clip.timer
+          sudo systemctl daemon-reload
+          sudo systemctl restart abyss-hiyori-hourly-clip.timer
+          sudo systemctl is-active --quiet abyss-hiyori-hourly-clip.timer
+          systemd-analyze calendar '*-*-* 00/2:05:00 Asia/Seoul' | grep -E 'Normalized form|Next elapse'
+          systemctl list-timers --all abyss-hiyori-hourly-clip.timer --no-pager
+          echo HIYORI_CLIP_EVERY_TWO_HOURS_ACTIVE
+          REMOTE
