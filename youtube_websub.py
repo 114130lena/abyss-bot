@@ -41,6 +41,7 @@ class Handler(BaseHTTPRequestHandler):
             or not challenge):
             self.send_error(400)
             return
+        logging.info("YOUTUBE_WEBSUB_VERIFIED mode=%s channel=%s", mode, topic_id)
         data = challenge.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -76,6 +77,7 @@ class Handler(BaseHTTPRequestHandler):
             logging.exception("WebSub update processing failed")
             self.send_error(500)
             return
+        logging.info("YOUTUBE_WEBSUB_PUSH_ACCEPTED bytes=%d", length)
         self.send_response(204)
         self.end_headers()
 

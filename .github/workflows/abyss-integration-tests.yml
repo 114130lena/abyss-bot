@@ -6,6 +6,9 @@ on:
   pull_request:
     paths:
       - 'main.py'
+      - 'youtube_websub.py'
+      - 'youtube_notifier.py'
+      - 'test_bot.py'
       - 'resilience.py'
       - 'twitter_*'
       - 'x_*'
