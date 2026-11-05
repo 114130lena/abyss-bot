@@ -45,7 +45,7 @@ jobs:
           from unittest.mock import Mock
           sys.path.insert(0,'/tmp')
           import abyss_fanart_public_rss_review as rss
-          xml=b'<rss><channel><item><title>#huyart original illustration</title><description>new sketch</description><link>https://nitter.mie.foundation/SomeArtist/status/2117906118420865199</link></item></channel></rss>'
+          xml=b'<rss><channel><item><title>RT by @Retweeter: #huyart original illustration</title><description>new sketch</description><link>https://nitter.mie.foundation/SomeArtist/status/2117906118420865199</link></item></channel></rss>'
           rows=rss.candidates_from_rss(xml,'sakihane','huyart')
           assert len(rows)==1 and rows[0]['artist']=='SomeArtist'
           class Session:
