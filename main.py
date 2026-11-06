@@ -75,6 +75,7 @@ def get_live_info(channel_id):
 
     return {
         "channel_id": channel_id,
+        "live_id": str(live_id) if live_id is not None else "",
         "name": channel.get("channelName") or content.get("channelName") or channel_id,
         "avatar": channel.get("channelImageUrl") or "",
         "status": content.get("status", "UNKNOWN"),
@@ -82,7 +83,7 @@ def get_live_info(channel_id):
         "category": content.get("liveCategoryValue") or "카테고리 정보 없음",
         "thumbnail": thumbnail,
         "open_date": content.get("openDate") or "",
-        "url": f"https://chzzk.naver.com/live/{live_id}" if live_id else f"https://chzzk.naver.com/{channel_id}",
+        "url": f"https://chzzk.naver.com/live/{channel_id}",
     }
 
 
@@ -94,7 +95,8 @@ def send_discord_notification(live):
         title=live["title"], url=live["url"],
         media_url=live.get("thumbnail", ""),
         category=live.get("category", ""), date=live.get("open_date", ""),
-        handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group))
+        handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group),
+        chzzk_channel_id=live["channel_id"])
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
@@ -112,7 +114,7 @@ def check_chzzk_once(state):
             if not isinstance(previous, dict):
                 previous = {}
             # A completed stream may keep an old liveId. Only use it for OPEN sessions.
-            live_id = live["url"].rsplit("/", 1)[-1] if "/live/" in live["url"] else ""
+            live_id = live.get("live_id", "")
             previously_open = previous.get("status") == "OPEN"
             previous_id = previous.get("live_id", "")
             opened_at = live.get("open_date") or ""
