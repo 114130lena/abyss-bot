@@ -15,6 +15,63 @@ import banner_manager as banners
 import chzzk_replay_notifier as replay
 from discord_v2 import COLORS, alert as unified_alert
 
+class CrossPlatformTitleLinkTests(unittest.TestCase):
+    """Offline regressions: inspect the exact Discord title URLs without sending messages."""
+
+    def test_chzzk_live_uses_channel_id_not_numeric_live_id(self):
+        from unittest.mock import Mock
+        cid = "36ddb9bb4f17593b60f1b63cec86611d"
+        response = Mock()
+        response.json.return_value = {"code": 200, "content": {
+            "liveId": 1234567890, "status": "OPEN", "liveTitle": "방송 제목",
+            "channel": {"channelName": "사키하네 후야"}}}
+        with patch.object(main.session, "get", return_value=response):
+            live = main.get_live_info(cid)
+        self.assertEqual(live["url"], "https://chzzk.naver.com/live/" + cid)
+        self.assertEqual(live["live_id"], "1234567890")
+        payload = unified_alert("chzzk", "사키하네 후야",
+                                title=live["title"], url=live["url"])
+        parts = payload["components"][0]["components"]
+        self.assertTrue(any("](https://chzzk.naver.com/live/" + cid + ")" in p.get("content", "")
+                            for p in parts))
+
+    def test_chzzk_live_state_still_tracks_live_id(self):
+        from unittest.mock import Mock
+        cid = "36ddb9bb4f17593b60f1b63cec86611d"
+        state = {cid: {"status": "OPEN", "live_id": "101", "open_date": "2026-11-05"}}
+        live = {"channel_id": cid, "live_id": "102", "url": "https://chzzk.naver.com/live/" + cid,
+                "status": "OPEN", "title": "New Live", "name": "사키하네 후야",
+                "open_date": "2026-11-05"}
+        with patch.object(main, "load_channels", return_value=[cid]), \
+             patch.object(main, "get_live_info", return_value=live), \
+             patch.object(main, "send_discord_notification") as sent, \
+             patch.object(main, "save_json"):
+            main.check_chzzk_once(state)
+        sent.assert_called_once()
+        self.assertEqual(state[cid]["live_id"], "102")
+
+    def test_link_destinations_all_platform_titles_and_footer(self):
+        destinations = (
+            ("chzzk", "https://chzzk.naver.com/live/49d2c3cf8f0b2843d934ec15e82bb54c", False),
+            ("chzzk", "https://chzzk.naver.com/video/12345678", True),
+            ("cafe", "https://cafe.naver.com/f-e/cafes/29424353/articles/1125873?menuid=431", False),
+            ("x", "https://x.com/HanayoHiyori/status/2116841881615446466", False),
+            ("youtube", "https://www.youtube.com/watch?v=example123", False),
+        )
+        for platform, url, replay_flag in destinations:
+            with self.subTest(platform=platform, replay=replay_flag):
+                payload = unified_alert(platform, "하나요 히요리", title="링크 확인",
+                                        url=url, replay=replay_flag)
+                parts = payload["components"][0]["components"]
+                title_link = next(p["content"] for p in parts if p.get("content", "").startswith("## ["))
+                self.assertIn("](" + url + ")", title_link)
+                buttons = next(p["components"] for p in parts if p.get("type") == 1)
+                self.assertEqual(len(buttons), 4)
+                self.assertTrue(all(b["url"].startswith("https://") for b in buttons))
+                chzzk_button = next(b["url"] for b in buttons if b["label"] == "CHZZK")
+                self.assertRegex(chzzk_button, r"^https://chzzk\\.naver\\.com/[0-9a-f]{32}$")
+
+
 class RoutingTests(unittest.TestCase):
     def test_x_rss_description_preserves_paragraphs(self):
         import xml.etree.ElementTree as ET
