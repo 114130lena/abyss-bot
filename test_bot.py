@@ -69,7 +69,7 @@ class CrossPlatformTitleLinkTests(unittest.TestCase):
                 self.assertEqual(len(buttons), 4)
                 self.assertTrue(all(b["url"].startswith("https://") for b in buttons))
                 chzzk_button = next(b["url"] for b in buttons if b["label"] == "CHZZK")
-                self.assertRegex(chzzk_button, r"^https://chzzk\\.naver\\.com/[0-9a-f]{32}$")
+                self.assertRegex(chzzk_button, r"^https://chzzk[.]naver[.]com/[0-9a-f]{32}$")
 
 
 class RoutingTests(unittest.TestCase):
