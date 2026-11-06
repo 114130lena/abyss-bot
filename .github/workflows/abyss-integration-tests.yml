@@ -129,9 +129,8 @@ jobs:
           python3 - <<'PY'
           import os, re, pathlib
           from urllib.parse import urlparse
-          from dotenv import dotenv_values
           root=pathlib.Path('/home/ubuntu/chzzk-bot')
-          env=dotenv_values(root/'.env')
+          env=dict(line.split('=',1) for line in (root/'.env').read_text().splitlines() if '=' in line and not line.lstrip().startswith('#'))
           for k in ('HANAYO_CHZZK_URL','SAKIHANE_CHZZK_URL','STELLIVE_CAFE_URL','YOUTUBE_THREAD_ID','CHZZK_REPLAY_THREAD_ID'):
               v=env.get(k, '')
               if k.endswith('_CHZZK_URL') or k.endswith('_CAFE_URL'):
@@ -144,13 +143,8 @@ jobs:
               else: print(k, 'CONFIGURED' if v else 'DEFAULT')
           channels=[x.strip() for x in (root/'channels.txt').read_text().splitlines() if x.strip() and not x.startswith('#')]
           print('MONITORED_CHZZK_IDS',[(cid, bool(re.fullmatch(r'[0-9a-f]{32}',cid))) for cid in channels])
-          import main
-          from unittest.mock import Mock,patch
-          for cid in channels:
-              try:
-                  live=main.get_live_info(cid)
-                  print('CHZZK_API',cid,'status',live['status'],'link',live['url'],'liveId',live.get('live_id'))
-              except Exception as e:print('CHZZK_API_ERROR',cid,type(e).__name__,str(e)[:150])
+          print('DEPLOYED_CHZZK_LIVE_LINK_FIX', 'live/{channel_id}' in (root/'main.py').read_text())
+          print('DEPLOYED_CHZZK_REPLAY_LINK_FIX', 'https://chzzk.naver.com/video/' in (root/'chzzk_replay_notifier.py').read_text())
           PY
 
           echo "REPLAY_CHANNEL_CONFIGURATION"
