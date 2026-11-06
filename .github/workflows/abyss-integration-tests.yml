@@ -125,6 +125,18 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "REPLAY_CHANNEL_CONFIGURATION"
+          grep -i 'Hiyorireplay' youtube_channels.txt || true
+          echo "REPLAY_ID_CACHE"
+          python3 - <<'PY'
+          import json,pathlib
+          path=pathlib.Path("youtube_handle_ids.json")
+          data=json.loads(path.read_text()) if path.exists() else {}
+          print("replay_id="+str(data.get("@Hiyorireplay","UNRESOLVED")))
+          PY
+          echo "REPLAY_LOGS_LAST_2H"
+          sudo journalctl -u chzzk-bot.service --since '2 hours ago' --no-pager -o cat | grep -Ei 'Hiyorireplay|YouTube WebSub subscription|YOUTUBE_WEBSUB_VERIFIED|YouTube handle|YouTube .*initialized|YouTube .*failed' | tail -n 50 || true
+
           for u in chzzk-bot.service abyss-guild-banner.timer abyss-media-refresh.timer abyss-guild-banner.service; do
             echo "UNIT $u $(systemctl is-active "$u" 2>/dev/null || true)"
           done
