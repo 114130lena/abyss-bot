@@ -106,3 +106,40 @@ jobs:
             grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|X_FX_FEED|X_FX_REPOST_SCAN|Discord response timed out' |
             tail -n 120 || true
           REMOTE
+
+  banner_fanart_live_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'audit/banner-fanart-live-20261106'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect running Oracle banner, fanart pool, rotation and delivery activity
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/banner_audit_key
+          chmod 600 ~/.ssh/banner_audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/banner_audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "AUDIT_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo 'AUDIT_X_MAIN_POSTS'
+          sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o short-iso |
+            grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_SEND_MEDIA_GUARD|X_MEDIA_CLASSIFIED|X_MEDIA_UNKNOWN|X_MEDIA_UNVERIFIED|X_MEDIA_EMPTY_UNVERIFIED|X_FANART_BLOCKED|FANART_PICK|FANART_SELECTED|FANART_FALLBACK|DISCORD_WEBHOOK_DELIVERED|X_MEDIA_DOWNLOAD|팬아트 링크 선택 실패' |
+            tail -n 110 || true
+          echo 'AUDIT_X_CONFIG'
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('.env')
+          if p.exists():
+              for line in p.read_text().splitlines():
+                  if line.startswith(('ABYSS_RANDOM_MEDIA=','ABYSS_NOTIFICATION_FANART=','ABYSS_FANART_URLS=')):
+                      print(line)
+          PY
+          REMOTE
