@@ -106,3 +106,236 @@ jobs:
             grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|X_FX_FEED|X_FX_REPOST_SCAN|Discord response timed out' |
             tail -n 120 || true
           REMOTE
+
+  full_bot_health_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'audit/full-bot-health-20261106'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read-only Oracle bot platform, timer and errors audit
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/audit_key
+          chmod 600 ~/.ssh/audit_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/audit_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "FINAL_DEPLOYED_HEALTH"
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python; else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import json,health_monitor
+          snapshot=health_monitor.snapshot()
+          print("HEALTH_SNAPSHOT",json.dumps(snapshot,ensure_ascii=False))
+          import main
+          print("HEALTH_WORKER_WIRED",hasattr(main,"start_health_monitor"))
+          import delivery_review
+          print("DELIVERY_REVIEW_WIRED",bool(delivery_review.JOURNAL))
+          PY
+          echo "FINAL_LATEST_BOT_EVENTS"
+          sudo journalctl -u chzzk-bot.service --since '20 minutes ago' --no-pager -o cat | grep -E 'ABYSS_HEALTH_SNAPSHOT|YOUTUBE_RSS_BACKOFF|X_ALL_SOURCES_COOLING_DOWN|YOUTUBE_WEBSUB_VERIFIED|X_VIDEO_ATTACHMENT_READY|DISCORD_DELIVERY_SLOW|ERROR|Traceback' | tail -n 30 || true
+
+          echo "FANART_AND_BANNER_INVENTORY_LIVE"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import json,pathlib,datetime,collections
+          from zoneinfo import ZoneInfo
+          base=pathlib.Path("creator_media")
+          queue=base/"fanart_discovery.json"
+          if not queue.is_file():
+              from glob import glob
+              print("QUEUE_CANDIDATES",[pathlib.Path(p).name for p in glob("creator_media/*json")])
+          data=json.loads(queue.read_text()) if queue.is_file() else {}
+          for g in ("hanayo","sakihane"):
+              items=[v for v in data.values() if isinstance(v,dict) and v.get("group")==g]
+              cached=sum(sum((base/pathlib.Path(p)).is_file() for p in v.get("cached_files",[]) if isinstance(p,str)) for v in items)
+              states=collections.Counter(v.get("review_status","pending") for v in items)
+              print("FANART_GROUP",g,"posts",len(items),"cached_images",cached,"states",dict(states))
+          if queue.is_file(): print("FANART_QUEUE_UPDATED_KST",datetime.datetime.fromtimestamp(queue.stat().st_mtime,ZoneInfo("Asia/Seoul")).isoformat())
+          state=base/"guild_banner_rotation_state.json"
+          if state.is_file():
+              obj=json.loads(state.read_text())
+              print("GUILD_BANNER_STATE",{"last_slot":obj.get("last_slot"),"artist":obj.get("artist"),"source_post":bool(obj.get("post_url")),"rotation_used_count":len(obj.get("rotation_used",[]))})
+          else:print("GUILD_BANNER_STATE MISSING")
+          PY
+          echo "FANART_CONFIG_FLAGS"
+          for key in FANART_DISCOVERY_ENABLED FANART_CACHE_CANDIDATES SERVER_BANNER_ENABLED SERVER_BANNER_USE_COLLECTED SERVER_BANNER_ALLOW_FIT; do
+            value=$(grep -m1 "^$key=" .env | cut -d= -f2- || true)
+            case "$value" in 0|1|true|false) echo "$key=$value";; *) echo "$key=UNSET_DEFAULT";; esac
+          done
+          echo "FANART_LATEST_EVENTS"
+          sudo journalctl -u chzzk-bot.service -u abyss-fanart-rss-review.service -u abyss-media-refresh.service --since '18 hours ago' --no-pager -o cat | grep -Ei 'FANART_DISCOVERY_PROFILE|FANART_REVIEW_CACHE|FxEmbed .*feed unavailable|Fanart image download|FANART_SELECTED|Fanart discovery disabled' | tail -n 30 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "BANNER_LATEST_EVENTS"
+          sudo journalctl -u abyss-guild-banner.service --since '36 hours ago' --no-pager -o cat | grep -Ei 'banner|changed|rotated|candidate|error|fail|disabled' | tail -n 26 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+
+          echo "PLATFORM_EVENT_COUNTS_AND_LATEST"
+          sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections
+          keys=["YOUTUBE_WEBSUB_PUSH_ACCEPTED","YouTube WebSub notification sent","YOUTUBE_WEBSUB_VERIFIED","YOUTUBE_RSS_FALLBACK_OK","YOUTUBE_RSS_FALLBACK","YouTube notification sent","YouTube ","X_MEDIA_CLASSIFIED","X_MEDIA_UNKNOWN","X_REPOST_DELIVERED","X_FANART_BLOCKED","FANART_SELECTED","CHZZK replay posted","카페 게시판 431 새 글 알림 전송","카페 게시판 382 새 글 알림 전송","디스코드 알림 전송 성공","DISCORD_WEBHOOK_DELIVERED","히요리 서버 배너 교체 완료"]
+          counts=collections.Counter();latest={}
+          for line in sys.stdin:
+              for key in keys:
+                  if key in line:counts[key]+=1;latest[key]=line[:260]
+          for key in keys:print("EVENT",key,"COUNT",counts[key],"LATEST",latest.get(key,"NONE"))
+          '
+          echo "X_VIDEO_RECENT"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -E 'X_MEDIA_CLASSIFIED|X_SEND_MEDIA_GUARD|DISCORD_WEBHOOK_DELIVERED' | tail -n 22 || true
+          echo "SERVICE_FAILS_36H"
+          for unit in abyss-guild-banner.service abyss-media-refresh.service abyss-fanart-rss-review.service abyss-hiyoriclip-collector.service abyss-chzzk-hiyoriclip-collector.service;do echo "$unit $(systemctl show "$unit" --property=Result --value 2>/dev/null || true)";done
+
+          echo "CURRENT_PLATFORM_HEALTH"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import pathlib,json,datetime
+          root=pathlib.Path('/home/ubuntu/chzzk-bot')
+          for name in ('youtube_seen_videos.json','youtube_handle_ids.json','live_state.json','chzzk_replay_seen.json','cafe_seen_articles.json','cafe_seen_articles_382.json'):
+              p=root/name
+              try:
+                  x=json.loads(p.read_text())
+                  if name=='youtube_seen_videos.json':
+                      print('YOUTUBE_SEEN',[(k,len(v) if isinstance(v,list) else type(v).__name__) for k,v in x.items()])
+                  elif name=='youtube_handle_ids.json':
+                      print('YOUTUBE_HANDLE_REPLAY',x.get('@Hiyorireplay','MISSING'))
+                  else:
+                      print('STATE',name,'exists',True,'type',type(x).__name__,'count',len(x))
+              except Exception as e:
+                  print('STATE',name,'ERROR',type(e).__name__)
+          PY
+          echo "CURRENT_PLATFORM_LOGS_LAST_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -Ei 'YOUTUBE_WEBSUB|YouTube .*failure|YouTube notification|YouTube .*initialized|CHZZK replay|X_MEDIA_CLASSIFIED|X_MEDIA_UNKNOWN|X_SEND_MEDIA_GUARD|FANART_SELECTED|FANART_DISCOVERY_PROFILE|YouTube WebSub subscription failed|DISCORD_WEBHOOK_DELIVERED|X_REPOST_DELIVERED|카페 게시판 .*알림 전송|디스코드 알림 전송 성공' | tail -n 90 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "CURRENT_SERVICE_STATUS"
+          for unit in chzzk-bot.service caddy.service abyss-guild-banner.timer abyss-media-refresh.timer abyss-chzzk-hiyoriclip.timer abyss-hiyoriclip-collector.timer;do echo "$unit $(systemctl is-active "$unit" 2>/dev/null || true)";done
+          echo "CURRENT_CADDY_CERTS"
+          sudo find /var/lib/caddy/.local/share/caddy/certificates -type f -name '*.crt' 2>/dev/null | wc -l
+          echo "CURRENT_DISK_FREE"
+          df -h /home/ubuntu/chzzk-bot | tail -1
+
+          echo "X_EXAMPLE_VIDEO_PROBE"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import json,urllib.request
+          endpoint='https://api.fxtwitter.com/SakihaneHuya/status/2118873316052312139'
+          try:
+              req=urllib.request.Request(endpoint,headers={'User-Agent':'abyss-bot/1.0'})
+              with urllib.request.urlopen(req,timeout=9) as response:
+                  data=json.load(response)
+              tweet=data.get('tweet') or {}
+              media=tweet.get('media') or {}
+              videos=media.get('videos') or media.get('animated_gifs') or media.get('gifs') or []
+              print('EXAMPLE_MEDIA', 'video_count',len(videos),'photos',len(media.get('photos') or []))
+              for v in videos[:2]:
+                  print('EXAMPLE_VIDEO', 'url_mp4',str(v.get('url') or '').split('?',1)[0].endswith('.mp4'),
+                        'formats',[(f.get('container'),f.get('bitrate'),str(f.get('url') or '').split('?',1)[0].endswith('.mp4')) for f in (v.get('formats') or [])][:6],
+                        'has_thumb',bool(v.get('thumbnail_url')))
+          except Exception as e:print('EXAMPLE_PROBE_ERROR',type(e).__name__,str(e)[:100])
+          PY
+
+          echo "LINKS_RUNTIME_AUDIT"
+          python3 - <<'PY'
+          import os, re, pathlib
+          from urllib.parse import urlparse
+          root=pathlib.Path('/home/ubuntu/chzzk-bot')
+          env=dict(line.split('=',1) for line in (root/'.env').read_text().splitlines() if '=' in line and not line.lstrip().startswith('#'))
+          for k in ('HANAYO_CHZZK_URL','SAKIHANE_CHZZK_URL','STELLIVE_CAFE_URL','YOUTUBE_THREAD_ID','CHZZK_REPLAY_THREAD_ID'):
+              v=env.get(k, '')
+              if k.endswith('_CHZZK_URL') or k.endswith('_CAFE_URL'):
+                  if v:
+                      url=urlparse(v)
+                      label='correct_host' if url.hostname in ('chzzk.naver.com','cafe.naver.com') else 'OTHER_HOST'
+                      print(k, label, v[:160])
+                  else:
+                      print(k,'NOT_SET')
+              else: print(k, 'CONFIGURED' if v else 'DEFAULT')
+          channels=[x.strip() for x in (root/'channels.txt').read_text().splitlines() if x.strip() and not x.startswith('#')]
+          print('MONITORED_CHZZK_IDS',[(cid, bool(re.fullmatch(r'[0-9a-f]{32}',cid))) for cid in channels])
+          print('DEPLOYED_CHZZK_LIVE_LINK_FIX', 'live/{channel_id}' in (root/'main.py').read_text())
+          print('DEPLOYED_CHZZK_REPLAY_LINK_FIX', 'https://chzzk.naver.com/video/' in (root/'chzzk_replay_notifier.py').read_text())
+          PY
+
+          echo "REPLAY_CHANNEL_CONFIGURATION"
+          grep -i 'Hiyorireplay' youtube_channels.txt || true
+          echo "REPLAY_ID_CACHE"
+          python3 - <<'PY'
+          import json,pathlib
+          path=pathlib.Path("youtube_handle_ids.json")
+          data=json.loads(path.read_text()) if path.exists() else {}
+          print("replay_id="+str(data.get("@Hiyorireplay","UNRESOLVED")))
+          PY
+          echo "REPLAY_LOGS_LAST_2H"
+          sudo journalctl -u chzzk-bot.service --since '2 hours ago' --no-pager -o cat | grep -Ei 'Hiyorireplay|YouTube WebSub subscription|YOUTUBE_WEBSUB_VERIFIED|YouTube handle|YouTube .*initialized|YouTube .*failed' | tail -n 50 || true
+
+          for u in chzzk-bot.service abyss-guild-banner.timer abyss-media-refresh.timer abyss-guild-banner.service; do
+            echo "UNIT $u $(systemctl is-active "$u" 2>/dev/null || true)"
+          done
+          echo "TIMERS"
+          systemctl list-timers --all --no-pager | grep -E 'abyss|chzzk' || true
+          echo "BOT_LOG_COUNTS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections
+          lines=sys.stdin
+          keys=["ERROR","Traceback","failure #","WARNING","X 새 게시글 알림 성공","후야 X 새 글 알림","X_REPOST_DELIVERED","X_REPOST_DISCOVERED","X_FX_FEED","X_MEDIA_TEXT_ONLY_VERIFIED","X_MEDIA_RECHECK_FAILED","X_MEDIA_RECHECK_UNVERIFIED","X_MEDIA_UNVERIFIED_EMPTY","X_FANART_BLOCKED","FANART_SELECTED","FANART_DISCOVERY_PROFILE","FANART_REVIEW_CACHE","YouTube","유튜브","카페","치지직","WEBHOOK_DELIVERED","NAVER","X RSS 서버 조회 실패","DISCORD_WEBHOOK_DELIVERED"]
+          n=collections.Counter()
+          for line in lines:
+              for k in keys:
+                  if k in line:n[k]+=1
+          print(" ".join("%s=%d"%(k.replace(" ","_"),n[k]) for k in keys))
+          '
+          echo "RECENT_PROBLEMS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat |
+            grep -Ei 'ERROR|Traceback|failure #|X RSS 서버 조회 실패|후야 X RSS 소스 실패|FANART_FALLBACK|팬아트 링크 선택 실패|MEDIA_RECHECK_FAILED|NAVER_CAFE|HTTPError|Timeout' | tail -n 55 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "PLATFORM_LAST_EVENTS_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o short-iso |
+            grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DELIVERED|FANART_SELECTED|FANART_DISCOVERY_PROFILE|디스코드 알림 전송 성공|유튜브.*알림|카페.*알림|YouTube banner updated|X_MEDIA_TEXT_ONLY_VERIFIED' | tail -n 45 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "WARNING_FAMILIES_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections,re
+          hits=collections.Counter()
+          for line in sys.stdin:
+              if " [WARNING] " not in line and " [ERROR] " not in line: continue
+              msg=line.split("] ",1)[-1]
+              msg=re.sub(r"https?://\\S+","<URL>",msg)
+              msg=re.sub(r"\\b\\d{12,}\\b","<ID>",msg)
+              msg=re.sub(r"(?:HTTP|HTTPS)ConnectionPool\\([^)]*\\)","HTTPConnectionPool(<HOST>)",msg)
+              hits[msg[:75]]+=1
+          for key,n in hits.most_common(20):print(n,key)
+          '
+          echo "ALL_SERVICES_RECENT_FAILURES"
+          for unit in abyss-media-refresh.service abyss-fanart-rss-review.service abyss-official-profiles.service abyss-hiyoriclip-collector.service abyss-chzzk-hiyoriclip-collector.service; do
+            echo "$unit: $(systemctl show "$unit" --property=Result --value 2>/dev/null || true)"
+          done
+          echo "BANNER_LAST_EVENTS"
+          sudo journalctl -u abyss-guild-banner.service --since '30 hours ago' --no-pager -o cat | tail -n 20 || true
+          echo "MEDIA_REFRESH_EVENTS"
+          sudo journalctl -u abyss-media-refresh.service --since '30 hours ago' --no-pager -o cat | tail -n 12 || true
+          echo 'WEBSUB_SETUP'
+          for key in YOUTUBE_WEBSUB_CALLBACK_URL YOUTUBE_WEBSUB_SECRET YOUTUBE_WEBSUB_PORT; do
+            if grep -q "^$key=" .env; then
+              if [ "$key" = YOUTUBE_WEBSUB_CALLBACK_URL ]; then
+                value=$(grep -m1 "^$key=" .env | cut -d= -f2-)
+                case "$value" in https://*) echo "$key=HTTPS_CONFIGURED";; *) echo "$key=INVALID_OR_EMPTY";; esac
+              else
+                echo "$key=CONFIGURED"
+              fi
+            else echo "$key=ABSENT"; fi
+          done
+          echo "WEBSUB_LISTEN $(ss -lnt | grep -c ':8765 ' || true)"
+          echo "PROXY_TOOLS"
+          for tool in caddy nginx certbot tailscale cloudflared; do command -v "$tool" || true; done
+          echo "PROXY_UNITS"
+          for unit in caddy nginx apache2 cloudflared tailscaled; do echo "$unit=$(systemctl is-active "$unit" 2>/dev/null || true)"; done
+          echo "PROXY_WEB_CONF_EXISTS"
+          for file in /etc/caddy/Caddyfile /etc/nginx/sites-enabled/default; do if [ -f "$file" ]; then echo "$file yes"; fi; done
+          echo "OPTIONS"
+          for key in ABYSS_RANDOM_MEDIA ABYSS_NOTIFICATION_FANART FANART_DISCOVERY_ENABLED FANART_CACHE_CANDIDATES SERVER_BANNER_USE_COLLECTED SERVER_BANNER_ALLOW_FIT; do
+            value=$(grep -m1 "^$key=" .env | cut -d= -f2- || true)
+            case "$value" in 0|1|true|false) echo "$key=$value";; *) echo "$key=default_or_unset";; esac
+          done
+          REMOTE
