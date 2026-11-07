@@ -6,6 +6,7 @@ on the same host every 30 seconds. Other RSS providers continue independently.
 import logging
 import threading
 import time
+import random
 from urllib.parse import urlsplit
 
 import requests
@@ -26,6 +27,24 @@ def active(url):
         return now >= max(_until.get(url, 0), _host_until.get(_host(url), 0))
 
 
+def retry_after(urls):
+    """Return seconds until the earliest blocked provider can be tried again."""
+    now = time.monotonic()
+    with _lock:
+        delays = [max(0, max(_until.get(u, 0), _host_until.get(_host(u), 0)) - now)
+                  for u in urls]
+    return max(0, min(delays, default=0))
+
+
+def source_snapshot(urls):
+    """Non-sensitive provider health summary for diagnostics."""
+    now = time.monotonic()
+    with _lock:
+        return {_host(u): {"cooldown_seconds": int(max(0, max(
+            _until.get(u, 0), _host_until.get(_host(u), 0)) - now)),
+                            "failures": _failures.get(u, 0)} for u in urls}
+
+
 def note_failure(url, exc):
     code = getattr(getattr(exc, "response", None), "status_code", None)
     host = _host(url)
@@ -40,7 +59,9 @@ def note_failure(url, exc):
             seconds = 3600
         else:
             # Timeouts and transient 5xx responses also deserve cooldown.
-            seconds = min(1800, 180 * (2 ** min(failures - 1, 4)))
+            seconds = min(1800, 300 * (2 ** min(failures - 1, 3)))
+        # Small jitter prevents both creators from synchronizing their retries.
+        seconds += random.randint(0, min(seconds // 10, 45))
         until = time.monotonic() + seconds
         _until[url] = max(_until.get(url, 0), until)
         # Shared provider status applies to both creator endpoints.
