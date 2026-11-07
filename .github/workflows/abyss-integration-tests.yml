@@ -125,6 +125,21 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "FINAL_DEPLOYED_HEALTH"
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python; else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import json,health_monitor
+          snapshot=health_monitor.snapshot()
+          print("HEALTH_SNAPSHOT",json.dumps(snapshot,ensure_ascii=False))
+          import main
+          print("HEALTH_WORKER_WIRED",hasattr(main,"start_health_monitor"))
+          import delivery_review
+          print("DELIVERY_REVIEW_WIRED",bool(delivery_review.JOURNAL))
+          PY
+          echo "FINAL_LATEST_BOT_EVENTS"
+          sudo journalctl -u chzzk-bot.service --since '20 minutes ago' --no-pager -o cat | grep -E 'ABYSS_HEALTH_SNAPSHOT|YOUTUBE_RSS_BACKOFF|X_ALL_SOURCES_COOLING_DOWN|YOUTUBE_WEBSUB_VERIFIED|X_VIDEO_ATTACHMENT_READY|DISCORD_DELIVERY_SLOW|ERROR|Traceback' | tail -n 30 || true
+
           echo "FANART_AND_BANNER_INVENTORY_LIVE"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
