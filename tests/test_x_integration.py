@@ -206,6 +206,52 @@ class MediaTests(unittest.TestCase):
 
 
 
+class XVideoAttachmentTests(unittest.TestCase):
+    def test_small_mp4_is_embedded_as_discord_attachment(self):
+        import resilience
+        class Response:
+            status_code = 200
+            headers = {"Content-Type": "video/mp4", "Content-Length": "6"}
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def raise_for_status(self): pass
+            def iter_content(self, size): yield b"MP4DATA"
+        payload = {"components":[{"type":17,"components":[
+            {"type":12,"items":[{"media":{"url":"https://video.twimg.com/ext_tw_video/123/clip.mp4"}}]}
+        ]}]}
+        with patch.object(resilience.requests,"get",return_value=Response()):
+            uploads = resilience._collect_x_video_attachments(payload)
+        self.assertEqual(uploads[0][0], "abyss_x_video.mp4")
+        self.assertEqual(uploads[0][2], "video/mp4")
+        self.assertEqual(payload["components"][0]["components"][0]["items"][0]["media"]["url"],
+                         "attachment://abyss_x_video.mp4")
+
+    def test_large_x_video_retains_remote_link(self):
+        import resilience
+        class Response:
+            status_code = 200
+            headers = {"Content-Type": "video/mp4", "Content-Length": "20000000"}
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def raise_for_status(self): pass
+        url = "https://video.twimg.com/ext_tw_video/123/clip.mp4"
+        payload = {"components":[{"type":17,"components":[
+            {"type":12,"items":[{"media":{"url":url}}]}
+        ]}]}
+        with patch.object(resilience.requests,"get",return_value=Response()):
+            self.assertEqual(resilience._collect_x_video_attachments(payload),[])
+        self.assertEqual(payload["components"][0]["components"][0]["items"][0]["media"]["url"],url)
+
+    def test_untrusted_video_origin_never_downloaded(self):
+        import resilience
+        payload={"components":[{"type":17,"components":[
+            {"type":12,"items":[{"media":{"url":"https://example.com/video.mp4"}}]}
+        ]}]}
+        with patch.object(resilience.requests,"get") as get:
+            self.assertEqual(resilience._collect_x_video_attachments(payload),[])
+        get.assert_not_called()
+
+
 class XProviderBackoffTests(unittest.TestCase):
     def setUp(self):
         import x_feed_health
