@@ -669,6 +669,43 @@ class RoutingTests(unittest.TestCase):
             yt._check_youtube_channels(channels)
         self.assertEqual(sent.call_count, 1)
 
+    def test_youtube_failed_rss_uses_long_backoff_but_other_channels_continue(self):
+        yt._channel_failures.clear()
+        yt._channel_retry_at.clear()
+        def fake_fetch(ch):
+            if ch == "bad":
+                raise ValueError("RSS unavailable")
+            return []
+        with patch.object(yt, "_load_seen", return_value={"bad": [], "good": []}), \
+             patch.object(yt, "_fetch_uploads", side_effect=fake_fetch) as fetched, \
+             patch.object(yt, "_save_seen"), \
+             patch.object(yt, "warn_failure"), \
+             patch.object(yt.time, "monotonic", return_value=100):
+            yt._check_youtube_channels(["bad", "good"])
+            self.assertGreaterEqual(yt._channel_retry_at["bad"], 3700)
+            yt._check_youtube_channels(["bad", "good"])
+            self.assertEqual([call.args[0] for call in fetched.call_args_list],
+                             ["bad", "good", "good"])
+        yt._channel_retry_at.clear()
+        yt._channel_failures.clear()
+
+    def test_health_snapshot_shows_fanart_counts_without_tokens(self):
+        import health_monitor
+        import json
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "creator_media").mkdir()
+            (root / "creator_media" / "fanart_discovery.json").write_text(
+                json.dumps({"h": {"group":"hanayo","cached_files":["a","b"]},
+                            "s":{"group":"sakihane","cached_files":["c"]}}), encoding="utf-8")
+            with patch.object(health_monitor, "ROOT", root):
+                status = health_monitor.snapshot()
+            self.assertEqual(status["fanart"]["hanayo"]["posts"], 1)
+            self.assertEqual(status["fanart"]["hanayo"]["cached_images"], 2)
+            self.assertEqual(status["fanart"]["sakihane"]["cached_images"], 1)
+            self.assertTrue(status["states"]["youtube_seen"]["missing"])
+            self.assertNotIn("secret", str(status).lower())
+
     def test_youtube_rss_accepts_id_without_uc_prefix(self):
         xml = (b'<feed xmlns="http://www.w3.org/2005/Atom" '
                b'xmlns:yt="http://www.youtube.com/xml/schemas/2015">'

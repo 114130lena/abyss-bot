@@ -228,8 +228,19 @@ class XProviderBackoffTests(unittest.TestCase):
             self.assertFalse(self.feed.active(source))
             self.assertFalse(self.feed.active(second))
             self.assertTrue(self.feed.active(other))
-        with patch.object(self.feed.time, "monotonic", return_value=1181):
+        with patch.object(self.feed.time, "monotonic", return_value=1350):
             self.assertTrue(self.feed.active(second))
+
+    def test_provider_retry_after_and_snapshot_reflect_shared_outage(self):
+        u1 = "https://fxtwitter.com/HanayoHiyori/feed.xml"
+        u2 = "https://fxtwitter.com/SakihaneHuya/feed.xml"
+        u3 = "https://nitter.mizuki.st/SakihaneHuya/rss"
+        with patch.object(self.feed.time, "monotonic", return_value=100), \
+             patch.object(self.feed.random, "randint", return_value=0):
+            self.feed.note_failure(u1, TimeoutError())
+            self.assertEqual(self.feed.retry_after([u1,u2]), 300)
+            self.assertEqual(self.feed.retry_after([u2,u3]), 0)
+            self.assertEqual(self.feed.source_snapshot([u2])["fxtwitter.com"]["cooldown_seconds"], 300)
 
     def test_429_is_thirty_minute_shared_provider_pause(self):
         import requests
@@ -240,7 +251,7 @@ class XProviderBackoffTests(unittest.TestCase):
             self.assertFalse(self.feed.active("https://fxtwitter.com/B/feed.xml"))
         with patch.object(self.feed.time, "monotonic", return_value=3799):
             self.assertFalse(self.feed.active("https://fxtwitter.com/B/feed.xml"))
-        with patch.object(self.feed.time, "monotonic", return_value=3801):
+        with patch.object(self.feed.time, "monotonic", return_value=3850):
             self.assertTrue(self.feed.active("https://fxtwitter.com/B/feed.xml"))
 
     def test_repeated_timeout_expands_cooldown(self):
@@ -250,7 +261,7 @@ class XProviderBackoffTests(unittest.TestCase):
         with patch.object(self.feed.time, "monotonic", return_value=290):
             self.feed.note_failure(url, TimeoutError())
             self.assertFalse(self.feed.active(url))
-        with patch.object(self.feed.time, "monotonic", return_value=651):
+        with patch.object(self.feed.time, "monotonic", return_value=950):
             self.assertTrue(self.feed.active(url))
 
 

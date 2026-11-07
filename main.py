@@ -13,6 +13,7 @@ from twitter_notifier import check_twitter
 from twitter_huya_notifier import check_huya_x
 from youtube_notifier import check_youtube
 from youtube_websub import start_websub
+from health_monitor import start as start_health_monitor
 from banner_manager import get_banner, run_banner_refresh
 from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
@@ -165,6 +166,7 @@ def main():
         threading.Thread(target=run_server_banner_scheduler,
                          name="guild-banner-rotation", daemon=True).start()
     start_websub()
+    start_health_monitor()
     # Check public profile feeds every 2 hours. Entries enter a private review
     # queue and can never become public fanart without explicit permission.
     if os.getenv("FANART_DISCOVERY_ENABLED", "1") == "1":

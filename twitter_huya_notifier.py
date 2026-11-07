@@ -68,6 +68,10 @@ def _fetch_merged_posts():
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
         if feed_health.active(fx_url):
             jobs[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, common), fx_url)] = fx_url
+        if not jobs:
+            logging.info("X_ALL_SOURCES_COOLING_DOWN creator=%s retry_in_seconds=%d",
+                         USERNAME, max(1, int(feed_health.retry_after(FEEDS + [fx_url]))))
+            return None
         for job in as_completed(jobs):
             try:
                 items = job.result()
@@ -152,6 +156,11 @@ def check_huya_x():
         return
     try:
         posts = _fetch_merged_posts()
+        if posts is None:
+            # Every provider is in its circuit-breaker period: neither a success nor a new failure.
+            sources = FEEDS + ["https://fxtwitter.com/" + USERNAME + "/feed.xml"]
+            next_check = time.monotonic() + max(INTERVAL, min(300, int(feed_health.retry_after(sources)) + 1))
+            return
         if not posts:
             failures = 0
             try:
