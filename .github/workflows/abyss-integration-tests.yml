@@ -125,6 +125,26 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "X_EXAMPLE_VIDEO_PROBE"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import json,urllib.request
+          endpoint='https://api.fxtwitter.com/SakihaneHuya/status/2118873316052312139'
+          try:
+              req=urllib.request.Request(endpoint,headers={'User-Agent':'abyss-bot/1.0'})
+              with urllib.request.urlopen(req,timeout=9) as response:
+                  data=json.load(response)
+              tweet=data.get('tweet') or {}
+              media=tweet.get('media') or {}
+              videos=media.get('videos') or media.get('animated_gifs') or media.get('gifs') or []
+              print('EXAMPLE_MEDIA', 'video_count',len(videos),'photos',len(media.get('photos') or []))
+              for v in videos[:2]:
+                  print('EXAMPLE_VIDEO', 'url_mp4',str(v.get('url') or '').split('?',1)[0].endswith('.mp4'),
+                        'formats',[(f.get('container'),f.get('bitrate'),str(f.get('url') or '').split('?',1)[0].endswith('.mp4')) for f in (v.get('formats') or [])][:6],
+                        'has_thumb',bool(v.get('thumbnail_url')))
+          except Exception as e:print('EXAMPLE_PROBE_ERROR',type(e).__name__,str(e)[:100])
+          PY
+
           echo "LINKS_RUNTIME_AUDIT"
           python3 - <<'PY'
           import os, re, pathlib
