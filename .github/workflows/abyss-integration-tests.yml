@@ -125,6 +125,39 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "FANART_AND_BANNER_INVENTORY_LIVE"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import json,pathlib,datetime,collections
+          from zoneinfo import ZoneInfo
+          base=pathlib.Path("creator_media")
+          queue=base/"fanart_discovery.json"
+          if not queue.is_file():
+              from glob import glob
+              print("QUEUE_CANDIDATES",[pathlib.Path(p).name for p in glob("creator_media/*json")])
+          data=json.loads(queue.read_text()) if queue.is_file() else {}
+          for g in ("hanayo","sakihane"):
+              items=[v for v in data.values() if isinstance(v,dict) and v.get("group")==g]
+              cached=sum(sum((base/pathlib.Path(p)).is_file() for p in v.get("cached_files",[]) if isinstance(p,str)) for v in items)
+              states=collections.Counter(v.get("review_status","pending") for v in items)
+              print("FANART_GROUP",g,"posts",len(items),"cached_images",cached,"states",dict(states))
+          if queue.is_file(): print("FANART_QUEUE_UPDATED_KST",datetime.datetime.fromtimestamp(queue.stat().st_mtime,ZoneInfo("Asia/Seoul")).isoformat())
+          state=base/"guild_banner_rotation_state.json"
+          if state.is_file():
+              obj=json.loads(state.read_text())
+              print("GUILD_BANNER_STATE",{"last_slot":obj.get("last_slot"),"artist":obj.get("artist"),"source_post":bool(obj.get("post_url")),"rotation_used_count":len(obj.get("rotation_used",[]))})
+          else:print("GUILD_BANNER_STATE MISSING")
+          PY
+          echo "FANART_CONFIG_FLAGS"
+          for key in FANART_DISCOVERY_ENABLED FANART_CACHE_CANDIDATES SERVER_BANNER_ENABLED SERVER_BANNER_USE_COLLECTED SERVER_BANNER_ALLOW_FIT; do
+            value=$(grep -m1 "^$key=" .env | cut -d= -f2- || true)
+            case "$value" in 0|1|true|false) echo "$key=$value";; *) echo "$key=UNSET_DEFAULT";; esac
+          done
+          echo "FANART_LATEST_EVENTS"
+          sudo journalctl -u chzzk-bot.service -u abyss-fanart-rss-review.service -u abyss-media-refresh.service --since '18 hours ago' --no-pager -o cat | grep -Ei 'FANART_DISCOVERY_PROFILE|FANART_REVIEW_CACHE|FxEmbed .*feed unavailable|Fanart image download|FANART_SELECTED|Fanart discovery disabled' | tail -n 30 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "BANNER_LATEST_EVENTS"
+          sudo journalctl -u abyss-guild-banner.service --since '36 hours ago' --no-pager -o cat | grep -Ei 'banner|changed|rotated|candidate|error|fail|disabled' | tail -n 26 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+
           echo "PLATFORM_EVENT_COUNTS_AND_LATEST"
           sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o cat | python3 -c '
           import sys,collections
