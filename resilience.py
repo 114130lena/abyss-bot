@@ -93,6 +93,58 @@ def _collect_x_image_attachments(prepared):
                  len(candidates), len(attachments), time.monotonic() - started)
     return attachments
 
+def _collect_x_video_attachments(prepared):
+    """Attach a small X MP4 to Discord for reliable in-app playback.
+
+    Large, rejected, or unavailable videos retain their original remote URL.
+    No redirects; no untrusted hosts; bounded downloads and no extra video API.
+    """
+    import io
+    from urllib.parse import urlsplit
+    maximum = 5_500_000
+    for container in prepared.get("components", []):
+        for block in container.get("components", []):
+            if block.get("type") != 12:
+                continue
+            for item in block.get("items", []):
+                media = item.get("media") or {}
+                source = media.get("url", "")
+                parsed = urlsplit(str(source))
+                if not (parsed.scheme == "https"
+                        and parsed.hostname == "video.twimg.com"
+                        and parsed.path.lower().endswith(".mp4")):
+                    continue
+                started = time.monotonic()
+                try:
+                    with requests.get(source, stream=True, timeout=(2, 4),
+                                      allow_redirects=False) as response:
+                        response.raise_for_status()
+                        if response.status_code != 200:
+                            continue
+                        mime = response.headers.get("Content-Type", "").split(";", 1)[0].lower().strip()
+                        if mime != "video/mp4":
+                            continue
+                        length = response.headers.get("Content-Length", "")
+                        if length.isdigit() and int(length) > maximum:
+                            logging.info("X_VIDEO_ATTACHMENT_SKIP reason=too_large bytes=%s", length)
+                            continue
+                        raw = bytearray()
+                        for chunk in response.iter_content(65536):
+                            raw.extend(chunk)
+                            if len(raw) > maximum:
+                                raise ValueError("video size exceeds Discord small-clip limit")
+                    if not raw:
+                        continue
+                    name = "abyss_x_video.mp4"
+                    media["url"] = "attachment://" + name
+                    logging.info("X_VIDEO_ATTACHMENT_READY bytes=%d elapsed_seconds=%.2f",
+                                 len(raw), time.monotonic() - started)
+                    return [(name, bytes(raw), "video/mp4")]
+                except (requests.RequestException, OSError, ValueError, TypeError) as exc:
+                    logging.info("X_VIDEO_ATTACHMENT_FALLBACK reason=%s", type(exc).__name__)
+    return []
+
+
 def send_webhook(url, payload, attempts=3):
     """Retry transient HTTP/network failures, respecting Discord retry_after."""
     if not url.startswith("https://"):
@@ -170,7 +222,8 @@ def send_webhook(url, payload, attempts=3):
                     selected_urls = None
                     chosen = None
             x_photos = _collect_x_image_attachments(prepared)
-            if chosen or x_photos or local_fanart:
+            x_videos = _collect_x_video_attachments(prepared)
+            if chosen or x_photos or x_videos or local_fanart:
                 from contextlib import ExitStack
                 import io
                 with ExitStack() as stack:
@@ -187,12 +240,14 @@ def send_webhook(url, payload, attempts=3):
                         offset = 2
                     for i,(filename,data,mime) in enumerate(x_photos):
                         uploaded[f"files[{i+offset}]"] = (filename,io.BytesIO(data),mime)
+                    for i,(filename,data,mime) in enumerate(x_videos):
+                        uploaded[f"files[{i+offset+len(x_photos)}]"] = (filename,io.BytesIO(data),mime)
                     if local_fanart:
                         extension = local_fanart.suffix.lower()
                         mime = ("image/png" if extension == ".png" else
                                 "image/webp" if extension == ".webp" else "image/jpeg")
                         filename = "abyss_notification_fanart" + extension
-                        uploaded[f"files[{offset + len(x_photos)}]"] = (
+                        uploaded[f"files[{offset + len(x_photos) + len(x_videos)}]"] = (
                             filename, stack.enter_context(local_fanart.open("rb")), mime)
                     response = requests.post(url, data={"payload_json": json.dumps(prepared, ensure_ascii=False)},
                                              files=uploaded, timeout=35)
@@ -214,7 +269,10 @@ def send_webhook(url, payload, attempts=3):
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
                              attempt + 1, time.monotonic() - delivery_started,
-                             len(x_photos) + (2 if chosen else 0) + (1 if local_fanart else 0))
+                             len(x_photos) + len(x_videos) + (2 if chosen else 0) + (1 if local_fanart else 0))
+                if time.monotonic() - delivery_started > 15:
+                    logging.warning("DISCORD_DELIVERY_SLOW elapsed_seconds=%.2f x_photos=%d x_videos=%d",
+                                    time.monotonic() - delivery_started, len(x_photos), len(x_videos))
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()
