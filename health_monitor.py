@@ -52,6 +52,13 @@ def snapshot():
     banner = _read(banner_path, {})
     result["banner"] = {"last_slot": banner.get("last_slot"),
                         "used_count": len(banner.get("rotation_used") or [])}
+    from delivery_review import count_pending
+    result["discord_uncertain_deliveries"] = count_pending()
+    try:
+        from guild_server_banner import collected_hanayo_art
+        result["banner"]["collected_candidates"] = len(collected_hanayo_art())
+    except (OSError, ValueError, ImportError) as exc:
+        logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
     return result
 
 
