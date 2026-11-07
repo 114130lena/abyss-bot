@@ -130,6 +130,9 @@ _state_lock = threading.RLock()
 failures = 0
 _channel_failures = {}
 _channel_retry_at = {}
+# WebSub is the primary notifier; unhealthy YouTube RSS should not be retried every minute.
+_RSS_FAILURE_BASE = max(300, int(os.getenv("YOUTUBE_RSS_FAILURE_RETRY_SECONDS", "3600")))
+_RSS_FAILURE_MAX = 21600
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0"})
 
@@ -263,8 +266,10 @@ def _check_youtube_channels(channel_ids):
         except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
             count = _channel_failures.get(channel_id, 0) + 1
             _channel_failures[channel_id] = count
-            delay = min(1800, INTERVAL * (2 ** min(count, 4)))
+            delay = min(_RSS_FAILURE_MAX, _RSS_FAILURE_BASE * (2 ** min(count - 1, 3)))
             _channel_retry_at[channel_id] = time.monotonic() + delay
+            logging.warning("YOUTUBE_RSS_BACKOFF channel=%s seconds=%d failures=%d error=%s",
+                            channel_id, delay, count, type(exc).__name__)
             warn_failure("YouTube " + channel_id, count, exc)
             continue
 
