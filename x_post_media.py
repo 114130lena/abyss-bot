@@ -8,6 +8,34 @@ def _media_url(value):
     p=urlsplit(url)
     return url if p.scheme=="https" and p.hostname in ("pbs.twimg.com","video.twimg.com","pbs.twimg.com:443") else ""
 
+def _playable_video_url(item):
+    """Select a direct HTTPS MP4/WebM video suitable for Discord V2 galleries.
+
+    HLS playlists (.m3u8) and still-image thumbnails are not playable videos.
+    Trust only X's video CDN and a valid video file extension before embedding.
+    """
+    from urllib.parse import urlsplit
+    candidates = []
+    if not isinstance(item, dict):
+        return ""
+    for fmt in item.get("formats") or []:
+        if not isinstance(fmt, dict):
+            continue
+        media_type = str(fmt.get("container") or fmt.get("content_type") or "").lower()
+        u = fmt.get("url") or ""
+        if media_type in ("mp4", "webm", "video/mp4", "video/webm") or urlsplit(str(u)).path.lower().endswith((".mp4", ".webm")):
+            candidates.append((int(fmt.get("bitrate") or 0), u))
+    for key in ("url", "video_url", "playback_url", "transcode_url"):
+        if item.get(key):
+            candidates.append((0, item[key]))
+    for _, url in sorted(candidates, key=lambda candidate: candidate[0], reverse=True):
+        parsed = urlsplit(str(url))
+        if (parsed.scheme == "https" and parsed.hostname in ("video.twimg.com", "video.pscp.tv")
+                and parsed.path.lower().endswith((".mp4", ".webm"))):
+            return str(url)
+    return ""
+
+
 def _complete_text_only(tweet, username, post_id):
     """A complete matching tweet without media indicators is a text-only witness.
 
@@ -73,8 +101,8 @@ def resolve_media(post, username):
     """Return (photos, video_preview, has_video, known).
 
     An unreachable/ambiguous API response is unknown, never a confirmed text-only post.
-    Prefer a public video thumbnail with a clickable original X post link:
-    remote MP4 URLs cannot be assumed to embed correctly in Discord.
+    Prefer a direct MP4/WebM URL in Discord media galleries when available,
+    falling back to the video thumbnail and original X link when absent.
     """
     existing=list(post.get("images") or [])
     post_id=str(post.get("id",""))
@@ -116,8 +144,14 @@ def resolve_media(post, username):
         preview=""
         for v in video_items:
             if not isinstance(v,dict):continue
-            preview=_media_url(v.get("thumbnail_url") or v.get("thumbnail") or v.get("poster") or v.get("preview_image_url"))
+            # A playable video takes precedence over the poster thumbnail.
+            preview=_playable_video_url(v)
             if preview:break
+        if has_video and not preview:
+            for v in video_items:
+                if not isinstance(v,dict):continue
+                preview=_media_url(v.get("thumbnail_url") or v.get("thumbnail") or v.get("poster") or v.get("preview_image_url"))
+                if preview:break
         # Some FxTwitter versions place a card or animated clip outside media.videos.
         if not has_video and (tweet.get("has_video") is True or tweet.get("video") or media.get("video")):
             has_video=True
