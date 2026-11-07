@@ -125,6 +125,21 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "PLATFORM_EVENT_COUNTS_AND_LATEST"
+          sudo journalctl -u chzzk-bot.service --since '36 hours ago' --no-pager -o cat | python3 -c '
+          import sys,collections
+          keys=["YOUTUBE_WEBSUB_PUSH_ACCEPTED","YouTube WebSub notification sent","YOUTUBE_WEBSUB_VERIFIED","YOUTUBE_RSS_FALLBACK_OK","YOUTUBE_RSS_FALLBACK","YouTube notification sent","YouTube ","X_MEDIA_CLASSIFIED","X_MEDIA_UNKNOWN","X_REPOST_DELIVERED","X_FANART_BLOCKED","FANART_SELECTED","CHZZK replay posted","카페 게시판 431 새 글 알림 전송","카페 게시판 382 새 글 알림 전송","디스코드 알림 전송 성공","DISCORD_WEBHOOK_DELIVERED","히요리 서버 배너 교체 완료"]
+          counts=collections.Counter();latest={}
+          for line in sys.stdin:
+              for key in keys:
+                  if key in line:counts[key]+=1;latest[key]=line[:260]
+          for key in keys:print("EVENT",key,"COUNT",counts[key],"LATEST",latest.get(key,"NONE"))
+          '
+          echo "X_VIDEO_RECENT"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -E 'X_MEDIA_CLASSIFIED|X_SEND_MEDIA_GUARD|DISCORD_WEBHOOK_DELIVERED' | tail -n 22 || true
+          echo "SERVICE_FAILS_36H"
+          for unit in abyss-guild-banner.service abyss-media-refresh.service abyss-fanart-rss-review.service abyss-hiyoriclip-collector.service abyss-chzzk-hiyoriclip-collector.service;do echo "$unit $(systemctl show "$unit" --property=Result --value 2>/dev/null || true)";done
+
           echo "CURRENT_PLATFORM_HEALTH"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
