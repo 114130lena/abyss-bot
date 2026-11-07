@@ -80,6 +80,53 @@ class FanartPermissionTests(unittest.TestCase):
 
 
 class MediaTests(unittest.TestCase):
+    def test_x_video_uses_playable_mp4_instead_of_static_poster(self):
+        class Response:
+            def raise_for_status(self): pass
+            def json(self):
+                return {"tweet": {"media": {"videos": [{
+                    "url": "https://video.twimg.com/ext_tw_video/123/pu/vid/avc1/640x360/clip.mp4",
+                    "thumbnail_url": "https://pbs.twimg.com/ext_tw_video_thumb/123/pu/img/preview.jpg",
+                    "formats": [
+                        {"container": "m3u8", "bitrate": 0, "url": "https://video.twimg.com/ext_tw_video/123/pu/pl/master.m3u8"},
+                        {"container": "mp4", "bitrate": 100, "url": "https://video.twimg.com/ext_tw_video/123/pu/vid/avc1/320x180/clip.mp4"},
+                        {"container": "mp4", "bitrate": 800, "url": "https://video.twimg.com/ext_tw_video/123/pu/vid/avc1/640x360/clip.mp4"}
+                    ]
+                }]}}}
+        with patch.object(media.requests, "get", return_value=Response()):
+            photos, playable, is_video, known = media.resolve_media(
+                {"id": "2118873316052312139", "images": []}, "SakihaneHuya")
+        self.assertEqual(photos, [])
+        self.assertTrue(is_video)
+        self.assertTrue(known)
+        self.assertEqual(playable, "https://video.twimg.com/ext_tw_video/123/pu/vid/avc1/640x360/clip.mp4")
+        from discord_v2 import alert
+        payload = alert("x", "사키하네 후야", title="🥱",
+                        url="https://x.com/SakihaneHuya/status/2118873316052312139",
+                        media_url=playable)
+        self.assertIn(playable, str(payload))
+        self.assertNotIn("preview.jpg", str(payload))
+
+    def test_x_video_fallback_to_poster_for_unplayable_hls(self):
+        class Response:
+            def raise_for_status(self): pass
+            def json(self):
+                return {"tweet": {"media": {"videos": [{
+                    "url": "https://video.twimg.com/ext_tw_video/123/pu/pl/master.m3u8",
+                    "thumbnail_url": "https://pbs.twimg.com/ext_tw_video_thumb/123/pu/img/preview.jpg",
+                }]}}}
+        with patch.object(media.requests, "get", return_value=Response()):
+            photos, preview, video, known = media.resolve_media(
+                {"id": "123", "images": []}, "SakihaneHuya")
+        self.assertEqual((photos, preview, video, known),
+                         ([], "https://pbs.twimg.com/ext_tw_video_thumb/123/pu/img/preview.jpg", True, True))
+
+    def test_x_video_rejects_non_twitter_download_hosts(self):
+        self.assertEqual(media._playable_video_url({
+            "url": "https://example.com/video.mp4",
+            "formats": [{"container": "mp4", "url": "https://example.com/video.mp4"}]
+        }), "")
+
     def test_unknown_media_never_confirmed_text_only(self):
         class Response:
             def raise_for_status(self): pass
