@@ -125,6 +125,33 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "CURRENT_PLATFORM_HEALTH"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import pathlib,json,datetime
+          root=pathlib.Path('/home/ubuntu/chzzk-bot')
+          for name in ('youtube_seen_videos.json','youtube_handle_ids.json','live_state.json','chzzk_replay_seen.json','cafe_seen_articles.json','cafe_seen_articles_382.json'):
+              p=root/name
+              try:
+                  x=json.loads(p.read_text())
+                  if name=='youtube_seen_videos.json':
+                      print('YOUTUBE_SEEN',[(k,len(v) if isinstance(v,list) else type(v).__name__) for k,v in x.items()])
+                  elif name=='youtube_handle_ids.json':
+                      print('YOUTUBE_HANDLE_REPLAY',x.get('@Hiyorireplay','MISSING'))
+                  else:
+                      print('STATE',name,'exists',True,'type',type(x).__name__,'count',len(x))
+              except Exception as e:
+                  print('STATE',name,'ERROR',type(e).__name__)
+          PY
+          echo "CURRENT_PLATFORM_LOGS_LAST_24H"
+          sudo journalctl -u chzzk-bot.service --since '24 hours ago' --no-pager -o cat | grep -Ei 'YOUTUBE_WEBSUB|YouTube .*failure|YouTube notification|YouTube .*initialized|CHZZK replay|X_MEDIA_CLASSIFIED|X_MEDIA_UNKNOWN|X_SEND_MEDIA_GUARD|FANART_SELECTED|FANART_DISCOVERY_PROFILE|YouTube WebSub subscription failed|DISCORD_WEBHOOK_DELIVERED|X_REPOST_DELIVERED|카페 게시판 .*알림 전송|디스코드 알림 전송 성공' | tail -n 90 | sed -E 's#https?://[^ ]+#<URL>#g' || true
+          echo "CURRENT_SERVICE_STATUS"
+          for unit in chzzk-bot.service caddy.service abyss-guild-banner.timer abyss-media-refresh.timer abyss-chzzk-hiyoriclip.timer abyss-hiyoriclip-collector.timer;do echo "$unit $(systemctl is-active "$unit" 2>/dev/null || true)";done
+          echo "CURRENT_CADDY_CERTS"
+          sudo find /var/lib/caddy/.local/share/caddy/certificates -type f -name '*.crt' 2>/dev/null | wc -l
+          echo "CURRENT_DISK_FREE"
+          df -h /home/ubuntu/chzzk-bot | tail -1
+
           echo "X_EXAMPLE_VIDEO_PROBE"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
