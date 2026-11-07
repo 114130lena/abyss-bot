@@ -241,6 +241,10 @@ def _fetch_merged_posts(include_backups=True):
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
         if feed_health.active(fx_url):
             futures[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, __import__("sys").modules[__name__]), fx_url)] = fx_url
+        if not futures:
+            logging.info("X_ALL_SOURCES_COOLING_DOWN creator=%s retry_in_seconds=%d",
+                         USERNAME, max(1, int(feed_health.retry_after(feeds + [fx_url]))))
+            return None
         for future in as_completed(futures):
             source = futures[future]
             try:
@@ -279,6 +283,11 @@ def check_twitter():
         return
     try:
         posts = _fetch_merged_posts(True)
+        if posts is None:
+            # Every provider is in its circuit-breaker period: neither a success nor a new failure.
+            sources = ALL_FEEDS + ["https://fxtwitter.com/" + USERNAME + "/feed.xml"]
+            next_check = time.monotonic() + max(INTERVAL, min(300, int(feed_health.retry_after(sources)) + 1))
+            return
         if not posts:
             logging.info("X RSS: 원본 게시글 없음")
             failures = 0
