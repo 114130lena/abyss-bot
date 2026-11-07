@@ -288,6 +288,11 @@ def send_webhook(url, payload, attempts=3):
             # Discord may have accepted the post even when its response was lost.
             # Blind retry could ping members twice; leave it unread for operator review.
             logging.warning("Discord response timed out; delivery uncertain, suppressing immediate retry")
+            try:
+                from delivery_review import record
+                record(payload, "ReadTimeout")
+            except (OSError, ValueError, TypeError) as exc:
+                logging.warning("Delivery review journal unavailable: %s", type(exc).__name__)
             raise
         except requests.ConnectTimeout:
             # No TCP connection was established, so a retry is safe.
@@ -298,6 +303,11 @@ def send_webhook(url, payload, attempts=3):
             # The connection may have dropped after Discord accepted the post.
             # Do not blindly resend a role mention.
             logging.warning("Discord connection lost; delivery uncertain, suppressing retry")
+            try:
+                from delivery_review import record
+                record(payload, "ConnectionError")
+            except (OSError, ValueError, TypeError) as exc:
+                logging.warning("Delivery review journal unavailable: %s", type(exc).__name__)
             raise
 
 def warn_failure(service, failures, error):

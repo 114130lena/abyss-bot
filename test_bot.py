@@ -72,6 +72,37 @@ class CrossPlatformTitleLinkTests(unittest.TestCase):
                 self.assertRegex(chzzk_button, r"^https://chzzk[.]naver[.]com/[0-9a-f]{32}$")
 
 
+class DeliveryReviewTests(unittest.TestCase):
+    def test_unknown_outcome_records_no_message_body_or_webhook(self):
+        import delivery_review
+        import json
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "pending.jsonl"
+            payload = {"content": "private text", "components": [{"content": "𝕏 X"}]}
+            with patch.object(delivery_review, "JOURNAL", path):
+                token = delivery_review.record(payload, "ReadTimeout")
+                self.assertEqual(delivery_review.count_pending(), 1)
+            data = path.read_text(encoding="utf-8")
+            self.assertEqual(len(token), 20)
+            self.assertNotIn("private text", data)
+            self.assertEqual(json.loads(data)["status"], "needs_manual_review")
+
+    def test_health_snapshot_counts_pending_review(self):
+        import delivery_review
+        import health_monitor
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "creator_media").mkdir()
+            path = root / "discord_delivery_uncertain.jsonl"
+            path.write_text('{"status":"needs_manual_review"}\\n', encoding="utf-8")
+            with patch.object(delivery_review, "JOURNAL", path), \
+                 patch.object(health_monitor, "ROOT", root), \
+                 patch("guild_server_banner.collected_hanayo_art", return_value=[]):
+                status = health_monitor.snapshot()
+            self.assertEqual(status["discord_uncertain_deliveries"], 1)
+            self.assertEqual(status["banner"]["collected_candidates"], 0)
+
+
 class RoutingTests(unittest.TestCase):
     def test_x_rss_description_preserves_paragraphs(self):
         import xml.etree.ElementTree as ET
