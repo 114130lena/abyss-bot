@@ -42,6 +42,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
           python -m unittest -v test_guild_server_banner.py
           python -m unittest discover -s tests -p 'test_banner_info_sync.py' -v
+          python -m unittest discover -s tests -p 'test_banner_metadata_recovery.py' -v
           python -m unittest discover -s tests -p 'test_banner_secret_config.py' -v
           python -m unittest discover -s tests -p 'test_banner_min_candidates.py' -v
           python -m unittest discover -s tests -p 'test_clip_digest.py' -v
@@ -260,6 +261,13 @@ jobs:
               raise SystemExit("Discord banner card still displays a previous layout")
           if not (int(posted.get("flags") or 0) & 32768):
               raise SystemExit("Discord banner card is missing Components V2 flag")
+          from guild_server_banner import read_state
+          provenance = read_state()
+          print("BANNER_METADATA_LIVE audit=%s image_match=%s change_time_known=%s source_known=%s" % (
+              provenance.get("banner_audit_status", "not_checked"),
+              provenance.get("banner_source_match_status", "not_checked"),
+              bool(provenance.get("banner_changed_at")),
+              bool(provenance.get("artist") and provenance.get("post_url"))))
           print("BANNER_INFO_LIVE_VERIFIED all_five_fields=true original_message=true")
           PY
           REMOTE
