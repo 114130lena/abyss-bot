@@ -29,7 +29,7 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.queue = {"hanayo:12345": {
             "group": "hanayo", "hashtag": "#hiyoriart_", "artist": "@artist",
             "post_url": self.source, "review_status": "pending",
-            "decision": "unknown", "image_urls": ["https://pbs.twimg.com/media/pic.jpg"],
+            "decision": "unknown", "text": "히요리 일러스트 #hiyoriart_", "image_urls": ["https://pbs.twimg.com/media/pic.jpg"],
             "cached_files": ["fanart_candidates/hanayo/source.jpg"]}}
         self.save_queue()
         self.patches = [
@@ -97,6 +97,24 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.save_queue()
         with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1"}):
             self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+
+    def test_group_art_or_retweet_with_hiyori_tag_not_server_eligible(self):
+        import fanart_relevance
+        multi = {"text": "RT by @artist: #toart_ #Rangart_ #hiyoriart_ #maryart_ 어비스 첫 오리지널곡 발매 축하해!"}
+        self.assertFalse(fanart_relevance.eligible_hanayo_banner(multi))
+        self.assertFalse(fanart_relevance.eligible_hanayo_banner(
+            {"text": "#hiyoriart_ 배경 그림"}))
+        self.assertTrue(fanart_relevance.eligible_hanayo_banner(
+            {"text": "히요리 팬아트 #hiyoriart_"}))
+        self.assertFalse(fanart_relevance.eligible_hanayo_banner(
+            {"text": "히요리 팬아트 #hiyoriart_", "server_banner_excluded": True}))
+
+    def test_non_hiyori_caption_remains_notification_candidate_not_reserved(self):
+        self.queue["hanayo:12345"]["text"] = "풍경 일러스트 #hiyoriart_"
+        self.save_queue()
+        with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1"}):
+            self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+        self.assertTrue(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
 
     def test_weekly_cleanup_deletes_only_old_unreferenced_copies(self):
         orphan = self.cached.parent / "orphan.jpg"
