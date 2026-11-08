@@ -92,7 +92,7 @@ def fetch_recent_clips(now=None, get=None):
                          "date": dt.astimezone(KST).isoformat()})
     # One page may contain fewer than ten eligible clips. Read additional
     # pages only as needed, without increasing the first request timeout.
-    if len(accepted) < 10:
+    if accepted and len(accepted) < 10:
         seen = {clip["id"] for clip in accepted}
         for page in (1, 2):
             try:
