@@ -1,5 +1,5 @@
 """No-network tests for shared guild-banner ownership and 08/18 clip verification."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 import unittest
@@ -26,17 +26,21 @@ class SchedulerCoordinationTests(unittest.TestCase):
         self.assertIn("sudo systemctl disable --now abyss-guild-banner.timer", deploy)
         self.assertIn("BANNER_CANONICAL_POOL eligible=", deploy)
         self.assertIn("guild_banner_timer_runner.py", backup_source)
+        self.assertIn("cron: '4,7 23 * * *'", backup_source)
+        self.assertIn("cron: '4,7 9 * * *'", backup_source)
+        self.assertNotIn("cron: '27,47", backup_source)
         self.assertNotIn(".guild_banner_auth.env", backup_source)
         self.assertIn("guild_banner_healthcheck.py", health_source)
         self.assertIn("clip_healthcheck.py", clip_source)
         self.assertIn("25 23,9 * * *", clip_source)
 
     def test_backup_only_uses_its_current_kst_hour(self):
-        self.assertEqual(backup.target_slot(at(8, 8, 27)), at(8, 8, 0))
-        self.assertEqual(backup.target_slot(at(8, 8, 59)), at(8, 8, 0))
-        self.assertEqual(backup.target_slot(at(8, 18, 47)), at(8, 18, 0))
-        for when in (at(8, 7, 59), at(8, 11, 34),
-                     at(8, 17, 59), at(8, 21, 34),
+        self.assertEqual(backup.target_slot(at(8, 8, 4)), at(8, 8, 0))
+        self.assertEqual(backup.target_slot(at(8, 8, 9)), at(8, 8, 0))
+        self.assertEqual(backup.target_slot(at(8, 18, 7)), at(8, 18, 0))
+        for when in (at(8, 7, 59), at(8, 8, 10), at(8, 8, 27),
+                     at(8, 11, 34), at(8, 17, 59), at(8, 18, 10),
+                     at(8, 18, 47), at(8, 21, 34),
                      at(9, 1, 6), at(9, 6, 12)):
             with self.subTest(when=when):
                 self.assertIsNone(backup.target_slot(when))
@@ -50,9 +54,35 @@ class SchedulerCoordinationTests(unittest.TestCase):
 
     def test_backup_uses_canonical_rotate_once_with_same_slot(self):
         with patch("guild_server_banner.rotate_once", return_value={"status": "already_rotated"}) as rotate:
-            result = backup.run(at(8, 8, 34))
+            result = backup.run(at(8, 8, 4))
         self.assertEqual(result["status"], "already_rotated")
-        rotate.assert_called_once_with(now=at(8, 8, 0))
+        rotate.assert_called_once_with(now=at(8, 8, 0),
+                                       apply_deadline=at(8, 8, 10))
+
+    def test_backup_no_write_after_grace_window(self):
+        with patch("guild_server_banner.rotate_once") as rotate:
+            result = backup.run(at(8, 18, 10))
+        self.assertEqual(result["status"], "outside_schedule")
+        rotate.assert_not_called()
+
+    def test_backup_write_deadline_rechecked_before_discord_patch(self):
+        import guild_server_banner as banner
+        image = ("photo.jpg", {"sha256": "new", "artist": "@artist",
+                                "post_url": "https://x.com/artist/status/123"})
+        with patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(image, ["new"], 3, 2)), \
+             patch.object(banner, "convert_banner", return_value=b"image"), \
+             patch.object(banner, "change_guild_banner") as change, \
+             patch.object(banner, "datetime") as clock, \
+             patch.dict("os.environ", {
+                 "SERVER_BANNER_ENABLED": "1", "DISCORD_BOT_TOKEN": "fake",
+                 "DISCORD_GUILD_ID": "123"}, clear=False):
+            clock.now.return_value = at(8, 8, 11)
+            result = banner.rotate_once(now=at(8, 8, 0),
+                                        apply_deadline=at(8, 8, 10))
+        self.assertEqual(result["status"], "outside_schedule")
+        change.assert_not_called()
 
     def test_health_reads_single_canonical_state_not_legacy_timer(self):
         state = {"last_slot": "2026-11-08 08:00",

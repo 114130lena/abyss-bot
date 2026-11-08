@@ -2,11 +2,11 @@ name: Backup check for Hanayo Discord server banner
 
 on:
   schedule:
-    # Primary: Oracle systemd every 5m during 08:xx/18:xx Korea time.
-    # Backup: 08:27/08:47 and 18:27/18:47 Korea time, away from 5m ticks.
-    # Delayed runs outside the corresponding KST hour must not update banners.
-    - cron: '27,47 23 * * *'
-    - cron: '27,47 9 * * *'
+    # Primary: main bot at 08:00 and 18:00 KST.
+    # Backup: 08:04/08:07 and 18:04/18:07 KST if primary missed a slot.
+    # Delayed runs at :10 or later, or any other hour, must NEVER update.
+    - cron: '4,7 23 * * *'
+    - cron: '4,7 9 * * *'
   workflow_dispatch:
 
 permissions:

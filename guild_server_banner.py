@@ -733,8 +733,9 @@ def slot(now=None):
     return now.strftime("%Y-%m-%d %H:%M") if (now.hour, now.minute) in SLOTS else None
 
 
-def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
-    """Manual tests do NOT change scheduling state unless a real API call succeeds."""
+def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
+                apply_deadline=None):
+    """Scheduled writes are bounded; manual tests only record successful changes."""
     current_slot = slot(now)
     if not manual and not current_slot:
         return {"status": "outside_schedule"}
@@ -779,6 +780,22 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
     if not token or not guild_id.isdigit():
         return {"status": "missing_discord_credentials"}
+    if not manual:
+        if now is None:
+            # Live scheduler must still be in the exact scheduled minute before
+            # making the API request, even if preparation ran unusually long.
+            allowed = slot() == current_slot
+        elif apply_deadline is not None:
+            # GitHub backup uses the canonical slot for idempotency, but can
+            # write only before the real-time cutoff, never hours afterward.
+            allowed = datetime.now(KST) < apply_deadline.astimezone(KST)
+        else:
+            # Explicit scheduled timestamps without a deadline are used only
+            # by existing tests and internal previews; live backup supplies one.
+            allowed = True
+        if not allowed:
+            logging.warning("SERVER_BANNER_OUTSIDE_WRITE_WINDOW slot=%s", current_slot)
+            return {"status": "outside_schedule"}
     changed_hash = change_guild_banner(image, token, guild_id)
     # The guild PATCH succeeded. Record its new banner hash when available;
     # never guess a CDN hash from the local JPEG.
