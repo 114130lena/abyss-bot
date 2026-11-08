@@ -145,7 +145,7 @@ def _render(clips, history):
     parts = [
         {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
         {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "**오늘의 히요리 클립**\\n"
+        {"type": 10, "content": "**오늘의 히요리 클립**\n"
          "최근 24시간 조회수 기준 상위 " + str(len(clips[:10])) + "개"},
     ]
     # A Discord gallery can display up to ten images in a single message.
@@ -158,9 +158,9 @@ def _render(clips, history):
         parts.append({"type": 12, "items": media[:10]})
     links = []
     for index, clip in enumerate(clips[:10], 1):
-        title = clip["title"].replace("[", "").replace("]", "").replace("\\n", " ")
+        title = clip["title"].replace("[", "").replace("]", "").replace("\n", " ")
         links.append(str(index) + ". [" + title[:75] + "](" + clip["url"] + ")")
-    parts.append({"type": 10, "content": "\\n".join(links)[:3500]})
+    parts.append({"type": 10, "content": "\n".join(links)[:3500]})
     previous = []
     for day, clip in sorted(history.items(), reverse=True)[:7]:
         if isinstance(clip, dict) and _ID.fullmatch(str(clip.get("id", ""))):
