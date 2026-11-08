@@ -322,12 +322,21 @@ def _banner_card(guild_id, banner_hash, state):
     else:
         image_url = ""
         description = "현재 서버에 설정된 배너가 없습니다."
-    embed = {"title": "서버 배너 정보", "description": description,
-             "color": 0x8391BB,
-             "footer": {"text": "마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")}}
+    # Original header-style card, expressed natively as Components V2 so
+    # editing the existing V2 message does not flatten the design.
+    header = "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"
+    body = "**서버 배너 정보**\\n" + description
+    parts = [{"type": 10, "content": header},
+             {"type": 14, "divider": True, "spacing": 1},
+             {"type": 10, "content": body}]
     if image_url:
-        embed["image"] = {"url": image_url}
-    return {"embeds": [embed], "allowed_mentions": {"parse": []}}
+        parts.append({"type": 12, "items": [
+            {"media": {"url": image_url}, "description": "현재 서버 배너"}]})
+    parts.append({"type": 10, "content":
+                  "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
+    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+                             "components": parts}],
+            "allowed_mentions": {"parse": []}}
 
 
 def _find_existing_banner_info(headers, base):
