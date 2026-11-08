@@ -64,10 +64,13 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 8,
+                 "banner_info_message_id": "789", "banner_info_layout_version": 9,
+                 "banner_info_stats_checksum": "fixed-stats",
                  "banner_first_observed_at": "2026-11-08 18:00 KST"}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
              patch.object(banner, "read_state", return_value=state), \
+             patch("fanart_public_stats.snapshot", return_value={"available": False}), \
+             patch("fanart_public_stats.checksum", return_value="fixed-stats"), \
              patch.object(banner.requests, "patch") as edit:
             result = banner.sync_banner_info()
         self.assertEqual(result["status"], "up_to_date")
