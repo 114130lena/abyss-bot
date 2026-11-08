@@ -207,6 +207,15 @@ def main():
         ("유튜브", check_youtube),
         ("치지직 다시보기", check_replays),
     ]
+    # Spaces are independent of RSS reposts. Start only when the official X
+    # API credentials and at least one numeric creator ID are configured.
+    if (os.getenv("X_BEARER_TOKEN", "").strip()
+            and (os.getenv("HANAYO_X_USER_ID", "").strip().isdigit()
+                 or os.getenv("SAKIHANE_X_USER_ID", "").strip().isdigit())):
+        from x_spaces_notifier import check_spaces
+        workers.append(("X 스페이스", check_spaces))
+    else:
+        logging.info("X_SPACES_WORKER_DISABLED missing_api_credentials_or_creator_ids")
     for name, checker in workers:
         thread = threading.Thread(
             target=run_worker, args=(name, checker, 5), name=name, daemon=True

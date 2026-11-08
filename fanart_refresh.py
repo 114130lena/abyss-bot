@@ -2,6 +2,7 @@
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 
 def check_fanart():
@@ -10,6 +11,20 @@ def check_fanart():
     results = fetch_profile_feeds()
     logging.info("FANART_DISCOVERY_PROFILE elapsed_seconds=%.2f result=%s",
                  time.monotonic() - started, results)
+    # Preserve source-specific success/failure for read-only operational audits.
+    # Creator-profile RSS failures must never block global search or caching.
+    try:
+        from fanart_discovery import BASE, write
+        groups = {name: {"status": ("unavailable" if value.get("error") else "ok"),
+                         "added": int(value.get("added") or 0),
+                         "error": str(value.get("error") or "")}
+                  for name, value in results.items() if isinstance(value, dict)}
+        write(BASE / "fanart_profile_state.json", {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "groups": groups})
+    except (OSError, ValueError, TypeError):
+        logging.warning("FANART_PROFILE_HEALTH_WRITE_FAILED")
+
 
     # Search all public authors, not just creator profile feeds.
     # Keep the profile-RSS and optional official-X-API sources as fallbacks.
