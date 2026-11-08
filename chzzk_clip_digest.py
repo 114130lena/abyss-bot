@@ -140,6 +140,65 @@ def fetch_recent_clips(now=None, get=None):
     return sorted(unique.values(), key=lambda c: (-c["views"], c["id"]))[:10]
 
 
+def _find_mp4_urls(node):
+    """Collect HTTPS MP4 representations from the CHZZK playback response."""
+    found = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("BaseURL", "path", "url", "videoUrl", "videoURL"):
+                for item in value if isinstance(value, list) else [value]:
+                    if isinstance(item, str) and item.startswith("https://") and ".mp4" in urlsplit(item).path.lower():
+                        found.append(item)
+            if isinstance(value, (dict, list)):
+                found.extend(_find_mp4_urls(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_find_mp4_urls(item))
+    return found
+
+
+def clip_video_url(clip, get=None):
+    """Resolve a fresh, short-lived MP4 URL; never persist signed media URLs."""
+    fetch = get or requests.get
+    uid = clip["id"]
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://chzzk.naver.com/"}
+    try:
+        detail = fetch(f"https://api.chzzk.naver.com/service/v1/clips/{uid}/detail",
+                       headers=headers, timeout=(2, 5))
+        detail.raise_for_status()
+        root = detail.json()
+        info = root.get("content") or {}
+        if root.get("code") != 200 or not isinstance(info, dict):
+            return ""
+        if info.get("adult") or info.get("vodStatus") in ("NONE", "EXPIRED"):
+            return ""
+        video_id = info.get("videoId")
+        if not isinstance(video_id, str) or not re.fullmatch(r"[0-9A-Fa-f]{32,40}", video_id):
+            return ""
+        rec_id = info.get("recId") or json.dumps({
+            "seedClipUID": uid, "fromType": "GLOBAL", "listType": "RECOMMEND"})
+        response = fetch("https://api-videohub.naver.com/shortformhub/feeds/v9/card",
+                         params={"seedType": "SPECIFIC", "serviceType": "CHZZK",
+                                 "seedMediaId": video_id, "mediaType": "VOD",
+                                 "panelType": "sdk_chzzk",
+                                 "referer": f"https://chzzk.naver.com/clips/{uid}",
+                                 "recType": "CHZZK", "recId": rec_id,
+                                 "enableReverse": "false", "adAllowed": "Y",
+                                 "deviceType": "html5_mo"},
+                         headers=headers, timeout=(2, 6))
+        response.raise_for_status()
+        playback = response.json()
+        content = ((playback.get("card") or {}).get("content") or {})
+        vod = content.get("vod") or {}
+        if not vod.get("playable"):
+            return ""
+        candidates = _find_mp4_urls(vod.get("playback") or {})
+        return candidates[0] if candidates else ""
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        logging.info("CHZZK_CLIP_VIDEO_UNAVAILABLE clip=%s", uid)
+        return ""
+
+
 def _render(clips, history):
     if not clips:
         return None
@@ -153,7 +212,7 @@ def _render(clips, history):
     # A Discord gallery can display up to ten images in a single message.
     # CHZZK's public API exposes thumbnails, not reliable direct MP4 files;
     # preserve clickable source links instead of falsely claiming playback.
-    media = [{"media": {"url": clip["thumbnail"]},
+    media = [{"media": {"url": clip.get("video_url") or clip["thumbnail"]},
               "description": clip["title"][:120]}
              for clip in clips[:10] if clip.get("thumbnail")]
     if media:
@@ -197,12 +256,24 @@ def refresh_once(now=None, get=None, patch=None):
     updated = dict(history)
     updated[day] = {"id": clips[0]["id"], "title": clips[0]["title"]}
     updated = dict(sorted(updated.items(), reverse=True)[:14])
+    # Media galleries support direct video URLs; thumbnails remain a safe fallback.
+    for clip in clips:
+        clip["video_url"] = clip_video_url(clip, get=get)
+    logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",
+                 sum(bool(c["video_url"]) for c in clips), len(clips))
     payload = _render(clips, {k: v for k, v in updated.items() if k != day})
     if not payload:
         return {"status": "no_recent_clips"}
     from discord_message_sync import update_original
     status = update_original(channel, message, payload, token,
                              get=get or requests.get, patch=patch or requests.patch)
+    if status.startswith("discord_rejected_") and any(c.get("video_url") for c in clips):
+        for clip in clips:
+            clip.pop("video_url", None)
+        fallback = _render(clips, {k: v for k, v in updated.items() if k != day})
+        status = update_original(channel, message, fallback, token,
+                                 get=get or requests.get, patch=patch or requests.patch)
+        logging.warning("CHZZK_CLIP_INLINE_VIDEO_FALLBACK status=%s", status)
     if status != "updated":
         logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE message=%s reason=%s; no replacement sent",
                         message, status)

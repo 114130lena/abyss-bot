@@ -65,6 +65,31 @@ class ClipTests(unittest.TestCase):
         self.assertEqual(len(gallery[0]["items"]), 1)
         self.assertEqual(len(gallery[1]["items"]), 9)
 
+    def test_inline_video_media_url_overrides_thumbnail(self):
+        clip = {"id": "clip1234", "title": "영상", "url": "https://chzzk.naver.com/clips/clip1234",
+                "thumbnail": "https://example.com/image.jpg",
+                "video_url": "https://example.com/clip.mp4", "views": 1, "date": NOW.isoformat()}
+        payload = clips._render([clip], {})
+        gallery = next(p for p in payload["components"][0]["components"] if p["type"] == 12)
+        self.assertEqual(gallery["items"][0]["media"]["url"], "https://example.com/clip.mp4")
+
+    def test_playback_resolution_from_videohub(self):
+        detail = fake_response({"code": 200, "content": {
+            "videoId": "A" * 32, "vodStatus": "ABR_HLS"}})
+        playback_data = {"card": {"content": {"vod": {
+            "playable": True,
+            "playback": {"MPD": [{"Period": [{"AdaptationSet": [
+                {"Representation": [{"BaseURL": [
+                    "https://video.pstatic.net/path/video.mp4?token=test"
+                ]}]}
+            ]}]}]}
+        }}}}
+        playback = fake_response(playback_data)
+        get = Mock(side_effect=[detail, playback])
+        self.assertEqual(clips.clip_video_url({"id": "clip1234"}, get=get),
+                         "https://video.pstatic.net/path/video.mp4?token=test")
+        self.assertEqual(get.call_count, 2)
+
     def test_never_creates_message_if_unconfigured(self):
         with patch.dict("os.environ", {"CHZZK_CLIP_CHANNEL_ID": "", "CHZZK_CLIP_MESSAGE_ID": ""}), \
              patch.object(clips.requests, "post") as post, \
