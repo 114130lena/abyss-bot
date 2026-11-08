@@ -358,16 +358,7 @@ jobs:
           # Store redacted audit/source/time flags in a separate context so
           # automated inspections can see *real* recovery outcomes.
           if [ "$DEPLOY_RESULT" = "success" ] && [ -f bot-health.json ]; then
-            provenance_status=$(python3 -c '
-import json
-import re
-with open("bot-health.json", encoding="utf-8") as f:
-    banner = json.load(f).get("banner", {})
-audit = re.sub("[^a-z0-9_]", "_", str(banner.get("audit_status", "not_checked")).lower())[:30]
-source = "yes" if banner.get("source_known") else "no"
-changed = "yes" if banner.get("change_time_known") else "no"
-print("audit_%s-source_%s-time_%s" % (audit, source, changed))
-')
+            provenance_status=$(python3 -c 'import json,re; b=json.load(open("bot-health.json",encoding="utf-8")).get("banner",{}); a=re.sub("[^a-z0-9_]","_",str(b.get("audit_status","not_checked")).lower())[:30]; print("audit_%s-source_%s-time_%s"%(a,"yes" if b.get("source_known") else "no","yes" if b.get("change_time_known") else "no"))')
             gh api --method POST \
               "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
               -f state="success" \
