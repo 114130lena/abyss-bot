@@ -57,7 +57,7 @@ class BannerTests(unittest.TestCase):
         }))
         self.assertTrue(eligible_hanayo_banner({"text": "하나요 히요리 팬아트 #hiyoriart_"}))
 
-    def test_rotation_uses_every_candidate_before_repeating(self):
+    def test_rotation_uses_each_candidate_once_and_stops_on_exhaustion(self):
         pool = [(Path(f"/tmp/{c}.jpg"), {"sha256": c}) for c in ("a", "b", "c")]
         history = []
         previous = None
@@ -71,9 +71,10 @@ class BannerTests(unittest.TestCase):
                 self.assertEqual(total, 3)
             self.assertEqual(set(picks), {"a", "b", "c"})
             self.assertEqual(remaining, 0)
-            next_one, new_history, _, _ = mod.rotation_selection(previous, history)
-            self.assertNotEqual(next_one[1]["sha256"], previous)
-            self.assertEqual(len(new_history), 1)
+            next_one, new_history, _, left = mod.rotation_selection(previous, history)
+            self.assertIsNone(next_one)
+            self.assertEqual(set(new_history), {"a", "b", "c"})
+            self.assertEqual(left, 0)
 
     def test_rotation_expands_when_new_image_arrives(self):
         pool = [(Path(f"/tmp/{c}.jpg"), {"sha256": c}) for c in ("a", "b", "c")]
