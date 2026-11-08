@@ -41,7 +41,7 @@ def payload(platform, role_id, banner, headline, creator, details, media_url="",
     # Place the mention as an independent Text Display above the container.
     # Discord Components V2 Container has a limit of 10 direct children.
     # Preserve the official banner, role mention, and original link on long posts.
-    if len(pieces) > 10:
+    if len(parts) > 10:
         raise ValueError("Discord card contains too many components")
     outer = []
     if role_id:
@@ -336,7 +336,7 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
         pieces.append(separator())
         # Small signature above the full-width official YouTube banner.
         signature = _creator_theme(creator, handle)
-        label = "-# 공식 채널 · OFFICIAL LINKS"
+        label = "-# 공식 채널"
         if signature:
             label += " · " + signature
         pieces.append(text(label))
