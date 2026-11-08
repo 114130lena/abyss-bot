@@ -1,7 +1,7 @@
 """Discord guild banner rotation independent from notification media selection.
 
 Previously curated approved artworks and automatically screened hashtag artworks
-are accepted. Automatic screening uses conservative text evidence, not computer vision.
+are accepted. When a vision API is configured, scored image content supersedes text gating.
 """
 import argparse
 import base64
@@ -162,7 +162,8 @@ def collected_hanayo_art():
         if str(item.get("hashtag", "")).casefold() != "#hiyoriart_":
             continue
         from fanart_relevance import eligible_hanayo_banner
-        if not eligible_hanayo_banner(item):
+        from fanart_vision import enabled as vision_enabled, classification as vision_classification
+        if not vision_enabled() and not eligible_hanayo_banner(item):
             continue
         if (item.get("decision") == "blocked"
                 or item.get("review_status") == "blocked"
@@ -189,6 +190,10 @@ def collected_hanayo_art():
                     dimensions = ImageOps.exif_transpose(img).size
                     if not kind(*dimensions):
                         continue
+                if vision_enabled():
+                    visual = vision_classification(path)
+                    if not visual or not visual.get("banner_eligible"):
+                        continue
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
             except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
                 continue
@@ -199,7 +204,8 @@ def collected_hanayo_art():
             aspect_group = "wide" if preferred_server_banner(*dimensions) else "fit"
             result.append((path, {"sha256": digest, "artist": artist,
                                   "post_url": source, "source": "cached_hanayo_fanart",
-                                  "server_aspect": aspect_group}))
+                                  "server_aspect": aspect_group,
+                                  "vision_score": visual.get("score") if vision_enabled() else None}))
     # The guild owns widescreen artworks first; other ratios remain for
     # notification cards. Fit-only artwork is a fallback when none are wide.
     widescreen = [entry for entry in result if entry[1].get("server_aspect") == "wide"]
@@ -247,6 +253,12 @@ def rotation_selection(previous=None, used=None):
         unseen.remove(previous)
     if not unseen:
         return None, [], len(unique), 0
+    # Prefer high visual scores once the model-backed classifier is active;
+    # retain variation among similarly scored artwork instead of always reusing one.
+    from fanart_vision import enabled as vision_enabled
+    if vision_enabled():
+        best = max(int(unique[sha][1].get("vision_score") or 0) for sha in unseen)
+        unseen = [sha for sha in unseen if int(unique[sha][1].get("vision_score") or 0) >= best - 15]
     picked = random.choice(unseen)
     return unique[picked], history + [picked], len(unique), max(len(unique) - len(history) - 1, 0)
 
