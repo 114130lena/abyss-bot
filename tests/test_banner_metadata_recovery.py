@@ -126,10 +126,31 @@ class BannerMetadataRecoveryTests(unittest.TestCase):
         self.assertIn("정확한 변경 시각 미확인", msg)
         self.assertIn("2026-11-08 20:00 KST", msg)
 
+    def test_permission_denied_can_retry_after_five_minutes(self):
+        from datetime import timedelta
+        state = {"banner_audit_checked_hash": "current",
+                 "banner_audit_status": "permission_denied",
+                 "banner_audit_checked_at": (datetime.now(KST) - timedelta(minutes=6)).isoformat()}
+        self.assertTrue(banner._audit_retry_due(state, "current"))
+        state["banner_audit_checked_at"] = datetime.now(KST).isoformat()
+        self.assertFalse(banner._audit_retry_due(state, "current"))
+        state["banner_audit_status"] = "matched"
+        self.assertFalse(banner._audit_retry_due(state, "current"))
+
+    def test_permission_denied_card_identifies_action_required(self):
+        card = banner._banner_card("123", "current", {
+            "banner_audit_status": "permission_denied",
+            "banner_change_method": "기존 기록 · 변경 주체 미상",
+            "banner_first_observed_at": "2026-11-08 20:00 KST"})
+        body = str(card["components"])
+        self.assertIn("Discord 감사 로그 권한 없음", body)
+        self.assertIn("정확한 변경 시각 미확인", body)
+
     def test_no_audit_retry_for_same_hash_when_attempt_already_recorded(self):
         old = {"guild_banner_hash": "current",
                "banner_audit_checked_hash": "current",
                "banner_audit_status": "permission_denied",
+               "banner_audit_checked_at": datetime.now(KST).isoformat(),
                "banner_first_observed_at": "2026-11-08 20:00 KST"}
         with patch.dict("os.environ", {
             "DISCORD_BOT_TOKEN": "test", "DISCORD_GUILD_ID": "123",
