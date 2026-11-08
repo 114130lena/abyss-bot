@@ -7,6 +7,11 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+
+# Load production configuration BEFORE importing modules that cache environment
+# variables at import time (webhooks, API clients, WebSub receiver, alert routing).
+load_dotenv(Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot")) / ".env")
+
 from cafe_notifier import check_cafe
 from chzzk_replay_notifier import check_replays
 from twitter_notifier import check_twitter
@@ -19,8 +24,6 @@ from creator_profiles import handle as creator_handle, avatar as creator_avatar
 from discord_v2 import alert as unified_alert
 from creator_groups import chzzk_group, role_for
 from resilience import load_json, save_json, send_webhook, warn_failure
-
-load_dotenv()
 
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 CHANNELS_FILE = BASE_DIR / "channels.txt"
