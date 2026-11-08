@@ -18,7 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: test/compact-footer-four-links
           persist-credentials: false
       - name: Validate audit script
         run: python -m py_compile scripts/operational_audit.py
