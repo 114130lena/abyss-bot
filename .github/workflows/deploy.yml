@@ -134,7 +134,7 @@ jobs:
             exit 1
           fi
           echo "Using Python: $BOT_PY"
-          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py
+          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py
           "$BOT_PY" -m pip install -r .deploy-staging/requirements.txt
 
           echo "::endgroup::"
@@ -189,7 +189,7 @@ jobs:
             diagnose_deploy_failure "$rc"
           }
           trap rollback_on_error ERR
-          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py .
+          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
@@ -225,6 +225,35 @@ jobs:
           print("BANNER_INFO_DEPLOY_VERIFICATION status=%s reason=%s" % (status, reason))
           if status not in ("updated", "up_to_date"):
               raise SystemExit("Original banner info message was not updated; inspect Discord ownership/configuration")
+          # Independently GET the existing Discord message and verify the visible
+          # card fields. This distinguishes a successful PATCH from the UI the
+          # user actually sees; never expose tokens or post contents in logs.
+          import requests
+          channel = os.environ["SERVER_BANNER_INFO_CHANNEL_ID"]
+          message = os.environ["SERVER_BANNER_INFO_MESSAGE_ID"]
+          token = os.environ["DISCORD_BOT_TOKEN"]
+          response = requests.get(
+              f"https://discord.com/api/v10/channels/{channel}/messages/{message}",
+              headers={"Authorization": "Bot " + token}, timeout=12)
+          response.raise_for_status()
+          posted = response.json()
+          if str(posted.get("id")) != message:
+              raise SystemExit("Discord returned a different banner information message")
+          parts = (posted.get("components") or [])
+          def all_text(items):
+              for item in items:
+                  if isinstance(item, dict):
+                      if item.get("type") == 10:
+                          yield str(item.get("content") or "")
+                      yield from all_text(item.get("components") or [])
+          text = "\\n".join(all_text(parts))
+          required = ("현재 적용된 서버 배너", "변경 방식", "변경 시각",
+                      "원본 작가", "원본 게시물")
+          if not all(value in text for value in required):
+              raise SystemExit("Discord banner card still displays a previous layout")
+          if not (int(posted.get("flags") or 0) & 32768):
+              raise SystemExit("Discord banner card is missing Components V2 flag")
+          print("BANNER_INFO_LIVE_VERIFIED all_five_fields=true original_message=true")
           PY
           REMOTE
 
