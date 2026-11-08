@@ -177,7 +177,7 @@ def _notify(post):
     uncertain_photo = not media_known
     banner = get_banner(X_GROUP) if X_GROUP else ""
     payload = unified_alert(
-        "x", "하나요 히요리", banner, X_ROLE_ID,
+        "x", "하나요 히요리", banner, "",
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
         images=post.get("images", []), media_url=video_preview,
