@@ -60,6 +60,13 @@ class DeployWorkflowTests(unittest.TestCase):
         self.assertIn('context="abyss/production-banner"', source)
         self.assertIn('context="abyss/banner-provenance/$provenance_status"', source)
 
+    def test_production_health_probe_uses_actual_dotenv_settings(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        health = source.split("Capture redacted runtime health after deployment", 1)[1]
+        health = health.split("Upload redacted health report", 1)[0]
+        self.assertIn('load_dotenv("/home/ubuntu/chzzk-bot/.env")', health)
+        self.assertLess(health.index("load_dotenv("), health.index("from health_monitor import snapshot"))
+
     def test_live_banner_card_is_verified_after_restart(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertLess(source.index('sudo systemctl restart chzzk-bot'),
