@@ -82,7 +82,7 @@ class FxMediaTests(unittest.TestCase):
         with patch("x_post_media.requests.get", side_effect=ValueError("down")):
             photos, _, _, known = x_post_media.resolve_media(post, "Artist")
         self.assertEqual(photos, post["images"])
-        self.assertTrue(known)
+        self.assertFalse(known)
 
     def test_empty_media_is_not_confirmed_text_only(self):
         data = {"tweet": {"media": {"all": [], "photos": [], "videos": []}}}
