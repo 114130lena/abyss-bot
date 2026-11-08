@@ -43,6 +43,25 @@ class BannerInfoTests(unittest.TestCase):
         self.assertIn("newhash", str(payload["components"]))
         self.assertEqual(save.call_args.args[0]["banner_info_message_id"], "789")
 
+    def test_rotation_saves_patch_returned_banner_hash_not_stale_get(self):
+        selected = ("cached.jpg", {"sha256": "fresh", "artist": "@artist",
+                                   "post_url": "https://x.com/artist/status/123"})
+        with patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "1", "DISCORD_BOT_TOKEN": "bot",
+                                       "DISCORD_GUILD_ID": "123"}), \
+             patch.object(banner, "slot", return_value="2026-11-08 18:00"), \
+             patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner, "rotation_selection", return_value=(selected, ["fresh"], 2, 1)), \
+             patch.object(banner, "convert_banner", return_value=b"jpeg"), \
+             patch.object(banner, "change_guild_banner", return_value="new_banner_hash"), \
+             patch.object(banner, "_current_guild_banner") as stale_get, \
+             patch.object(banner, "write_state") as saved, \
+             patch.object(banner, "sync_banner_info"):
+            result = banner.rotate_once(manual=False)
+        self.assertEqual(result["status"], "changed")
+        stale_get.assert_not_called()
+        self.assertEqual(saved.call_args.args[0]["guild_banner_hash"], "new_banner_hash")
+        self.assertEqual(saved.call_args.args[0]["artist"], "@artist")
+
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
                  "banner_info_message_id": "789", "banner_info_layout_version": 5}
