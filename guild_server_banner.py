@@ -310,43 +310,78 @@ def _current_guild_banner(token, guild_id):
     return value or ""
 
 
+def _valid_banner_source(artist, source):
+    """Only display attribution for a real X status and a plausible author."""
+    import re
+    from fanart_usage import canonical_post
+    return (isinstance(artist, str) and bool(re.fullmatch(r"@[A-Za-z0-9_]{1,15}", artist))
+            and isinstance(source, str) and bool(canonical_post(source)))
+
+
+def _banner_history(state):
+    """Versioned hash-to-source records from successful bot changes only."""
+    raw = state.get("banner_hash_history")
+    if not isinstance(raw, dict):
+        return {}
+    return {key: value for key, value in raw.items()
+            if isinstance(key, str) and 0 < len(key) <= 160
+            and isinstance(value, dict)}
+
+
+def _resolve_banner_attribution(banner_hash, previous):
+    """Match the *exact* Discord banner hash, never guess by art title/hashtag.
+
+    An external edit can select a formerly bot-applied banner. Recover its
+    artist/source only when that exact hash was recorded after a successful PATCH.
+    """
+    record = _banner_history(previous).get(banner_hash)
+    if not record:
+        return None
+    artist, source = record.get("artist"), record.get("post_url")
+    if not _valid_banner_source(artist, source):
+        return None
+    return {"artist": artist, "post_url": source,
+            "banner_changed_at": str(record.get("changed_at") or "").strip(),
+            "banner_change_method": "외부 변경 감지 · 이전 자동 배너 복원"}
+
+
 def _banner_card(guild_id, banner_hash, state):
+    """Every card displays all four metadata fields, even for unknown sources."""
     from datetime import datetime
+    source = str(state.get("post_url") or "").strip()
+    artist = str(state.get("artist") or "").strip()
+    known_source = bool(banner_hash and _valid_banner_source(artist, source))
+    method = str(state.get("banner_change_method") or "").strip()
+    if not method:
+        method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
+                  else "이전 기록 없음 · 변경 주체 확인 불가")
+    changed_at = str(state.get("banner_changed_at") or "").strip()
+    attribution = ("**원본 작가** · " + artist + "\n"
+                   "**원본 게시물** · [X에서 보기](" + source + ")") if known_source else (
+                   "**원본 작가** · 확인되지 않음\n"
+                   "**원본 게시물** · 확인되지 않음")
+    description = ("**현재 적용된 서버 배너**\n"
+                   "**변경 방식** · " + method + "\n"
+                   "**변경 시각** · " + (changed_at or "기록 없음") + "\n"
+                   + attribution)
+    parts = [
+        {"type": 10, "content": "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"},
+        {"type": 14, "divider": True, "spacing": 1},
+        {"type": 10, "content": "**서버 배너 정보**"},
+        {"type": 10, "content": description},
+    ]
+    if known_source:
+        parts.append({"type": 1, "components": [
+            {"type": 2, "style": 5, "label": "원본 게시물", "url": source}]})
     if banner_hash:
         extension = "gif" if banner_hash.startswith("a_") else "png"
         image_url = (
             f"https://cdn.discordapp.com/banners/{guild_id}/{banner_hash}.{extension}?size=1024"
         )
-        artist = str(state.get("artist") or "").strip()
-        source = str(state.get("post_url") or "").strip()
-        from fanart_usage import canonical_post
-        changed_at = str(state.get("banner_changed_at") or "").strip()
-        if artist.startswith("@") and canonical_post(source):
-            attribution = "**원본 작가** · " + artist + "\n**원본 게시물** · [X에서 보기](" + source + ")"
-            method = "봇 자동 변경"
-        else:
-            attribution = "**원본 작가** · 확인되지 않음\n**원본 게시물** · 확인되지 않음"
-            method = "관리자 변경 또는 이전 기록 없음"
-        description = (
-            "**현재 적용된 서버 배너**\n"
-            "**변경 방식** · " + method + "\n"
-            "**변경 시각** · " + (changed_at or "기록 없음") + "\n"
-            + attribution
-        )
-    else:
-        image_url = ""
-        description = "현재 서버에 설정된 배너가 없습니다."
-    # Keep the established platform alert hierarchy: identity, divider,
-    # media, concise metadata, and a muted update footer.
-    parts = [
-        {"type": 10, "content": "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"},
-        {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "**서버 배너 정보**"},
-    ]
-    if image_url:
         parts.append({"type": 12, "items": [
-            {"media": {"url": image_url}, "description": "현재 서버 배너"}]})
-    parts.append({"type": 10, "content": description})
+            {"media": {"url": image_url}, "description": "현재 적용된 서버 배너"}]})
+    else:
+        parts.append({"type": 10, "content": "-# 현재 서버에 설정된 배너 이미지가 없습니다."})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
@@ -403,14 +438,25 @@ def sync_banner_info(force=False):
     uninitialized = expected is None
     state = dict(previous)
     if changed:
+        recovered = _resolve_banner_attribution(actual, previous)
         state["guild_banner_hash"] = actual
-        state["artist"] = ""
-        state["post_url"] = ""
-        state["banner_changed_at"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+        if recovered:
+            state.update(recovered)
+        else:
+            # A new Discord hash is not proof of who changed the banner.
+            # Never attach the previous artwork's artist to an unrelated image.
+            state["artist"] = ""
+            state["post_url"] = ""
+            state["banner_changed_at"] = (datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+                                          + " (변경 감지 시각)")
+            state["banner_change_method"] = "외부 변경 감지"
         state["banner_info_updated_hash"] = ""
     if uninitialized:
         state["guild_banner_hash"] = actual
         state["banner_info_updated_hash"] = ""
+        # Older state may contain source information but no hash. Keep this
+        # legacy record visible without falsely claiming it is verified.
+        state.setdefault("banner_change_method", "기존 기록 · 변경 주체 미상")
     # Always target the explicitly identified ORIGINAL information message.
     # Earlier versions created an unwanted second bot message when the
     # original was a webhook post or not found in the 100-message history.
@@ -421,7 +467,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 5):
+            and state.get("banner_info_layout_version") == 6):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -434,7 +480,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 5
+    state["banner_info_layout_version"] = 6
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
@@ -490,17 +536,33 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     changed_hash = change_guild_banner(image, token, guild_id)
     # The guild PATCH succeeded. Record its new banner hash when available;
     # never guess a CDN hash from the local JPEG.
+    changed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
                 "rotation_used": rotation_used, "candidate_total": candidate_total,
                 "remaining_after": remaining,
-                "banner_changed_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")}
+                "banner_change_method": "봇 자동 교체" if not manual else "봇 수동 명령 교체",
+                "banner_changed_at": changed_at}
     try:
         recorded["guild_banner_hash"] = (changed_hash if isinstance(changed_hash, str) and changed_hash
                                           else _current_guild_banner(token, guild_id))
     except (requests.RequestException, ValueError):
         # Prevent stale attribution if a later reconciliation cannot verify it.
         recorded["guild_banner_hash"] = None
+    # Keep exact banner-hash provenance across restarts and later manual
+    # re-selection. Never infer attribution from image dimensions or captions.
+    new_hash = recorded.get("guild_banner_hash")
+    if (isinstance(new_hash, str) and new_hash
+            and _valid_banner_source(recorded.get("artist"), recorded.get("post_url"))):
+        history = _banner_history(previous)
+        history[new_hash] = {
+            "artist": recorded["artist"], "post_url": recorded["post_url"],
+            "changed_at": changed_at, "method": recorded["banner_change_method"],
+            "sha256": metadata["sha256"],
+        }
+        # Limit file growth; keep the latest 100 hashes, and retain a separate
+        # permanent post-id exclusion list as before.
+        recorded["banner_hash_history"] = dict(list(history.items())[-100:])
     recorded["banner_info_updated_hash"] = None
     write_state(recorded)
     try:
