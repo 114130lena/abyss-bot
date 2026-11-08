@@ -64,7 +64,7 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 5}
+                 "banner_info_message_id": "789", "banner_info_layout_version": 6}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
              patch.object(banner, "read_state", return_value=state), \
              patch.object(banner.requests, "patch") as edit:
@@ -95,6 +95,109 @@ class BannerInfoTests(unittest.TestCase):
             result = banner.sync_banner_info(force=True)
         self.assertEqual(result["status"], "updated")
         edit.assert_called_once()
+
+    def test_card_always_shows_all_fields_and_current_image(self):
+        card = banner._banner_card("123456", "livehash", {})
+        parts = card["components"][0]["components"]
+        full = "\n".join(p.get("content", "") for p in parts)
+        for label in ("현재 적용된 서버 배너", "변경 방식", "변경 시각",
+                      "원본 작가", "원본 게시물"):
+            self.assertIn(label, full)
+        self.assertIn("확인되지 않음", full)
+        self.assertIn("기록 없음", full)
+        galleries = [p for p in parts if p.get("type") == 12]
+        self.assertEqual(len(galleries), 1)
+        self.assertIn("/banners/123456/livehash.png",
+                      galleries[0]["items"][0]["media"]["url"])
+        self.assertEqual(card["flags"], 32768)
+
+    def test_card_shows_link_and_button_for_verified_source(self):
+        source = "https://x.com/artist/status/12345"
+        card = banner._banner_card("123456", "livehash", {
+            "artist": "@artist", "post_url": source,
+            "banner_changed_at": "2026-11-08 18:00 KST",
+            "banner_change_method": "봇 자동 교체"})
+        parts = card["components"][0]["components"]
+        full = "\n".join(p.get("content", "") for p in parts)
+        self.assertIn("**변경 방식** · 봇 자동 교체", full)
+        self.assertIn("**변경 시각** · 2026-11-08 18:00 KST", full)
+        self.assertIn("@artist", full)
+        self.assertIn(source, full)
+        buttons = [p for p in parts if p.get("type") == 1]
+        self.assertEqual(buttons[0]["components"][0]["url"], source)
+        self.assertEqual(buttons[0]["components"][0]["label"], "원본 게시물")
+        self.assertLess(next(i for i,p in enumerate(parts) if p.get("type")==10 and
+                             "원본 작가" in p.get("content", "")),
+                        next(i for i,p in enumerate(parts) if p.get("type")==12))
+
+    def test_no_banner_still_has_source_fields_without_inventing_an_artist(self):
+        card = banner._banner_card("123456", "", {"artist": "@old",
+            "post_url": "https://x.com/old/status/123"})
+        parts = card["components"][0]["components"]
+        full = "\n".join(p.get("content", "") for p in parts)
+        self.assertIn("**원본 작가** · 확인되지 않음", full)
+        self.assertIn("**원본 게시물** · 확인되지 않음", full)
+        self.assertFalse(any(p.get("type")==12 for p in parts))
+        self.assertFalse(any(p.get("type")==1 for p in parts))
+
+    def test_exact_banner_hash_recovers_verified_previous_artist_and_link(self):
+        prior = {
+            "guild_banner_hash": "newerhash", "artist": "@newer",
+            "post_url": "https://x.com/newer/status/999",
+            "banner_hash_history": {
+                "olderhash": {"artist": "@actual", "post_url": "https://x.com/actual/status/123",
+                              "changed_at": "2026-11-05 08:00 KST",
+                              "method": "봇 자동 교체"}}}
+        with patch.object(banner, "_current_guild_banner", return_value="olderhash"), \
+             patch.object(banner, "read_state", return_value=prior), \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
+            result = banner.sync_banner_info()
+        self.assertTrue(result["external"])
+        saved = save.call_args.args[0]
+        self.assertEqual(saved["artist"], "@actual")
+        self.assertEqual(saved["post_url"], "https://x.com/actual/status/123")
+        self.assertEqual(saved["banner_changed_at"], "2026-11-05 08:00 KST")
+        self.assertIn("이전 자동 배너 복원", str(edit.call_args.kwargs["json"]))
+
+    def test_external_unknown_hash_drops_stale_artist_but_keeps_history(self):
+        prior = {"guild_banner_hash": "olderhash", "artist": "@old",
+                 "post_url": "https://x.com/old/status/111",
+                 "banner_hash_history": {
+                     "olderhash": {"artist": "@old", "post_url": "https://x.com/old/status/111"}}}
+        with patch.object(banner, "_current_guild_banner", return_value="foreignhash"), \
+             patch.object(banner, "read_state", return_value=prior), \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
+            banner.sync_banner_info()
+        saved = save.call_args.args[0]
+        self.assertEqual(saved["artist"], "")
+        self.assertEqual(saved["post_url"], "")
+        self.assertEqual(saved["banner_change_method"], "외부 변경 감지")
+        self.assertIn("변경 감지 시각", saved["banner_changed_at"])
+        self.assertIn("olderhash", saved["banner_hash_history"])
+        self.assertNotIn("@old", str(edit.call_args.kwargs["json"]))
+
+    def test_rotation_records_source_hash_history_for_future_recovery(self):
+        selected = ("cached.jpg", {"sha256": "fresh", "artist": "@artist",
+                                   "post_url": "https://x.com/artist/status/123"})
+        with patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "1", "DISCORD_BOT_TOKEN": "bot",
+                                       "DISCORD_GUILD_ID": "123"}), \
+             patch.object(banner, "slot", return_value="2026-11-08 18:00"), \
+             patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner, "rotation_selection", return_value=(selected, ["fresh"], 2, 1)), \
+             patch.object(banner, "convert_banner", return_value=b"jpeg"), \
+             patch.object(banner, "change_guild_banner", return_value="new_banner_hash"), \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner, "sync_banner_info"):
+            result = banner.rotate_once(manual=False)
+        self.assertEqual(result["status"], "changed")
+        saved = save.call_args.args[0]
+        self.assertEqual(saved["banner_change_method"], "봇 자동 교체")
+        self.assertEqual(saved["banner_hash_history"]["new_banner_hash"]["artist"], "@artist")
+        self.assertEqual(saved["banner_hash_history"]["new_banner_hash"]["post_url"],
+                         "https://x.com/artist/status/123")
+        self.assertEqual(saved["guild_banner_hash"], "new_banner_hash")
 
     def test_missing_original_id_never_creates_duplicate(self):
         with patch.dict("os.environ", {"SERVER_BANNER_INFO_MESSAGE_ID": ""}), \
