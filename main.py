@@ -189,6 +189,13 @@ def main():
         threading.Thread(target=run_worker,
                          args=("팬아트 후보 수집", check_fanart, max(1800, int(os.getenv("FANART_DISCOVERY_INTERVAL", "3600")))),
                          name="fanart-discovery", daemon=True).start()
+    # Prune only unreferenced, 7-day-old cached image copies, never source
+    # records, approved art, notification history or guild banner candidates.
+    if os.getenv("FANART_WEEKLY_CLEANUP_ENABLED", "1") == "1":
+        from fanart_weekly_cleanup import cleanup as cleanup_fanart_cache
+        threading.Thread(target=run_worker,
+                         args=("팬아트 캐시 정리", cleanup_fanart_cache, 86400),
+                         name="fanart-weekly-cleanup", daemon=True).start()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
         raise SystemExit("live_state.json 형식이 올바르지 않습니다.")
