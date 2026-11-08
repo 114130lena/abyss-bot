@@ -28,7 +28,7 @@ class ClipTests(unittest.TestCase):
     def test_timeout_retries_with_smaller_clip_page(self):
         from requests.exceptions import ReadTimeout
         clips_api={"code": 200, "content": {"data": []}}
-        fetch=Mock(side_effect=[ReadTimeout("timed out"), fake_response(clips_api)])
+        fetch=Mock(side_effect=[ReadTimeout("timed out"), fake_response(clips_api), fake_response(clips_api)])
         self.assertEqual(clips.fetch_recent_clips(NOW, fetch), [])
         self.assertGreaterEqual(fetch.call_count, 2)
         self.assertEqual(fetch.call_args_list[0].kwargs["params"]["size"], 30)
