@@ -389,7 +389,9 @@ def sync_banner_info(force=False):
     expected = previous.get("guild_banner_hash")
     # If the current banner differs from the last bot-applied banner, any
     # recorded artist is stale, even after a restart or manual replacement.
-    # Missing hash is an uninitialized record, not proof of an external change.\n    changed = expected is not None and expected != actual\n    uninitialized = expected is None
+    # Missing hash is an uninitialized record, not proof of an external change.
+    changed = expected is not None and expected != actual
+    uninitialized = expected is None
     state = dict(previous)
     if changed:
         state["guild_banner_hash"] = actual
