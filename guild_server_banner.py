@@ -279,6 +279,140 @@ def change_guild_banner(image, token, guild_id):
     response.raise_for_status()
 
 
+
+# Persistent source-information card. This is independent of the banner's
+# twice-daily rotation: manual guild edits are detected by Discord banner hash.
+INFO_CHANNEL_ID = os.getenv("SERVER_BANNER_INFO_CHANNEL_ID", "1567561255764500551").strip()
+
+
+def _current_guild_banner(token, guild_id):
+    response = requests.get(
+        f"https://discord.com/api/v10/guilds/{guild_id}",
+        headers={"Authorization": "Bot " + token},
+        timeout=12,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict) or str(data.get("id", guild_id)) != guild_id:
+        raise ValueError("Unexpected Discord guild response")
+    value = data.get("banner")
+    if value is not None and (not isinstance(value, str) or len(value) > 160):
+        raise ValueError("Invalid guild banner hash")
+    return value or ""
+
+
+def _banner_card(guild_id, banner_hash, state):
+    from datetime import datetime
+    if banner_hash:
+        extension = "gif" if banner_hash.startswith("a_") else "png"
+        image_url = (
+            f"https://cdn.discordapp.com/banners/{guild_id}/{banner_hash}.{extension}?size=1024"
+        )
+        artist = str(state.get("artist") or "").strip()
+        source = str(state.get("post_url") or "").strip()
+        from fanart_usage import canonical_post
+        if artist.startswith("@") and canonical_post(source):
+            info = f"**작가:** {artist}\n**원본:** {source}"
+        else:
+            info = "**출처:** 확인되지 않은 수동 변경 배너"
+        description = (
+            "**현재 서버 배너**\n" + info +
+            "\n-# Discord에 적용된 배너를 기준으로 자동 갱신됩니다."
+        )
+    else:
+        image_url = ""
+        description = "현재 서버에 설정된 배너가 없습니다."
+    embed = {"title": "서버 배너 정보", "description": description,
+             "color": 0x8391BB,
+             "footer": {"text": "마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")}}
+    if image_url:
+        embed["image"] = {"url": image_url}
+    return {"embeds": [embed], "allowed_mentions": {"parse": []}}
+
+
+def _find_existing_banner_info(headers, base):
+    """Reuse a previous bot-authored banner card before creating a duplicate."""
+    identity = requests.get("https://discord.com/api/v10/users/@me",
+                            headers=headers, timeout=12)
+    identity.raise_for_status()
+    bot_id = str(identity.json().get("id", ""))
+    if not bot_id.isdigit():
+        return ""
+    response = requests.get(base, headers=headers, params={"limit": 100}, timeout=12)
+    response.raise_for_status()
+    messages = response.json()
+    if not isinstance(messages, list):
+        return ""
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if str((message.get("author") or {}).get("id")) != bot_id:
+            continue
+        titles = [str(e.get("title", "")) for e in message.get("embeds", [])
+                  if isinstance(e, dict)]
+        if "서버 배너 정보" in titles:
+            identifier = str(message.get("id", ""))
+            if identifier.isdigit():
+                return identifier
+    return ""
+
+
+def sync_banner_info(force=False):
+    """Edit one bot-owned information card, reconciling externally changed banners.
+
+    A failed message update never blocks banner rotation. Errors are retried at
+    the next poll. No state is committed before Discord accepts the message.
+    """
+    token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+    guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+    channel_id = INFO_CHANNEL_ID
+    if not token or not guild_id.isdigit() or not channel_id.isdigit():
+        return {"status": "missing_configuration"}
+    actual = _current_guild_banner(token, guild_id)
+    previous = read_state()
+    expected = previous.get("guild_banner_hash")
+    # If the current banner differs from the last bot-applied banner, any
+    # recorded artist is stale, even after a restart or manual replacement.
+    changed = expected != actual
+    state = dict(previous)
+    if changed:
+        state["guild_banner_hash"] = actual
+        state["artist"] = ""
+        state["post_url"] = ""
+        state["banner_info_updated_hash"] = ""
+    message_id = str(state.get("banner_info_message_id") or
+                     os.getenv("SERVER_BANNER_INFO_MESSAGE_ID", "")).strip()
+    if (not force and not changed and message_id
+            and state.get("banner_info_updated_hash") == actual):
+        return {"status": "up_to_date", "message_id": message_id}
+    payload = _banner_card(guild_id, actual, state)
+    headers = {"Authorization": "Bot " + token, "Content-Type": "application/json"}
+    base = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    response = None
+    if not message_id.isdigit():
+        try:
+            message_id = _find_existing_banner_info(headers, base)
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            logging.warning("기존 배너 정보 메시지 탐색 실패; 새 정보 메시지를 작성합니다")
+    if message_id.isdigit():
+        response = requests.patch(base + "/" + message_id, headers=headers,
+                                  json=payload, timeout=12)
+        if response.status_code not in (403, 404):
+            response.raise_for_status()
+    if not message_id.isdigit() or (response is not None and response.status_code in (403, 404)):
+        response = requests.post(base, headers=headers, json=payload, timeout=12)
+        response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict) or not str(data.get("id", "")).isdigit():
+        raise ValueError("Discord did not confirm banner information message")
+    state["banner_info_message_id"] = str(data["id"])
+    state["banner_info_updated_hash"] = actual
+    write_state(state)
+    logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
+                 channel_id, actual[:12], data["id"], changed)
+    return {"status": "updated", "message_id": str(data["id"]), "external": changed}
+
+
 def slot(now=None):
     now = (now or datetime.now(KST)).astimezone(KST)
     return now.strftime("%Y-%m-%d %H:%M") if (now.hour, now.minute) in SLOTS else None
@@ -315,10 +449,23 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     if not token or not guild_id.isdigit():
         return {"status": "missing_discord_credentials"}
     change_guild_banner(image, token, guild_id)
-    write_state({**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
-                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
-                 "rotation_used": rotation_used, "candidate_total": candidate_total,
-                 "remaining_after": remaining})
+    # The guild PATCH succeeded. Record its new banner hash when available;
+    # never guess a CDN hash from the local JPEG.
+    recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
+                "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
+                "rotation_used": rotation_used, "candidate_total": candidate_total,
+                "remaining_after": remaining}
+    try:
+        recorded["guild_banner_hash"] = _current_guild_banner(token, guild_id)
+    except (requests.RequestException, ValueError):
+        # Prevent stale attribution if a later reconciliation cannot verify it.
+        recorded["guild_banner_hash"] = None
+    recorded["banner_info_updated_hash"] = None
+    write_state(recorded)
+    try:
+        sync_banner_info()
+    except (requests.RequestException, ValueError, OSError):
+        logging.exception("배너 변경 성공, 정보 메시지 갱신은 재시도 예정")
     logging.info("히요리 서버 배너 교체 완료: %s / %s", metadata.get("artist"), current_slot)
     return {"status": "changed", **info}
 
@@ -328,12 +475,20 @@ def run_server_banner_scheduler():
     if os.getenv("SERVER_BANNER_ENABLED", "0") != "1":
         return
     attempted = None
+    last_info_check = 0.0
     while True:
         try:
             now_slot = slot()
             if now_slot and attempted != now_slot:
                 attempted = now_slot
                 logging.info("server-banner result: %s", rotate_once())
+            now = time.monotonic()
+            if now - last_info_check >= max(30, int(os.getenv("SERVER_BANNER_INFO_POLL_SECONDS", "60"))):
+                last_info_check = now
+                try:
+                    logging.info("server-banner info: %s", sync_banner_info())
+                except (requests.RequestException, ValueError, OSError):
+                    logging.exception("서버 배너 정보 동기화 실패; 다음 주기 재시도")
         except Exception:
             logging.exception("서버 배너 자동 변경 실패; 기존 배너 유지")
         time.sleep(10)
