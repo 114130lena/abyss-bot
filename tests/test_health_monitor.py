@@ -79,6 +79,35 @@ class HealthWarningsTests(unittest.TestCase):
         self.assertNotIn("DUMMY_X_SECRET", serialized)
         self.assertNotIn("DUMMY_SECRET_TOKEN", serialized)
 
+    def test_verify_file_presence_in_cached_gallery_refs(self):
+        import tempfile
+        import json
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            base = root / "creator_media"
+            cached = base / "fanart_candidates" / "hanayo"
+            cached.mkdir(parents=True)
+            (cached / "present.jpg").write_bytes(b"sample")
+            (base / "fanart_discovery.json").write_text(json.dumps({
+                "h1": {"group": "hanayo", "text": "히요리 #hiyoriart_",
+                       "cached_files": [
+                          "fanart_candidates/hanayo/present.jpg",
+                          "fanart_candidates/hanayo/missing.jpg",
+                          "../../untrusted.jpg"]}}), encoding="utf-8")
+            with patch.object(health_monitor, "ROOT", root), \
+                 patch("guild_server_banner.collected_hanayo_art", return_value=[]), \
+                 patch("guild_server_banner.approved_hanayo_art", return_value=[]), \
+                 patch("delivery_review.count_pending", return_value=0):
+                report = health_monitor.snapshot()
+        self.assertEqual(report["fanart"]["hanayo"]["cached_images"], 3)
+        self.assertEqual(report["fanart"]["hanayo"]["verified_cached_images"], 1)
+        self.assertEqual(report["fanart"]["hanayo"]["missing_cached_images"], 2)
+        with patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "0",
+                                       "FANART_FX_SEARCH_ENABLED": "0"}):
+            warnings = health_monitor.health_warnings(report)
+        self.assertIn("fanart_cache_integrity", warnings)
+
     def test_disabled_features_do_not_create_false_alarm(self):
         with patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "0",
                                        "FANART_FX_SEARCH_ENABLED": "0"}):
