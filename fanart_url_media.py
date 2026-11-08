@@ -102,7 +102,7 @@ def has_post_photos(payload):
     # Locate the footer by its actual gallery rather than depending only
     # on a mutable OFFICIAL LINKS caption.
     footer=next((i for i,c in enumerate(parts)
-                 if c.get("type")==10 and ("OFFICIAL LINKS" in str(c.get("content",""))
+                 if c.get("type")==10 and (("공식 채널" in str(c.get("content","")) or "OFFICIAL LINKS" in str(c.get("content","")))
                    or "FAN ART" in str(c.get("content","")))),len(parts))
     for c in parts[:footer]:
         if c.get("type")==12 and c.get("items"):
@@ -156,7 +156,7 @@ def apply(payload, group=None):
     logging.info("FANART_PICK group=%s mode=%s available=%d unused=%d",group,cycle,len(pool),len(fresh))
     # Preserve the independently selected official/random creator profile.
     for i,part in enumerate(parts[:-1]):
-        if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
+        if part.get("type")==10 and ("공식 채널" in part.get("content","") or "OFFICIAL LINKS" in part.get("content","")):
             gallery=parts[i+1]
             if gallery.get("type")!=12:
                 continue
