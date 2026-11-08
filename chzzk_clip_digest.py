@@ -76,7 +76,7 @@ def fetch_recent_clips(now=None, get=None):
         if not _ID.fullmatch(uid) or not dt:
             continue
         age = now - dt.astimezone(KST)
-        if not timedelta(0) <= age <= timedelta(hours=24):
+        if not timedelta(0) <= age <= timedelta(days=30):
             continue
         if (item.get("adult") or item.get("privateUserBlock")
                 or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -92,7 +92,7 @@ def fetch_recent_clips(now=None, get=None):
                          "date": dt.astimezone(KST).isoformat()})
     # One page may contain fewer than ten eligible clips. Read additional
     # pages only as needed, without increasing the first request timeout.
-    if accepted and len(accepted) < 10:
+    if len(accepted) < 10:
         seen = {clip["id"] for clip in accepted}
         for page in (1, 2):
             try:
@@ -114,7 +114,7 @@ def fetch_recent_clips(now=None, get=None):
                     if not _ID.fullmatch(uid) or uid in seen or not dt:
                         continue
                     age = now - dt.astimezone(KST)
-                    if not timedelta(0) <= age <= timedelta(hours=24):
+                    if not timedelta(0) <= age <= timedelta(days=30):
                         continue
                     if (item.get("adult") or item.get("privateUserBlock")
                             or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -135,7 +135,12 @@ def fetch_recent_clips(now=None, get=None):
             except (requests.RequestException, ValueError, TypeError):
                 logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
                 break
-    return sorted(accepted, key=lambda c: (-c["views"], c["id"]))[:10]
+    # Prioritize clips from the last 24 hours, then fill the remaining slots
+    # with older clips (up to 30 days), without repeating a clip.
+    unique = {clip["id"]: clip for clip in accepted}
+    return sorted(unique.values(), key=lambda c: (
+        0 if now - datetime.fromisoformat(c["date"]) <= timedelta(hours=24) else 1,
+        -c["views"], c["id"]))[:10]
 
 
 def _render(clips, history):
@@ -146,7 +151,7 @@ def _render(clips, history):
         {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": "**오늘의 히요리 클립**\n"
-         "최근 24시간 조회수 기준 상위 " + str(len(clips[:10])) + "개"},
+         "최근 24시간 우선 · 이전 클립 포함 " + str(len(clips[:10])) + "개"},
     ]
     # A Discord gallery can display up to ten images in a single message.
     # CHZZK's public API exposes thumbnails, not reliable direct MP4 files;
