@@ -39,6 +39,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_banner_secret_config.py' -v
           python -m unittest discover -s tests -p 'test_banner_min_candidates.py' -v
           python -m unittest discover -s tests -p 'test_clip_digest.py' -v
+          python -m unittest discover -s tests -p 'test_original_message_edit.py' -v
           python -m unittest -v test_bot.py
 
       - name: Set up SSH
