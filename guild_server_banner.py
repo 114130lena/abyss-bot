@@ -341,8 +341,124 @@ def _resolve_banner_attribution(banner_hash, previous):
     if not _valid_banner_source(artist, source):
         return None
     return {"artist": artist, "post_url": source,
-            "banner_changed_at": str(record.get("changed_at") or "").strip(),
-            "banner_change_method": "외부 변경 감지 · 이전 자동 배너 복원"}
+            "banner_source_recorded_at": str(record.get("changed_at") or "").strip(),
+            "banner_change_method": "이전 자동 배너 재사용 감지"}
+
+
+
+def _audit_banner_change(token, guild_id, actual, get=None):
+    """Read Discord guild-update audit logs; match only this exact banner hash.
+
+    A guild update is not necessarily a banner update. Require a change to the
+    banner_hash key with new_value identical to the current banner. Fail closed
+    on a permission error, incomplete entry, or an unrecognised response.
+    """
+    fetch = get or requests.get
+    endpoint = f"https://discord.com/api/v10/guilds/{guild_id}/audit-logs"
+    before = None
+    for _ in range(3):
+        params = {"action_type": 1, "limit": 100}
+        if before:
+            params["before"] = before
+        try:
+            response = fetch(endpoint, headers={"Authorization": "Bot " + token},
+                             params=params, timeout=12)
+            if response.status_code in (401, 403):
+                return {"status": "permission_denied"}
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError, TypeError):
+            return {"status": "unavailable"}
+        if not isinstance(data, dict) or not isinstance(data.get("audit_log_entries"), list):
+            return {"status": "invalid_response"}
+        entries = data["audit_log_entries"]
+        users = {str(u.get("id")): u for u in data.get("users", [])
+                 if isinstance(u, dict)} if isinstance(data.get("users"), list) else {}
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("action_type") != 1:
+                continue
+            changes = entry.get("changes")
+            if not isinstance(changes, list):
+                continue
+            if not any(isinstance(change, dict)
+                       and change.get("key") in ("banner_hash", "banner")
+                       and change.get("new_value") == actual
+                       for change in changes):
+                continue
+            entry_id = str(entry.get("id") or "")
+            if not entry_id.isdigit():
+                continue
+            try:
+                milliseconds = (int(entry_id) >> 22) + 1420070400000
+                changed_at = datetime.fromtimestamp(milliseconds / 1000, KST)
+            except (ValueError, OverflowError, OSError):
+                continue
+            actor_id = str(entry.get("user_id") or "")
+            user = users.get(actor_id, {})
+            name = str(user.get("username") or "").strip()
+            # Names are purely descriptive. Never send a user or role mention.
+            if not (1 <= len(name) <= 32 and all(c.isalnum() or c in "._" for c in name)):
+                name = ""
+            actor = ("(@" + name + ")") if name else "(변경 계정 상세 미확인)"
+            kind = "봇/앱 변경" if user.get("bot") is True else "관리 권한 사용자 변경"
+            return {"status": "matched",
+                    "banner_change_method": kind + " " + actor,
+                    "banner_changed_at": changed_at.strftime("%Y-%m-%d %H:%M KST"),
+                    "banner_audit_entry_id": entry_id}
+        if len(entries) < 100:
+            break
+        oldest = str(entries[-1].get("id") or "")
+        if not oldest.isdigit() or oldest == before:
+            break
+        before = oldest
+    return {"status": "not_found"}
+
+
+def _recover_cached_image_source(guild_id, actual, get=None):
+    """Recover a missing source only when the live guild image matches local art.
+
+    This never searches the web by appearance or invents authors. Only source
+    candidates already linked to a verified original X post are considered.
+    Keep the threshold strict to avoid attributing unrelated images.
+    """
+    from PIL import ImageChops, ImageStat
+    candidates = approved_hanayo_art() + collected_hanayo_art()
+    if not candidates:
+        return {"status": "no_candidates"}
+    extension = "gif" if actual.startswith("a_") else "png"
+    url = f"https://cdn.discordapp.com/banners/{guild_id}/{actual}.{extension}?size=1024"
+    try:
+        response = (get or requests.get)(url, timeout=(3, 12))
+        response.raise_for_status()
+        if len(response.content) > 12 * 1024 * 1024:
+            return {"status": "oversized"}
+        with Image.open(io.BytesIO(response.content)) as original:
+            live = ImageOps.fit(ImageOps.exif_transpose(original).convert("RGB"),
+                                SIZE, method=Image.Resampling.LANCZOS)
+    except (requests.RequestException, OSError, ValueError,
+            UnidentifiedImageError, Image.DecompressionBombError):
+        return {"status": "unavailable"}
+    scores = []
+    for path, meta in candidates:
+        if not _valid_banner_source(meta.get("artist"), meta.get("post_url")):
+            continue
+        try:
+            candidate = Image.open(io.BytesIO(convert_banner(path))).convert("RGB")
+            distance = max(ImageStat.Stat(ImageChops.difference(live, candidate)).mean)
+            if distance < 7.0:
+                scores.append((distance, meta))
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+            continue
+    scores.sort(key=lambda x: x[0])
+    if not scores:
+        return {"status": "not_found"}
+    # Only accept an unambiguous match. A 16:9 crop comparison may not be
+    # distinguishable for near-duplicate fanart from the same composition.
+    if len(scores) > 1 and scores[1][0] - scores[0][0] < 3.0:
+        return {"status": "ambiguous"}
+    result = scores[0][1]
+    return {"status": "matched", "artist": result["artist"],
+            "post_url": result["post_url"]}
 
 
 def _banner_card(guild_id, banner_hash, state):
@@ -356,6 +472,9 @@ def _banner_card(guild_id, banner_hash, state):
         method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
                   else "이전 기록 없음 · 변경 주체 확인 불가")
     changed_at = str(state.get("banner_changed_at") or "").strip()
+    if not changed_at and state.get("banner_first_observed_at"):
+        changed_at = ("정확한 변경 시각 미확인 (최초 확인 · "
+                      + str(state["banner_first_observed_at"]) + ")")
     attribution = ("**원본 작가** · " + artist + "\n"
                    "**원본 게시물** · [X에서 보기](" + source + ")") if known_source else (
                    "**원본 작가** · 확인되지 않음\n"
