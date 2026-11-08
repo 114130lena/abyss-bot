@@ -61,7 +61,8 @@ def fetch_recent_clips(now=None, get=None):
         age = now - dt.astimezone(KST)
         if not timedelta(0) <= age <= timedelta(hours=24):
             continue
-        if item.get("adult") or item.get("privateUserBlock") or item.get("blindType"):
+        if (item.get("adult") or item.get("privateUserBlock")
+                or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
             continue
         image = str(item.get("thumbnailImageUrl") or "")
         parsed = urlsplit(image)
