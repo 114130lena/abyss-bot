@@ -82,6 +82,23 @@ def _recheck_empty(post, username, post_id, primary_tweet):
         media = data.get("mediaURLs")
         if not isinstance(media, list):
             return None
+        # A secondary feed can have the photo even when FxTwitter exposes
+        # an empty media block. Recover it instead of merely marking "unknown".
+        direct_photos = []
+        direct_videos = []
+        for raw in media[:12]:
+            if not isinstance(raw, str):
+                continue
+            parsed = urlsplit(raw)
+            if parsed.scheme != "https":
+                continue
+            if parsed.hostname == "pbs.twimg.com" and parsed.path.startswith("/media/"):
+                if raw not in direct_photos:
+                    direct_photos.append(raw)
+            elif parsed.hostname == "video.twimg.com" and parsed.path.lower().endswith((".mp4", ".webm")):
+                direct_videos.append(raw)
+        if direct_photos or direct_videos:
+            return direct_photos[:4], direct_videos[0] if direct_videos else "", bool(direct_videos), True
         # An explicit mediaURLs list is stronger evidence than absent media.
         if (media or data.get("hasMedia") or data.get("media_extended")
                 or data.get("combinedMediaUrl") or data.get("videoURL")
@@ -151,11 +168,12 @@ def _vx_positive_media(username, post_id, existing):
 
 
 def _recover_x_media(post, username, post_id, existing):
+    if existing:
+        # Avoid another API call in the critical notification path.
+        return existing[:4], "", False, False
     fallback = _vx_positive_media(username, post_id, existing)
     if fallback is not None:
         return fallback
-    if existing:
-        return existing[:4], "", False, True
     return existing, "", False, False
 
 
@@ -198,10 +216,14 @@ def resolve_media(post, username):
             return _recover_x_media(post, username, post_id, existing)
         media=tweet.get("media")
         if media is None or media == {}:
-            verified = _recheck_empty(post, username, post_id, tweet)
-            if verified is not None:
-                return verified
-            logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
+            if existing:
+                return existing[:4], "", False, False
+            if _complete_text_only(tweet, username, post_id):
+                verified = _recheck_empty(post, username, post_id, tweet)
+                if verified is not None:
+                    return verified
+                # The secondary service has already been queried once.
+                return existing, "", False, False
             return _recover_x_media(post, username, post_id, existing)
         if not isinstance(media,dict):
             logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
