@@ -533,59 +533,59 @@ def _audit_retry_due(state, banner_hash, now=None):
 
 
 def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
-    """Every card displays all four metadata fields, even for unknown sources."""
-    from datetime import datetime
+    """Compact Components V2 card with a clear preview, schedule and inventory."""
     source = str(state.get("post_url") or "").strip()
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
     method = str(state.get("banner_change_method") or "").strip()
-    # Audit-log access is only an internal diagnostic for historical banners.
-    # Keep the public card about the banner itself, not the bot's permissions.
     if not method or method.startswith(("기존 기록", "이전 기록")):
         method = "이전 배너 · 변경 방식 미확인"
     changed_at = str(state.get("banner_changed_at") or "").strip()
     if not changed_at and state.get("banner_first_observed_at"):
         changed_at = ("정확한 변경 시각 미확인 (최초 확인 · "
                       + str(state["banner_first_observed_at"]) + ")")
-    attribution = ("**원본 작가** · " + artist + "\n"
-                   "**원본 게시물** · [X에서 보기](" + source + ")") if known_source else (
-                   "**원본 작가** · 확인되지 않음\n"
-                   "**원본 게시물** · 확인되지 않음")
-    description = ("**현재 적용된 서버 배너**\n"
-                   "**변경 방식** · " + method + "\n"
-                   "**변경 시각** · " + (changed_at or "기록 없음") + "\n"
-                   + attribution + "\n\n" + schedule_label())
-    parts = [
-        {"type": 10, "content": "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"},
-        {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "**서버 배너 정보**"},
-        {"type": 10, "content": description},
-    ]
-    if known_source:
-        parts.append({"type": 1, "components": [
-            {"type": 2, "style": 5, "label": "원본 게시물", "url": source}]})
+
+    # One image, then short grouped labels. Avoid nested duplicated headings,
+    # raw source URLs and a single overwhelming paragraph of metadata.
+    parts = [{"type": 10, "content":
+              "## 서버 배너 정보\n-# HANAYO HIYORI · STELLIVE · ABYSS"}]
     if banner_hash:
-        extension = "gif" if banner_hash.startswith("a_") else "png"
-        image_url = (
-            f"https://cdn.discordapp.com/banners/{guild_id}/{banner_hash}.{extension}?size=1024"
-        )
-        parts.append({"type": 12, "items": [
-            {"media": {"url": image_url}, "description": "현재 적용된 서버 배너"}]})
+        ext = "gif" if banner_hash.startswith("a_") else "png"
+        media_url = f"https://cdn.discordapp.com/banners/{guild_id}/{banner_hash}.{ext}?size=1024"
+        parts.append({"type": 12, "items": [{
+            "media": {"url": media_url},
+            "description": "현재 적용된 서버 배너"}]})
     else:
-        parts.append({"type": 10, "content": "-# 현재 서버에 설정된 배너 이미지가 없습니다."})
-    # Collection count refers to original source posts, while guild-banner
-    # candidates count individual unique images. Both use live eligibility.
-    from fanart_public_stats import snapshot, card_text
+        parts.append({"type": 10, "content": "-# 현재 서버에 배너 이미지가 없습니다."})
+
+    parts.append({"type": 10, "content": (
+        "**현재 적용된 서버 배너**\n"
+        f"**변경 방식** · {method}\n"
+        f"**변경 시각** · {changed_at or '기록 없음'}\n"
+        f"**원본 작가** · {artist if known_source else '확인되지 않음'}\n"
+        "**원본 게시물** · " +
+        (f"[X에서 보기]({source})" if known_source else "확인되지 않음")
+    )})
+    if known_source:
+        parts.append({"type": 1, "components": [{
+            "type": 2, "style": 5, "label": "원본 게시물", "url": source}]})
+
+    from fanart_public_stats import snapshot, card_sections
     if fanart_stats is None:
         fanart_stats = snapshot()
-    parts.append({"type": 14, "divider": True, "spacing": 1})
-    parts.append({"type": 10, "content": card_text(fanart_stats)})
+    parts.extend([
+        {"type": 14, "divider": True, "spacing": 1},
+        {"type": 10, "content": "**⏰ 업데이트 일정**\n" + schedule_label()},
+        {"type": 14, "divider": True, "spacing": 1},
+    ])
+    for section in card_sections(fanart_stats):
+        parts.append({"type": 10, "content": section})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
-                  "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
-    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
-                             "components": parts}],
-            "allowed_mentions": {"parse": []}}
+                  "-# 새 이미지가 없으면 기존 배너를 유지합니다 · 현황은 수집 시 갱신"})
+    return {"flags": 32768, "components": [{
+        "type": 17, "accent_color": 0x8391BB, "components": parts
+    }], "allowed_mentions": {"parse": []}}
 
 
 def _find_existing_banner_info(headers, base):
@@ -707,7 +707,7 @@ def sync_banner_info(force=False):
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
             and state.get("banner_info_stats_checksum") == stats_checksum
-            and state.get("banner_info_layout_version") == 9):
+            and state.get("banner_info_layout_version") == 10):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state, fanart_stats=fanart_stats)
     from discord_message_sync import update_original
@@ -720,7 +720,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 9
+    state["banner_info_layout_version"] = 10
     state["banner_info_stats_checksum"] = stats_checksum
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
