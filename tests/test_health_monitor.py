@@ -1,7 +1,9 @@
 """Offline policy checks for automated fanart and guild-banner health warnings."""
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 import health_monitor
+from scripts import operational_audit
 
 
 class HealthWarningsTests(unittest.TestCase):
@@ -112,6 +114,57 @@ class HealthWarningsTests(unittest.TestCase):
         with patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "0",
                                        "FANART_FX_SEARCH_ENABLED": "0"}):
             self.assertEqual(health_monitor.health_warnings({"banner": {}, "fanart": {}}), {})
+
+    def test_operational_audit_uses_poll_success_not_post_state_file(self):
+        now = datetime(2026, 11, 9, 3, 0, tzinfo=timezone.utc)
+        state = {
+            "히요리 X": {
+                "last_check": "2026-11-09T11:59:30+09:00",
+                "last_success": "2026-11-09T11:59:30+09:00",
+                "consecutive_failures": 0,
+            },
+            "후야 X": {
+                "last_check": "2026-11-09T11:59:00+09:00",
+                "last_success": "2026-11-09T11:45:00+09:00",
+                "consecutive_failures": 4,
+                "reason": "SENSITIVE_EXCEPTION_TEXT",
+            },
+        }
+        observed = operational_audit.source_check_summary(state=state, now=now)
+        self.assertEqual(observed["히요리 X"]["status"], "ok")
+        self.assertEqual(observed["후야 X"]["status"], "repeated_failures")
+        self.assertEqual(observed["네이버 카페"]["status"], "unverified")
+        self.assertNotIn("SENSITIVE_EXCEPTION_TEXT", str(observed))
+
+    def test_operational_audit_sanitizes_component_snapshot(self):
+        report = {
+            "fanart": {
+                "hanayo": {"posts": 5, "verified_cached_images": 4,
+                           "missing_cached_images": 1},
+                "sakihane": {"posts": 2, "verified_cached_images": 2},
+                "hashtag_search": {
+                    "hanayo": {"status": "ok", "secret": "DO_NOT_LEAK"},
+                    "sakihane": {"status": "unavailable"}},
+            },
+            "banner": {"bot_rotation_enabled": True, "legacy_timer_active": False,
+                       "total_eligible_candidates": 7, "unused_candidates": 4,
+                       "vision_enabled": True, "vision_ready": True,
+                       "post_url": "https://x.com/DO_NOT_LEAK"},
+            "clip": {"configured": True, "state_exists": True,
+                     "cached_clips": 7, "collected_age_hours": 0.5,
+                     "published_age_hours": 12,
+                     "title": "DO_NOT_LEAK"},
+            "spaces": {"configured": False},
+            "discord_uncertain_deliveries": 0,
+        }
+        with patch("health_monitor.snapshot", return_value=report), \\
+             patch("health_monitor.health_warnings",
+                   return_value={"fanart_cache_integrity": "DO_NOT_LEAK"}):
+            summarized = operational_audit.component_check_summary()
+        self.assertEqual(summarized["banner"]["unused_candidates"], 4)
+        self.assertEqual(summarized["fanart"]["groups"]["hanayo"]["missing_cached_images"], 1)
+        self.assertEqual(summarized["warning_codes"], ["fanart_cache_integrity"])
+        self.assertNotIn("DO_NOT_LEAK", str(summarized))
 
 
 if __name__ == "__main__":
