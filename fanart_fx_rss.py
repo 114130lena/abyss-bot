@@ -67,7 +67,7 @@ def fetch_group(group,session=None):
             "post_url":f"https://x.com/{author}/status/{post_id}",
             "artist":"@"+author,"image_urls":images.urls[:4],
             "decision":decision,"review_status":"blocked" if decision=="blocked" else "pending",
-            "source":"fxtwitter_profile_feed","text":combined[:2000]}
+            "source":"fxtwitter_profile_feed","discovered_at":datetime.now(timezone.utc).isoformat(),"text":combined[:2000]}
         added+=1
     if added:
         write(QUEUE,queue)

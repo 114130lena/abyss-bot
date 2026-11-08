@@ -488,7 +488,7 @@ def _audit_retry_due(state, banner_hash, now=None):
     return now - previous.astimezone(KST) >= timedelta(minutes=5)
 
 
-def _banner_card(guild_id, banner_hash, state):
+def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
     """Every card displays all four metadata fields, even for unknown sources."""
     from datetime import datetime
     source = str(state.get("post_url") or "").strip()
@@ -529,6 +529,13 @@ def _banner_card(guild_id, banner_hash, state):
             {"media": {"url": image_url}, "description": "현재 적용된 서버 배너"}]})
     else:
         parts.append({"type": 10, "content": "-# 현재 서버에 설정된 배너 이미지가 없습니다."})
+    # Collection count refers to original source posts, while guild-banner
+    # candidates count individual unique images. Both use live eligibility.
+    from fanart_public_stats import snapshot, card_text
+    if fanart_stats is None:
+        fanart_stats = snapshot()
+    parts.append({"type": 14, "divider": True, "spacing": 1})
+    parts.append({"type": 10, "content": card_text(fanart_stats)})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
@@ -649,12 +656,16 @@ def sync_banner_info(force=False):
     message_id = os.getenv("SERVER_BANNER_INFO_MESSAGE_ID", "").strip()
     if not message_id.isdigit():
         return {"status": "original_message_id_required"}
+    from fanart_public_stats import snapshot, checksum
+    fanart_stats = snapshot()
+    stats_checksum = checksum(fanart_stats)
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 8):
+            and state.get("banner_info_stats_checksum") == stats_checksum
+            and state.get("banner_info_layout_version") == 9):
         return {"status": "up_to_date", "message_id": message_id}
-    payload = _banner_card(guild_id, actual, state)
+    payload = _banner_card(guild_id, actual, state, fanart_stats=fanart_stats)
     from discord_message_sync import update_original
     status = update_original(channel_id, message_id, payload, token,
                              get=requests.get, patch=requests.patch)
@@ -665,7 +676,8 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 8
+    state["banner_info_layout_version"] = 9
+    state["banner_info_stats_checksum"] = stats_checksum
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)

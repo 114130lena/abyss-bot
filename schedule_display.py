@@ -10,6 +10,26 @@ KST = ZoneInfo("Asia/Seoul")
 UPDATE_HOURS = (8, 18)
 
 
+
+def format_saved_time(value):
+    """Format verified persisted timestamps for Discord, without guessing dates."""
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str) and value:
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (ValueError, OverflowError):
+            return "기록 없음"
+    else:
+        return "기록 없음"
+    if moment.tzinfo is None:
+        return "기록 없음"
+    try:
+        return f"<t:{int(moment.timestamp())}:f>"
+    except (ValueError, OverflowError, OSError):
+        return "기록 없음"
+
+
 def next_update(now=None):
     """Strictly future scheduled slot (exactly 08:00 advances to 18:00)."""
     now = (now or datetime.now(KST)).astimezone(KST)
