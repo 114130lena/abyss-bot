@@ -92,47 +92,46 @@ def fetch_recent_clips(now=None, get=None):
                          "date": dt.astimezone(KST).isoformat()})
     # Rank across recent pages, not merely the first ten recent uploads.
     # RECENT is upload order, whereas selection is by readCount.
-    if True:
-        seen = {clip["id"] for clip in accepted}
-        for page in range(1, 6):
-            try:
-                extra = fetch(url, params={
-                    "filterType": "ALL", "orderType": "RECENT",
-                    "page": page, "size": size}, timeout=(2, 7),
-                    headers={"Accept": "application/json",
-                             "Referer": "https://chzzk.naver.com/"})
-                extra.raise_for_status()
-                more = extra.json()
-                batch = (more.get("content") or {}).get("data") if isinstance(more, dict) else None
-                if not isinstance(batch, list) or not batch:
-                    break
-                for item in batch:
-                    if not isinstance(item, dict) or item.get("ownerChannelId") != CHANNEL_ID:
-                        continue
-                    uid = str(item.get("clipUID", ""))
-                    dt = _date(item.get("createdDate"))
-                    if not _ID.fullmatch(uid) or uid in seen or not dt:
-                        continue
-                    age = now - dt.astimezone(KST)
-                    if not timedelta(0) <= age <= timedelta(hours=24):
-                        continue
-                    if (item.get("adult") or item.get("privateUserBlock")
-                            or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
-                        continue
-                    image = str(item.get("thumbnailImageUrl") or "")
-                    parsed = urlsplit(image)
-                    if parsed.scheme != "https" or not parsed.hostname:
-                        image = ""
-                    accepted.append({"id": uid,
-                                     "title": str(item.get("clipTitle") or "히요리 클립")[:160],
-                                     "url": "https://chzzk.naver.com/clips/" + uid,
-                                     "thumbnail": image,
-                                     "views": max(0, int(item.get("readCount") or 0)),
-                                     "date": dt.astimezone(KST).isoformat()})
-                    seen.add(uid)
-            except (requests.RequestException, ValueError, TypeError):
-                logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
+    seen = {clip["id"] for clip in accepted}
+    for page in range(1, 6):
+        try:
+            extra = fetch(url, params={
+                "filterType": "ALL", "orderType": "RECENT",
+                "page": page, "size": size}, timeout=(2, 7),
+                headers={"Accept": "application/json",
+                         "Referer": "https://chzzk.naver.com/"})
+            extra.raise_for_status()
+            more = extra.json()
+            batch = (more.get("content") or {}).get("data") if isinstance(more, dict) else None
+            if not isinstance(batch, list) or not batch:
                 break
+            for item in batch:
+                if not isinstance(item, dict) or item.get("ownerChannelId") != CHANNEL_ID:
+                    continue
+                uid = str(item.get("clipUID", ""))
+                dt = _date(item.get("createdDate"))
+                if not _ID.fullmatch(uid) or uid in seen or not dt:
+                    continue
+                age = now - dt.astimezone(KST)
+                if not timedelta(0) <= age <= timedelta(hours=24):
+                    continue
+                if (item.get("adult") or item.get("privateUserBlock")
+                        or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
+                    continue
+                image = str(item.get("thumbnailImageUrl") or "")
+                parsed = urlsplit(image)
+                if parsed.scheme != "https" or not parsed.hostname:
+                    image = ""
+                accepted.append({"id": uid,
+                                 "title": str(item.get("clipTitle") or "히요리 클립")[:160],
+                                 "url": "https://chzzk.naver.com/clips/" + uid,
+                                 "thumbnail": image,
+                                 "views": max(0, int(item.get("readCount") or 0)),
+                                 "date": dt.astimezone(KST).isoformat()})
+                seen.add(uid)
+        except (requests.RequestException, ValueError, TypeError):
+            logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
+            break
     # Only clips created in the last 24 hours; never backfill older videos.
     unique = {clip["id"]: clip for clip in accepted}
     return sorted(unique.values(), key=lambda c: (-c["views"], c["id"]))[:10]
@@ -319,6 +318,10 @@ def publish_once(now=None, get=None, patch=None):
 
 def refresh_once(now=None, get=None, patch=None):
     """Explicit/manual refresh compatibility; scheduler uses separate jobs."""
+    if not (os.getenv("DISCORD_BOT_TOKEN", "").strip()
+            and os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip().isdigit()
+            and os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip().isdigit()):
+        return {"status": "not_configured"}
     result = collect_once(now, get=get)
     if result["status"] != "collected":
         return result
