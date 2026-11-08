@@ -114,6 +114,8 @@ def snapshot():
     if profile_path.is_file():
         result["fanart"]["profile_age_hours"] = round(
             max(0, now - profile_path.stat().st_mtime) / 3600, 2)
+    artist_watch = _read(ROOT / "creator_media" / "fanart_artist_watch_state.json", {})
+    result["fanart"]["known_artist_fallback"] = artist_watch.get("groups", {})
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
     result["banner"] = {"last_slot": banner.get("last_slot"),
@@ -163,6 +165,8 @@ def health_warnings(report):
             warnings["clip_collection"] = "클립 수집 상태 파일이나 성공 기록이 없습니다."
         elif clip["collected_age_hours"] > 3:
             warnings["clip_collection"] = "클립 최근 수집 성공 기록이 3시간 이상 오래됐습니다."
+    # The watchlist augments but cannot replace the global source: a failure
+    # remains visible, alongside successful known-artist profile checks.
     if os.getenv("FANART_FX_SEARCH_ENABLED", "1") == "1":
         search = report.get("fanart", {}).get("hashtag_search", {})
         if not search or any(v.get("status") != "ok" for v in search.values()

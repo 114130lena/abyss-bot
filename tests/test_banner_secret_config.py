@@ -17,6 +17,7 @@ def config(token="bot-token", guild="123456"):
         "DISCORD_GUILD_ID": guild,
         "SERVER_BANNER_ENABLED": "1",
         "SERVER_BANNER_USE_COLLECTED": "1",
+        "SERVER_BANNER_ALLOW_FIT": "1",
         "FANART_CACHE_CANDIDATES": "1",
         "FANART_DISCOVERY_ENABLED": "1",
         "SERVER_BANNER_INFO_CHANNEL_ID": "1567561255764500551",

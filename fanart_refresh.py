@@ -2,6 +2,7 @@
 import logging
 import os
 import time
+import requests
 from datetime import datetime, timezone
 
 
@@ -26,6 +27,7 @@ def check_fanart():
         logging.warning("FANART_PROFILE_HEALTH_WRITE_FAILED")
 
 
+    global_search_failed = os.getenv("FANART_FX_SEARCH_ENABLED", "1") != "1"
     # Search all public authors, not just creator profile feeds.
     # Keep the profile-RSS and optional official-X-API sources as fallbacks.
     if os.getenv("FANART_FX_SEARCH_ENABLED", "1") == "1":
@@ -33,8 +35,20 @@ def check_fanart():
             from fanart_fx_search import discover as search_hashtag
             result = search_hashtag()
             logging.info("FANART_DISCOVERY_HASHTAG result=%s", result)
+            global_search_failed = result.get("status") != "ok"
         except (OSError, ValueError, TypeError):
             logging.exception("FANART_DISCOVERY_HASHTAG failed; existing queue preserved")
+            global_search_failed = True
+
+    # Global X hashtag search may be unavailable while media feeds of artists
+    # already recorded in the queue remain accessible. Rotating accounts
+    # preserve the original post and attached images; not global coverage.
+    if global_search_failed and os.getenv("FANART_ARTIST_WATCH_ENABLED", "1") == "1":
+        try:
+            from fanart_artist_watch import discover as watch_artists
+            logging.info("FANART_DISCOVERY_ARTIST_FALLBACK result=%s", watch_artists())
+        except (OSError, ValueError, TypeError, requests.RequestException):
+            logging.exception("FANART_DISCOVERY_ARTIST_FALLBACK unavailable; queue preserved")
 
     if os.getenv("FANART_USE_X_API", "0") == "1":
         from fanart_discovery import discover

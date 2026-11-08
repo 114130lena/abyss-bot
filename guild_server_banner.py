@@ -209,7 +209,10 @@ def collected_hanayo_art():
     # The guild owns widescreen artworks first; other ratios remain for
     # notification cards. Fit-only artwork is a fallback when none are wide.
     widescreen = [entry for entry in result if entry[1].get("server_aspect") == "wide"]
-    return widescreen if widescreen else result
+    # One wide image alone must not hide valid 16:10/fit artworks: otherwise
+    # minimum-two rotation is starved even with a populated trusted art cache.
+    # Prefer all-wide rotation when at least two distinct widescreen images exist.
+    return widescreen if len(widescreen) >= 2 else result
 
 
 def convert_banner(path):
