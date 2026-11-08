@@ -286,6 +286,11 @@ jobs:
           else BOT_PY=.venv-test/bin/python; fi
           "$BOT_PY" - <<'PY'
           import json
+          from dotenv import load_dotenv
+          # The deploy probe runs in its own Python process. Without loading
+          # the same .env as main.py, configured flags and eligibility counts
+          # are falsely reported as disabled/defaults.
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
           from health_monitor import snapshot
           print(json.dumps(snapshot(), ensure_ascii=False, separators=(",", ":")))
           PY
