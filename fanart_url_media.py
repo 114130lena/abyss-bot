@@ -87,6 +87,24 @@ def candidates(group):
     return list(posts.values())
 
 
+def availability(group, pool=None):
+    """Show the count of never-sent attributed posts, not the lifetime pool size.
+
+    Previously delivered posts become eligible for fallback ONLY when every
+    currently eligible post has been sent. Neither blocked nor reserved server
+    artwork can enter the recycled pool.
+    """
+    items = pool if pool is not None else candidates(group)
+    history = read(HISTORY).get(group, {})
+    if not isinstance(history, dict):
+        history = {}
+    unique = {post["post_url"] for post in items
+              if isinstance(post, dict) and isinstance(post.get("post_url"), str)}
+    unseen = unique.difference(history)
+    return {"total": len(unique), "unused": len(unseen),
+            "reusable": len(unique) - len(unseen), "fallback_only": not unseen and bool(unique)}
+
+
 def has_post_photos(payload):
     """Detect post-specific media, never the footer banner or creator avatar.
 
@@ -139,8 +157,9 @@ def apply(payload, group=None):
     if not pool:
         logging.warning("FANART_FALLBACK group=%s reason=no_eligible_notification_candidates",group)
         return out,None
-    # Unused artworks first; after exhaustion recycle the least recently used.
-    # Preserve history across restarts, and never fall back merely because all were shown.
+    # Use every eligible post once before any reuse. When nothing new remains,
+    # recycle only the least-recently sent eligible post; never reuse prohibited
+    # or server-reserved images. Delivery history is written on HTTP success.
     with LOCK:
         used=read(HISTORY).get(group,{})
         if not isinstance(used,dict):used={}
