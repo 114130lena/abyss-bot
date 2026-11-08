@@ -15,9 +15,11 @@ def is_repost(title, description="", source=""):
     import re
     t=str(title or "").strip()
     d=str(description or "")
-    if re.search(r"^(?:RT by|Retweeted by|Reposted by|Boosted by)\b", t, re.I):
+    if re.search(r"^(?:RT by|Retweet(?:ed)? by|Repost(?:ed)? by|Boosted by)\b", t, re.I):
         return True
     if re.search(r"^(?:RT|Retweet|Repost)\s*[:：]", t, re.I):
+        return True
+    if re.search(r"^(?:RT\s+@|🔁\s*(?:RT\b|Repost\b|@))", t, re.I):
         return True
     if re.search(r"\b(?:retweeted|reposted)\s+by\b", t[:180], re.I):
         return True
