@@ -41,6 +41,7 @@ jobs:
               --property=User=ubuntu --property=Group=ubuntu \
               --property=WorkingDirectory=/home/ubuntu/chzzk-bot \
               --property=EnvironmentFile=/home/ubuntu/chzzk-bot/.guild_banner_auth.env \
+              --property=Environment=SERVER_BANNER_ENABLED=1 \
               /usr/bin/flock -n /home/ubuntu/chzzk-bot/creator_media/guild_banner_rotation.lock \
               /home/ubuntu/chzzk-bot/.venv/bin/python -c 'import guild_server_banner as g; r=g.rotate_once(manual=True); print("ONE_TIME_RESULT",r.get("status"),r.get("post_url")); assert r.get("status")=="changed",r' || { sudo journalctl -u abyss-banner-repair-20261108.service -n 25 --no-pager -o cat; exit 1; }
           fi
