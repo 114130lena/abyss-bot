@@ -392,37 +392,20 @@ def sync_banner_info(force=False):
             and state.get("banner_info_updated_hash") == actual):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
-    headers = {"Authorization": "Bot " + token, "Content-Type": "application/json"}
-    base = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-    response = requests.patch(base + "/" + message_id, headers=headers,
-                              json=payload, timeout=12)
-    if response.status_code in (403, 404):
-        # The original may be a webhook-authored message, which a bot token
-        # cannot edit even when it can post in the same channel. Report the
-        # message type without exposing any authentication token.
-        try:
-            original = requests.get(base + "/" + message_id, headers=headers, timeout=10)
-            if original.ok:
-                detail = original.json()
-                if isinstance(detail, dict):
-                    kind = "webhook" if detail.get("webhook_id") else "bot_or_user"
-                    logging.warning("BANNER_INFO_ORIGINAL_AUTHOR kind=%s message=%s",
-                                    kind, message_id)
-        except (requests.RequestException, ValueError, TypeError):
-            logging.warning("BANNER_INFO_ORIGINAL_AUTHOR unavailable")
-        logging.warning("BANNER_INFO_ORIGINAL_UNEDITABLE message=%s status=%d; no new message sent",
-                        message_id, response.status_code)
-        return {"status": "original_message_uneditable", "message_id": message_id}
-    response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, dict) or not str(data.get("id", "")).isdigit():
-        raise ValueError("Discord did not confirm banner information message")
+    from discord_message_sync import update_original
+    status = update_original(channel_id, message_id, payload, token,
+                             get=requests.get, patch=requests.patch)
+    if status != "updated":
+        logging.warning("BANNER_INFO_ORIGINAL_UNEDITABLE message=%s reason=%s; no duplicate created",
+                        message_id, status)
+        return {"status": "original_message_uneditable",
+                "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = str(data["id"])
     state["banner_info_updated_hash"] = actual
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
-                 channel_id, actual[:12], data["id"], changed)
-    return {"status": "updated", "message_id": str(data["id"]), "external": changed}
+                 channel_id, actual[:12], message_id, changed)
+    return {"status": "updated", "message_id": message_id, "external": changed}
 
 
 def slot(now=None):
