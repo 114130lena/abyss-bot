@@ -354,3 +354,24 @@ jobs:
             -f context="abyss/production-banner" \
             -f description="$description" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/deploy.yml"
+          # The GitHub connector exposes status contexts but not descriptions.
+          # Store redacted audit/source/time flags in a separate context so
+          # automated inspections can see *real* recovery outcomes.
+          if [ "$DEPLOY_RESULT" = "success" ] && [ -f bot-health.json ]; then
+            provenance_status=$(python3 -c '
+import json
+import re
+with open("bot-health.json", encoding="utf-8") as f:
+    banner = json.load(f).get("banner", {})
+audit = re.sub("[^a-z0-9_]", "_", str(banner.get("audit_status", "not_checked")).lower())[:30]
+source = "yes" if banner.get("source_known") else "no"
+changed = "yes" if banner.get("change_time_known") else "no"
+print("audit_%s-source_%s-time_%s" % (audit, source, changed))
+')
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -f state="success" \
+              -f context="abyss/banner-provenance/$provenance_status" \
+              -f description="Redacted server banner audit recovery outcome" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/deploy.yml"
+          fi
