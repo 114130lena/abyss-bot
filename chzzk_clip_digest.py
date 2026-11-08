@@ -76,7 +76,7 @@ def fetch_recent_clips(now=None, get=None):
         if not _ID.fullmatch(uid) or not dt:
             continue
         age = now - dt.astimezone(KST)
-        if not timedelta(0) <= age <= timedelta(days=30):
+        if not timedelta(0) <= age <= timedelta(days=365):
             continue
         if (item.get("adult") or item.get("privateUserBlock")
                 or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -94,7 +94,7 @@ def fetch_recent_clips(now=None, get=None):
     # pages only as needed, without increasing the first request timeout.
     if len(accepted) < 10:
         seen = {clip["id"] for clip in accepted}
-        for page in (1, 2):
+        for page in range(1, 6):
             try:
                 extra = fetch(url, params={
                     "filterType": "ALL", "orderType": "RECENT",
@@ -114,7 +114,7 @@ def fetch_recent_clips(now=None, get=None):
                     if not _ID.fullmatch(uid) or uid in seen or not dt:
                         continue
                     age = now - dt.astimezone(KST)
-                    if not timedelta(0) <= age <= timedelta(days=30):
+                    if not timedelta(0) <= age <= timedelta(days=365):
                         continue
                     if (item.get("adult") or item.get("privateUserBlock")
                             or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -136,7 +136,7 @@ def fetch_recent_clips(now=None, get=None):
                 logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
                 break
     # Prioritize clips from the last 24 hours, then fill the remaining slots
-    # with older clips (up to 30 days), without repeating a clip.
+    # with older clips (up to one year), without repeating a clip.
     unique = {clip["id"]: clip for clip in accepted}
     return sorted(unique.values(), key=lambda c: (
         0 if now - datetime.fromisoformat(c["date"]) <= timedelta(hours=24) else 1,
