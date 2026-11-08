@@ -43,6 +43,30 @@ class OriginalMessageTests(unittest.TestCase):
         self.assertEqual(status,"webhook_credential_missing")
         self.assertEqual(editing.call_count,1)
 
+    def test_400_on_components_v2_retries_components_only(self):
+        edit=Mock(side_effect=[resp(400, {"code": 50035}), resp(200, {"id":"333"})])
+        existing=Mock(return_value=resp(200, {"flags":32768, "id":"333"}))
+        payload={"embeds":[{"title":"배너 정보", "description":"현재 배너",
+                "image":{"url":"https://cdn.discordapp.com/banners/111/hash.png"}}]}
+        with patch.dict("os.environ", {}, clear=True):
+            status=sync.update_original("111","333",payload,"token",
+                                        get=existing,patch=edit)
+        self.assertEqual(status,"updated")
+        self.assertEqual(edit.call_count,2)
+        fixed=edit.call_args.kwargs["json"]
+        self.assertNotIn("embeds", fixed)
+        self.assertNotIn("content", fixed)
+        self.assertEqual(fixed["components"][0]["type"],17)
+        self.assertIn("hash.png",str(fixed))
+
+    def test_400_for_other_reason_never_sends_duplicate(self):
+        edit=Mock(return_value=resp(400, {"code":50035}))
+        with patch.dict("os.environ", {}, clear=True):
+            status=sync.update_original("111","333",{"embeds":[{"title":"a"}]},"token",
+                        get=Mock(return_value=resp(200, {"flags":0})),patch=edit)
+        self.assertEqual(status,"discord_rejected_400")
+        self.assertEqual(edit.call_count,1)
+
     def test_no_credentials_does_not_query_or_post(self):
         edit=Mock(return_value=resp(403))
         lookup=Mock()
