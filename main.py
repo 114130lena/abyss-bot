@@ -178,7 +178,7 @@ def main():
     if os.getenv("FANART_DISCOVERY_ENABLED", "1") == "1":
         from fanart_refresh import check_fanart
         threading.Thread(target=run_worker,
-                         args=("팬아트 후보 수집", check_fanart, 7200),
+                         args=("팬아트 후보 수집", check_fanart, max(1800, int(os.getenv("FANART_DISCOVERY_INTERVAL", "3600")))),
                          name="fanart-discovery", daemon=True).start()
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
