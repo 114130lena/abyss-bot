@@ -163,8 +163,10 @@ class MediaTests(unittest.TestCase):
         vx={"tweetID":"123","user_screen_name":"HanayoHiyori",
             "text":"새로운 공지","mediaURLs":["https://pbs.twimg.com/media/p.jpg"]}
         with patch.object(media.requests,"get",side_effect=[Response(fx),Response(vx)]):
-            _,_,_,known=media.resolve_media({"id":"123","images":[]},"HanayoHiyori")
-        self.assertFalse(known)
+            photos,_,_,known=media.resolve_media({"id":"123","images":[]},"HanayoHiyori")
+        # The secondary source now RECOVERS the photo, rather than leaving it unknown.
+        self.assertEqual(photos, ["https://pbs.twimg.com/media/p.jpg"])
+        self.assertTrue(known)
 
     def test_incomplete_or_wrong_secondary_is_not_text_only(self):
         class Response:
