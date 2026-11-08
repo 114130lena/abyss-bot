@@ -556,26 +556,63 @@ def sync_banner_info(force=False):
     changed = expected is not None and expected != actual
     uninitialized = expected is None
     state = dict(previous)
+    observed = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     if changed:
         recovered = _resolve_banner_attribution(actual, previous)
         state["guild_banner_hash"] = actual
+        state["banner_changed_at"] = ""   # previous hash's timestamp is not current
+        state["banner_first_observed_at"] = observed
+        state["banner_audit_checked_hash"] = ""
+        state["banner_source_checked_hash"] = ""
         if recovered:
             state.update(recovered)
         else:
-            # A new Discord hash is not proof of who changed the banner.
-            # Never attach the previous artwork's artist to an unrelated image.
             state["artist"] = ""
             state["post_url"] = ""
-            state["banner_changed_at"] = (datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
-                                          + " (변경 감지 시각)")
             state["banner_change_method"] = "외부 변경 감지"
         state["banner_info_updated_hash"] = ""
     if uninitialized:
         state["guild_banner_hash"] = actual
         state["banner_info_updated_hash"] = ""
-        # Older state may contain source information but no hash. Keep this
-        # legacy record visible without falsely claiming it is verified.
+        if actual:
+            state.setdefault("banner_first_observed_at", observed)
+        # Retain legacy source metadata but do not claim to know its provenance.
         state.setdefault("banner_change_method", "기존 기록 · 변경 주체 미상")
+    if actual and not state.get("banner_changed_at") and not state.get("banner_first_observed_at"):
+        state["banner_first_observed_at"] = observed
+        state["banner_info_updated_hash"] = ""
+
+    # Audit data is independent of artist credit. It can establish the time
+    # and updater even when no valid original X URL is in our history.
+    audit_needed = bool(actual and (changed or uninitialized
+        or not state.get("banner_changed_at")
+        or state.get("banner_change_method", "").startswith(("기존 기록", "이전 기록"))))
+    if (audit_needed and os.getenv("SERVER_BANNER_AUDIT_LOOKUP", "0") == "1"
+            and state.get("banner_audit_checked_hash") != actual):
+        audit = _audit_banner_change(token, guild_id, actual)
+        state["banner_audit_checked_hash"] = actual
+        state["banner_audit_status"] = audit["status"]
+        if audit["status"] == "matched":
+            state["banner_change_method"] = audit["banner_change_method"]
+            state["banner_changed_at"] = audit["banner_changed_at"]
+            state["banner_audit_entry_id"] = audit["banner_audit_entry_id"]
+        state["banner_info_updated_hash"] = ""
+        logging.info("BANNER_METADATA_AUDIT status=%s", audit["status"])
+
+    # An exact image comparison can recover the source from locally retained
+    # artwork; a hashtag or a similar-looking character alone cannot.
+    if (actual and not _valid_banner_source(state.get("artist"), state.get("post_url"))
+            and os.getenv("SERVER_BANNER_SOURCE_IMAGE_MATCH", "0") == "1"
+            and state.get("banner_source_checked_hash") != actual):
+        match = _recover_cached_image_source(guild_id, actual)
+        state["banner_source_checked_hash"] = actual
+        state["banner_source_match_status"] = match["status"]
+        if match["status"] == "matched":
+            state["artist"] = match["artist"]
+            state["post_url"] = match["post_url"]
+            state["banner_source_verified_via"] = "cached_image_match"
+        state["banner_info_updated_hash"] = ""
+        logging.info("BANNER_METADATA_IMAGE_MATCH status=%s", match["status"])
     # Always target the explicitly identified ORIGINAL information message.
     # Earlier versions created an unwanted second bot message when the
     # original was a webhook post or not found in the 100-message history.
@@ -586,7 +623,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 6):
+            and state.get("banner_info_layout_version") == 7):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -599,7 +636,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 6
+    state["banner_info_layout_version"] = 7
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
