@@ -48,6 +48,11 @@ def snapshot():
         }
     if queue_path.is_file():
         result["fanart"]["queue_age_hours"] = round((now - queue_path.stat().st_mtime) / 3600, 1)
+    fx_path = ROOT / "creator_media" / "fanart_fx_search_state.json"
+    fx_state = _read(fx_path, {})
+    result["fanart"]["hashtag_search"] = fx_state.get("groups", {})
+    if fx_path.is_file():
+        result["fanart"]["search_age_hours"] = round((now - fx_path.stat().st_mtime) / 3600, 1)
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
     result["banner"] = {"last_slot": banner.get("last_slot"),
