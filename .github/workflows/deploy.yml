@@ -64,6 +64,37 @@ jobs:
             main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py health_monitor.py delivery_review.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py notice_intelligence.py resilience.py test_alert.py test_image_card.py x_post_media.py x_repost_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py fanart_fx_rss.py fanart_candidate_cache.py fanart_review.py fanart_library.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py requirements.txt youtube_channels.txt \
             "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/"
 
+      - name: Configure banner credentials from GitHub Secrets
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          BANNER_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          BANNER_GUILD: ${{ secrets.DISCORD_GUILD_ID }}
+        run: |
+          set -euo pipefail
+          # Missing GitHub Secrets fail explicitly. Never use echo or shell tracing
+          # to print credentials, and do not accidentally enable an unauthenticated bot.
+          if [ -z "$BANNER_TOKEN" ] || [ -z "$BANNER_GUILD" ]; then
+            echo "::error::Set DISCORD_BOT_TOKEN and DISCORD_GUILD_ID in repository Actions Secrets."
+            exit 1
+          fi
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+            scripts/configure_banner_env.py \
+            "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/configure_banner_env.py"
+          python3 -c '
+          import json, os, sys
+          json.dump({
+              "DISCORD_BOT_TOKEN": os.environ["BANNER_TOKEN"],
+              "DISCORD_GUILD_ID": os.environ["BANNER_GUILD"],
+              "SERVER_BANNER_ENABLED": "1",
+              "SERVER_BANNER_USE_COLLECTED": "1",
+              "SERVER_BANNER_INFO_CHANNEL_ID": "1567561255764500551",
+              "SERVER_BANNER_INFO_POLL_SECONDS": "60",
+          }, sys.stdout)
+          ' | ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+              "$SSH_USER@$SSH_HOST" \
+              'python3 /home/ubuntu/chzzk-bot/.deploy-staging/configure_banner_env.py'
+
       - name: Validate and deploy, then restart
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
