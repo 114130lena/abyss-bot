@@ -125,6 +125,13 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "MENTION_AUDIT_POST_DEPLOY"
+          cd /home/ubuntu/chzzk-bot
+          grep -q 'DISCORD_ROLE_MENTION_RECOGNIZED' resilience.py && echo 'MENTION_RECEIPT_CODE=DEPLOYED' || echo 'MENTION_RECEIPT_CODE=MISSING'
+          echo "MENTION_RECEIPT_EVENTS"
+          sudo journalctl -u chzzk-bot.service --since '20 minutes ago' --no-pager -o cat | grep -E 'DISCORD_ROLE_MENTION|DISCORD_WEBHOOK_DELIVERED' | tail -n 25 || true
+          echo "SERVICE_ACTIVE $(systemctl is-active chzzk-bot.service)"
+
           echo "DISCORD_ROLE_MENTION_DIAGNOSIS"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
