@@ -400,7 +400,7 @@ def sync_banner_info(force=False):
                         message_id, status)
         return {"status": "original_message_uneditable",
                 "message_id": message_id, "reason": status}
-    state["banner_info_message_id"] = str(data["id"])
+    state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
