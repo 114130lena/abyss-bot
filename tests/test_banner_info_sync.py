@@ -130,9 +130,10 @@ class BannerInfoTests(unittest.TestCase):
         buttons = [p for p in parts if p.get("type") == 1]
         self.assertEqual(buttons[0]["components"][0]["url"], source)
         self.assertEqual(buttons[0]["components"][0]["label"], "원본 게시물")
-        self.assertLess(next(i for i,p in enumerate(parts) if p.get("type")==10 and
-                             "원본 작가" in p.get("content", "")),
-                        next(i for i,p in enumerate(parts) if p.get("type")==12))
+        # Gallery is now directly below the title, before the metadata block.
+        self.assertGreater(next(i for i,p in enumerate(parts) if p.get("type")==10 and
+                                "원본 작가" in p.get("content", "")),
+                           next(i for i,p in enumerate(parts) if p.get("type")==12))
 
     def test_no_banner_still_has_source_fields_without_inventing_an_artist(self):
         card = banner._banner_card("123456", "", {"artist": "@old",
