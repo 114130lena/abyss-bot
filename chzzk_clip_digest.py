@@ -124,15 +124,13 @@ def refresh_once(now=None, get=None, patch=None):
     payload = _render(clips, {k: v for k, v in updated.items() if k != day})
     if not payload:
         return {"status": "no_recent_clips"}
-    response = (patch or requests.patch)(
-        f"https://discord.com/api/v10/channels/{channel}/messages/{message}",
-        headers={"Authorization": "Bot " + token},
-        json=payload, timeout=12)
-    if response.status_code in (403, 404):
-        logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE status=%s (no replacement sent)",
-                        response.status_code)
-        return {"status": "original_message_uneditable"}
-    response.raise_for_status()
+    from discord_message_sync import update_original
+    status = update_original(channel, message, payload, token,
+                             get=get or requests.get, patch=patch or requests.patch)
+    if status != "updated":
+        logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE message=%s reason=%s; no replacement sent",
+                        message, status)
+        return {"status": "original_message_uneditable", "reason": status}
     save_json(STATE_FILE, {"history": updated,
                            "latest_id": clips[0]["id"],
                            "last_updated": now.isoformat()})
@@ -143,11 +141,17 @@ def refresh_once(now=None, get=None, patch=None):
 def run_clip_scheduler():
     """KST: update at 18:00 and every 2 hours until 22:00, not overnight."""
     last_slot = None
+    # Update the original immediately on startup, including after deploy.
+    # Time slots remain 18/20/22 KST, with no overnight polling.
+    first = True
     while True:
         now = datetime.now(KST)
         slot = now.strftime("%Y-%m-%d %H")
-        if now.hour in (18, 20, 22) and slot != last_slot:
-            last_slot = slot
+        due = now.hour in (18, 20, 22) and slot != last_slot
+        if first or due:
+            first = False
+            if due:
+                last_slot = slot
             try:
                 logging.info("CHZZK_CLIP_RESULT %s", refresh_once(now))
             except (requests.RequestException, OSError, ValueError, TypeError):
