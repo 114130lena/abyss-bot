@@ -35,6 +35,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v
           python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
           python -m unittest -v test_guild_server_banner.py
+          python -m unittest discover -s tests -p 'test_banner_info_sync.py' -v
           python -m unittest -v test_bot.py
 
       - name: Set up SSH
