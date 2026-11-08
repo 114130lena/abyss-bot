@@ -448,6 +448,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     selected, rotation_used, candidate_total, remaining = rotation_selection(
         previous.get("last_sha256"), previous.get("rotation_used", []))
     if selected is None:
+        logging.warning("SERVER_BANNER_PIPELINE candidates=0 source=approved_and_cached; check FANART_DISCOVERY_PROFILE and FANART_REVIEW_CACHE")
         return {"status": "no_approved_hanayo_art"}
     # Do not overwrite an intentionally chosen manual banner with the only
     # available candidate at the next scheduled slot. Info sync keeps running.
@@ -458,6 +459,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
         return {"status": "insufficient_candidates",
                 "candidate_total": candidate_total, "minimum": minimum}
     source, metadata = selected
+    logging.info("SERVER_BANNER_PICK candidates=%d remaining=%d artist=%s source=%s",
+                 candidate_total, remaining, metadata.get("artist", ""), metadata.get("post_url", ""))
     image = convert_banner(source)
     if preview_path is not None:
         destination = Path(preview_path)
@@ -509,8 +512,12 @@ def run_server_banner_scheduler():
         try:
             now_slot = slot()
             if now_slot and attempted != now_slot:
-                attempted = now_slot
-                logging.info("server-banner result: %s", rotate_once())
+                result = rotate_once()
+                logging.info("server-banner result: %s", result)
+                # Retry transient failures within the scheduled minute instead of
+                # permanently consuming the slot before a successful change.
+                if result.get("status") in ("changed", "already_rotated", "insufficient_candidates", "no_approved_hanayo_art", "disabled"):
+                    attempted = now_slot
             now = time.monotonic()
             due_info = bool(now_slot and last_info_slot != now_slot)
             if due_info or now - last_info_check >= max(30, int(os.getenv("SERVER_BANNER_INFO_POLL_SECONDS", "60"))):
