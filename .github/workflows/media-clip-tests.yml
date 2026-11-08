@@ -11,6 +11,8 @@ on:
       - 'tests/test_x_post_media.py'
       - 'tests/test_media_visibility.py'
       - 'tests/test_clip_digest.py'
+      - 'tests/test_deploy_staging_paths.py'
+      - '.github/workflows/deploy.yml'
       - '.github/workflows/media-clip-tests.yml'
   workflow_dispatch:
 
@@ -30,3 +32,4 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_x_post_media.py' -v
       - run: python -m unittest discover -s tests -p 'test_media_visibility.py' -v
       - run: python -m unittest discover -s tests -p 'test_clip_digest.py' -v
+      - run: python -m unittest discover -s tests -p 'test_deploy_staging_paths.py' -v
