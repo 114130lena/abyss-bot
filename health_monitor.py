@@ -118,7 +118,19 @@ def snapshot():
     result["fanart"]["known_artist_fallback"] = artist_watch.get("groups", {})
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
-    result["banner"] = {"last_slot": banner.get("last_slot"),
+    # The previous systemd timer and the in-process scheduler must never both
+    # own guild banner writes. Report the actual legacy timer state safely.
+    try:
+        import subprocess
+        legacy = subprocess.run(["systemctl", "is-active", "--quiet",
+                                 "abyss-guild-banner.timer"], timeout=3,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        legacy = None
+    result["banner"] = {"legacy_timer_active": legacy,
+                        "bot_rotation_enabled": os.getenv("SERVER_BANNER_ENABLED", "0") == "1",
+                        "last_slot": banner.get("last_slot"),
                         "used_count": len(banner.get("rotation_used") or []),
                         "change_time_known": bool(banner.get("banner_changed_at")),
                         "source_known": bool(banner.get("artist") and banner.get("post_url")),
