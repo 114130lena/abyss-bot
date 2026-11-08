@@ -327,17 +327,18 @@ def _banner_card(guild_id, banner_hash, state):
     else:
         image_url = ""
         description = "현재 서버에 설정된 배너가 없습니다."
-    # Original header-style card, expressed natively as Components V2 so
-    # editing the existing V2 message does not flatten the design.
-    header = "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"
-    body = "**서버 배너 정보**\n" + description
-    parts = []
+    # Keep the established platform alert hierarchy: identity, divider,
+    # media, concise metadata, and a muted update footer.
+    parts = [
+        {"type": 10, "content": "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"},
+        {"type": 14, "divider": True, "spacing": 1},
+        {"type": 10, "content": "**서버 배너 정보**"},
+    ]
     if image_url:
         parts.append({"type": 12, "items": [
             {"media": {"url": image_url}, "description": "현재 서버 배너"}]})
-    parts.extend([{"type": 10, "content": header},
-                  {"type": 14, "divider": True, "spacing": 1},
-                  {"type": 10, "content": body}])
+    parts.append({"type": 10, "content": description})
+    parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
     return {"components": [{"type": 17, "accent_color": 0x8391BB,
@@ -406,7 +407,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 4):
+            and state.get("banner_info_layout_version") == 5):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -419,7 +420,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 4
+    state["banner_info_layout_version"] = 5
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
