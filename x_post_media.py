@@ -97,6 +97,68 @@ def _recheck_empty(post, username, post_id, primary_tweet):
     return None
 
 
+
+def _vx_positive_media(username, post_id, existing):
+    """Independent source for media when FxTwitter v2 is incomplete."""
+    try:
+        response = requests.get(
+            f"https://api.vxtwitter.com/{username}/status/{post_id}",
+            timeout=(1.5, 3), headers={"User-Agent": "abyss-bot/1.0"})
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            return None
+        actual_id = str(data.get("tweetID") or data.get("id") or "")
+        actual_user = str(data.get("user_screen_name") or data.get("screen_name") or "")
+        if actual_id != post_id or actual_user.casefold() != username.lstrip("@").casefold():
+            return None
+        urls = data.get("mediaURLs")
+        photos = list(existing)
+        videos = []
+        if isinstance(urls, list):
+            for raw in urls[:12]:
+                if not isinstance(raw, str):
+                    continue
+                parsed = urlsplit(raw)
+                if parsed.scheme != "https":
+                    continue
+                if parsed.hostname == "pbs.twimg.com" and parsed.path.startswith("/media/"):
+                    if raw not in photos:
+                        photos.append(raw)
+                elif parsed.hostname == "video.twimg.com" and parsed.path.lower().endswith((".mp4", ".webm")):
+                    videos.append(raw)
+        direct = data.get("videoURL") or data.get("combinedMediaUrl")
+        if isinstance(direct, str):
+            parsed = urlsplit(direct)
+            if parsed.scheme == "https" and parsed.hostname == "video.twimg.com" and parsed.path.lower().endswith((".mp4", ".webm")):
+                if direct not in videos:
+                    videos.append(direct)
+        poster = ""
+        for value in (data.get("media_extended") or []):
+            if not isinstance(value, dict):
+                continue
+            candidate = _media_url(value.get("thumbnail_url") or value.get("thumbnail"))
+            if candidate and urlsplit(candidate).hostname == "pbs.twimg.com":
+                poster = candidate
+                break
+        if len(photos) > len(existing) or videos or poster:
+            logging.info("X_MEDIA_VX_RECOVERED username=%s post=%s photos=%d videos=%d",
+                         username, post_id, len(photos), len(videos))
+            return photos[:4], videos[0] if videos else poster, bool(videos), True
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        logging.info("X_MEDIA_VX_UNAVAILABLE post=%s reason=%s", post_id, type(exc).__name__)
+    return None
+
+
+def _recover_x_media(post, username, post_id, existing):
+    fallback = _vx_positive_media(username, post_id, existing)
+    if fallback is not None:
+        return fallback
+    if existing:
+        return existing[:4], "", False, True
+    return existing, "", False, False
+
+
 def resolve_media(post, username):
     """Return (photos, video_preview, has_video, known).
 
@@ -118,32 +180,32 @@ def resolve_media(post, username):
         response.raise_for_status()
         data=response.json()
         if not isinstance(data,dict) or data.get("code", 200) != 200:
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         candidate=data.get("status") or data.get("tweet")
         if not isinstance(candidate,dict):
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         tweet=candidate
         # Check the returned post, not merely the requested URL. Wrong-account
         # metadata is worse than temporarily missing media.
         actual_id = str(tweet.get("id") or tweet.get("id_str") or "")
         if actual_id and actual_id != post_id:
             logging.warning("X_MEDIA_ID_MISMATCH expected=%s actual=%s", post_id, actual_id)
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         author = tweet.get("author") or {}
         actual_handle = (author.get("screen_name") or author.get("username") or "") if isinstance(author,dict) else ""
         if actual_handle and actual_handle.casefold() != username.lstrip("@").casefold():
             logging.warning("X_MEDIA_AUTHOR_MISMATCH expected=%s", username)
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         media=tweet.get("media")
         if media is None or media == {}:
             verified = _recheck_empty(post, username, post_id, tweet)
             if verified is not None:
                 return verified
             logging.warning("X_MEDIA_UNVERIFIED_EMPTY username=%s post=%s",username,post_id)
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         if not isinstance(media,dict):
             logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
-            return existing,"",False,False
+            return _recover_x_media(post, username, post_id, existing)
         photos=[]
         video_items=[]
         # FxTwitter v1/v2 may report GIFs under photos, videos or media.all.
@@ -188,10 +250,12 @@ def resolve_media(post, username):
                      username,post_id,len(photos),has_video,bool(preview))
         # Require an explicit empty media list before claiming a text-only post.
         confirmed=bool(photos) or has_video
+        if not confirmed:
+            return _recover_x_media(post, username, post_id, existing)
         return photos[:4],preview,has_video,confirmed
     except (requests.RequestException,ValueError,TypeError) as exc:
         logging.warning("X_MEDIA_UNKNOWN username=%s post=%s reason=%s",username,post_id,str(exc)[:120])
-        return existing,"",False,False
+        return _recover_x_media(post, username, post_id, existing)
 
 def resolve_images(post,username):
     """Backward-compatible photo lookup for other consumers."""
