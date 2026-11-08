@@ -125,6 +125,24 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "CURRENT_GUILD_BANNER_SOURCE_AND_POST_METADATA"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          from fanart_discovery import read,BASE
+          state=read(BASE/'guild_banner_rotation_state.json')
+          source=state.get('post_url','')
+          print('CURRENT_BANNER_SLOT',state.get('last_slot'))
+          print('CURRENT_BANNER_ARTIST',state.get('artist'))
+          print('CURRENT_BANNER_POST',source)
+          queue=read(BASE/'fanart_discovery.json')
+          for item in queue.values():
+              if isinstance(item,dict) and item.get('post_url')==source:
+                  print('CURRENT_BANNER_POST_TEXT',str(item.get('text',''))[:400])
+                  print('CURRENT_BANNER_REVIEW',item.get('review_status'),'image_count',len(item.get('cached_files') or []))
+          PY
+
           echo "MENTION_CURRENT_AUDIT"
           cd /home/ubuntu/chzzk-bot
           echo "ROLE_DELIVERY_LOGS"
