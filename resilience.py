@@ -318,7 +318,15 @@ def send_webhook(url, payload, attempts=3):
                 if chosen:
                     try:
                         from random_media import mark_delivered
-                        mark_delivered(*chosen)
+                        group, local_selection = chosen
+                        # An attributed X fanart gallery replaces the random
+                        # footer banner. Record only images actually shown,
+                        # not a hidden local banner attachment.
+                        if selected_urls:
+                            local_selection = {key: value for key, value in local_selection.items()
+                                               if key != "banner"}
+                        if local_selection:
+                            mark_delivered(group, local_selection)
                     except Exception as exc:
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 _audit_role_mention(response, prepared)
