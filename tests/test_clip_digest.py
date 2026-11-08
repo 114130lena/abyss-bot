@@ -76,11 +76,15 @@ class ClipTests(unittest.TestCase):
     def test_playback_resolution_from_videohub(self):
         detail = fake_response({"code": 200, "content": {
             "videoId": "A" * 32, "vodStatus": "ABR_HLS"}})
-        playback = fake_response({"card": {"content": {"vod": {
-            "playable": True, "playback": {"MPD": [{"Period": [{
-                "AdaptationSet": [{"Representation": [
-                    {"BaseURL": ["https://video.pstatic.net/path/video.mp4?token=test"]}]
-                ]}]}]}]}}}}})
+        playback_data = {"card": {"content": {"vod": {
+            "playable": True,
+            "playback": {"MPD": [{"Period": [{"AdaptationSet": [
+                {"Representation": [{"BaseURL": [
+                    "https://video.pstatic.net/path/video.mp4?token=test"
+                ]}]}
+            ]}]}]}
+        }}}}
+        playback = fake_response(playback_data)
         get = Mock(side_effect=[detail, playback])
         self.assertEqual(clips.clip_video_url({"id": "clip1234"}, get=get),
                          "https://video.pstatic.net/path/video.mp4?token=test")
