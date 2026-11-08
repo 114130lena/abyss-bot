@@ -1,7 +1,7 @@
-"""Discord guild banner rotation, isolated from notification-card banner_manager.py.
+"""Discord guild banner rotation independent from notification media selection.
 
-Source: only explicitly approved Hanayo entries in creator_media/fanart_index.json.
-No scraping, image re-sharing, or Discord calls until explicitly enabled.
+Previously curated approved artworks and automatically screened hashtag artworks
+are accepted. Automatic screening uses conservative text evidence, not computer vision.
 """
 import argparse
 import base64
@@ -160,6 +160,9 @@ def collected_hanayo_art():
         if not isinstance(item, dict) or item.get("group") != "hanayo":
             continue
         if str(item.get("hashtag", "")).casefold() != "#hiyoriart_":
+            continue
+        from fanart_relevance import eligible_hanayo_banner
+        if not eligible_hanayo_banner(item):
             continue
         if (item.get("decision") == "blocked"
                 or item.get("review_status") == "blocked"
