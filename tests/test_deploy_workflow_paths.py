@@ -34,6 +34,20 @@ class DeployWorkflowTests(unittest.TestCase):
         self.assertFalse([x for x in copied.split()
                           if x.endswith(".py") and not x.startswith(".deploy-staging/")])
 
+    def test_shell_run_blocks_never_escape_yaml_indentation(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        inside = False
+        for index, line in enumerate(source.splitlines(), 1):
+            if line.startswith("        run: |"):
+                inside = True
+                continue
+            if inside and line.startswith("      - name:"):
+                inside = False
+            if not inside or not line.strip():
+                continue
+            self.assertTrue(line.startswith("          "),
+                            "Workflow shell escaped YAML block at line %d: %r" % (index, line))
+
     def test_search_regression_is_actually_discovered(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("-p 'test_fanart_fx_search.py' -v", source)

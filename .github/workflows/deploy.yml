@@ -332,15 +332,15 @@ jobs:
             description="Server deployed; existing Discord banner card verified"
             if [ -f bot-health.json ]; then
               provenance=$(python3 - <<'PY'
-import json
-with open("bot-health.json", encoding="utf-8") as stream:
-    data = json.load(stream)
-banner = data.get("banner", {})
-audit = banner.get("audit_status", "not_checked")
-source = "yes" if banner.get("source_known") else "no"
-changed = "yes" if banner.get("change_time_known") else "no"
-print("audit=%s source=%s time=%s" % (audit, source, changed))
-PY
+          import json
+          with open("bot-health.json", encoding="utf-8") as stream:
+              data = json.load(stream)
+          banner = data.get("banner", {})
+          audit = banner.get("audit_status", "not_checked")
+          source = "yes" if banner.get("source_known") else "no"
+          changed = "yes" if banner.get("change_time_known") else "no"
+          print("audit=%s source=%s time=%s" % (audit, source, changed))
+          PY
               )
               description="Discord card verified; $provenance"
             fi
