@@ -66,7 +66,23 @@ def write_state(state):
     current_id = canonical_post(state.get("post_url"))
     if current_id:
         ids.append(current_id)
-    state = {**state, "all_used_post_ids": list(dict.fromkeys(ids))}
+    # Permanently retain the SHA-256 of every successfully used banner.
+    # Older rotation_used lists may have been reset after a complete cycle;
+    # preserve other historic clues (hash attribution and last applied SHA).
+    sha_used = [x for x in historical.get("all_used_sha256", []) if isinstance(x, str) and x]
+    sha_used.extend(x for x in state.get("all_used_sha256", []) if isinstance(x, str) and x)
+    for source_state in (historical, state):
+        sha_used.extend(x for x in source_state.get("rotation_used", [])
+                        if isinstance(x, str) and x)
+        last = source_state.get("last_sha256")
+        if isinstance(last, str) and last:
+            sha_used.append(last)
+        for history in (source_state.get("banner_hash_history") or {}).values():
+            if isinstance(history, dict) and isinstance(history.get("sha256"), str):
+                sha_used.append(history["sha256"])
+    state = {**state,
+             "all_used_post_ids": list(dict.fromkeys(ids)),
+             "all_used_sha256": list(dict.fromkeys(sha_used))}
     serialized = json.dumps(state, ensure_ascii=False, indent=2)
     temp.write_text(serialized, encoding="utf-8")
     temp.chmod(0o600)
@@ -237,34 +253,62 @@ def convert_banner(path):
         return output.getvalue()
 
 
-def rotation_selection(previous=None, used=None):
-    """Draw without replacement, automatically extending the pool with new art.
+def banner_inventory(state=None):
+    """Actual eligible guild-banner pool, excluding anything already displayed.
 
-    Rotation history is committed by the caller only after Discord accepts the
-    banner change, so an API failure cannot consume a picture.
+    Never silently reset historic usage after the last artwork was selected.
+    New art becomes eligible automatically as soon as it enters the real pool.
     """
-    pool = approved_hanayo_art() + collected_hanayo_art()
+    from fanart_usage import canonical_post
+    state = state if isinstance(state, dict) else read_state()
     unique = {}
-    for path, info in pool:
-        unique.setdefault(info["sha256"], (path, info))
-    all_ids = set(unique)
-    history = [sha for sha in (used or []) if sha in all_ids]
-    unseen = [sha for sha in unique if sha not in history]
+    for path, info in approved_hanayo_art() + collected_hanayo_art():
+        digest = info.get("sha256")
+        if isinstance(digest, str) and digest:
+            unique.setdefault(digest, (path, info))
+    used = set(x for x in (state.get("rotation_used") or []) if isinstance(x, str))
+    used.update(x for x in (state.get("all_used_sha256") or []) if isinstance(x, str))
+    previous = state.get("last_sha256")
+    if isinstance(previous, str) and previous:
+        used.add(previous)
+    for record in (state.get("banner_hash_history") or {}).values():
+        if isinstance(record, dict) and isinstance(record.get("sha256"), str):
+            used.add(record["sha256"])
+    used_posts = set(x for x in (state.get("all_used_post_ids") or [])
+                     if isinstance(x, str) and x.isdigit())
+    remaining = {
+        sha: value for sha, value in unique.items()
+        if sha not in used
+        and canonical_post(value[1].get("post_url")) not in used_posts
+    }
+    return {"total": len(unique), "unused": len(remaining),
+            "used": len(unique) - len(remaining), "available": remaining}
+
+
+def rotation_selection(previous=None, used=None, state=None):
+    """Select a never-shown banner. Do not recycle when the pool is exhausted.
+
+    The history is persisted only after Discord confirms a successful change.
+    New images can join the pool at any point without resetting past usage.
+    """
+    state = dict(state if isinstance(state, dict) else read_state())
+    history = list(dict.fromkeys(x for x in (used or state.get("rotation_used") or [])
+                                 if isinstance(x, str) and x))
+    state["rotation_used"] = history
+    if previous and not state.get("last_sha256"):
+        state["last_sha256"] = previous
+    available = banner_inventory(state)
+    unseen = available["available"]
     if not unseen:
-        history = []
-        unseen = list(unique)
-    if len(unseen) > 1 and previous in unseen:
-        unseen.remove(previous)
-    if not unseen:
-        return None, [], len(unique), 0
-    # Prefer high visual scores once the model-backed classifier is active;
-    # retain variation among similarly scored artwork instead of always reusing one.
+        return None, history, available["total"], 0
     from fanart_vision import enabled as vision_enabled
     if vision_enabled():
-        best = max(int(unique[sha][1].get("vision_score") or 0) for sha in unseen)
-        unseen = [sha for sha in unseen if int(unique[sha][1].get("vision_score") or 0) >= best - 15]
-    picked = random.choice(unseen)
-    return unique[picked], history + [picked], len(unique), max(len(unique) - len(history) - 1, 0)
+        best = max(int(meta.get("vision_score") or 0) for _path, meta in unseen.values())
+        unseen = {sha: value for sha, value in unseen.items()
+                  if int(value[1].get("vision_score") or 0) >= best - 15}
+    picked = random.choice(list(unseen))
+    return (unseen[picked], history + [picked], available["total"],
+            available["unused"] - 1)
 
 
 def select_art(previous):
@@ -698,9 +742,14 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     if current_slot and not manual and previous.get("last_slot") == current_slot:
         return {"status": "already_rotated"}
     selected, rotation_used, candidate_total, remaining = rotation_selection(
-        previous.get("last_sha256"), previous.get("rotation_used", []))
+        previous.get("last_sha256"), previous.get("rotation_used", []), state=previous)
     if selected is None:
-        logging.warning("SERVER_BANNER_PIPELINE candidates=0 source=approved_and_cached; check FANART_DISCOVERY_PROFILE and FANART_REVIEW_CACHE")
+        if candidate_total:
+            logging.info("SERVER_BANNER_ROTATION_EXHAUSTED total=%d; new fanart required",
+                         candidate_total)
+            return {"status": "exhausted_candidates", "candidate_total": candidate_total,
+                    "remaining": 0}
+        logging.warning("SERVER_BANNER_PIPELINE candidates=0 source=approved_and_cached")
         return {"status": "no_approved_hanayo_art"}
     # Do not overwrite an intentionally chosen manual banner with the only
     # available candidate at the next scheduled slot. Info sync keeps running.
@@ -736,7 +785,10 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     changed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
-                "rotation_used": rotation_used, "candidate_total": candidate_total,
+                "rotation_used": rotation_used,
+                "all_used_sha256": list(dict.fromkeys(
+                    [*(previous.get("all_used_sha256") or []), metadata["sha256"]])),
+                "candidate_total": candidate_total,
                 "remaining_after": remaining,
                 "banner_change_method": "봇 자동 교체" if not manual else "봇 수동 명령 교체",
                 "banner_changed_at": changed_at}
@@ -785,7 +837,7 @@ def run_server_banner_scheduler():
                 logging.info("server-banner result: %s", result)
                 # Retry transient failures within the scheduled minute instead of
                 # permanently consuming the slot before a successful change.
-                if result.get("status") in ("changed", "already_rotated", "insufficient_candidates", "no_approved_hanayo_art", "disabled"):
+                if result.get("status") in ("changed", "already_rotated", "exhausted_candidates", "insufficient_candidates", "no_approved_hanayo_art", "disabled"):
                     attempted = now_slot
             now = time.monotonic()
             due_info = bool(now_slot and last_info_slot != now_slot)
