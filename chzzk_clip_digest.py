@@ -160,8 +160,11 @@ def _render(clips, history):
               "description": clip["title"][:120]}
              for clip in clips[:10] if clip.get("thumbnail")]
     if media:
-        # Platform alert style: media banner first, then creator and details.
-        parts.insert(0, {"type": 12, "items": media[:10]})
+        # Platform alerts use one prominent banner, not a ten-tile wall.
+        parts.insert(0, {"type": 12, "items": media[:1]})
+        if len(media) > 1:
+            parts.append({"type": 10, "content": "**다른 클립 미리보기**"})
+            parts.append({"type": 12, "items": media[1:10]})
     links = []
     for index, clip in enumerate(clips[:10], 1):
         title = clip["title"].replace("[", "").replace("]", "").replace("\n", " ")

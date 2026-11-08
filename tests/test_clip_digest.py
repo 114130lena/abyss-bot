@@ -55,8 +55,9 @@ class ClipTests(unittest.TestCase):
         payload = clips._render(items, {})
         gallery = [p for p in payload["components"][0]["components"]
                    if p["type"] == 12]
-        self.assertEqual(len(gallery), 1)
-        self.assertEqual(len(gallery[0]["items"]), 10)
+        self.assertEqual(len(gallery), 2)
+        self.assertEqual(len(gallery[0]["items"]), 1)
+        self.assertEqual(len(gallery[1]["items"]), 9)
 
     def test_never_creates_message_if_unconfigured(self):
         with patch.dict("os.environ", {"CHZZK_CLIP_CHANNEL_ID": "", "CHZZK_CLIP_MESSAGE_ID": ""}), \
