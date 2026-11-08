@@ -18,6 +18,7 @@ ALLOWED = {
     "SERVER_BANNER_ENABLED",
     "SERVER_BANNER_USE_COLLECTED",
     "SERVER_BANNER_INFO_CHANNEL_ID",
+    "SERVER_BANNER_INFO_MESSAGE_ID",
     "SERVER_BANNER_INFO_POLL_SECONDS",
 }
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -33,6 +34,8 @@ def update_env(values, path=ENV_FILE):
             raise ValueError("Empty or multiline banner setting")
     if not values["DISCORD_GUILD_ID"].isdigit():
         raise ValueError("Guild ID must contain digits")
+    if not values["SERVER_BANNER_INFO_MESSAGE_ID"].isdigit():
+        raise ValueError("Banner info message ID must contain digits")
     if values["SERVER_BANNER_ENABLED"] != "1":
         raise ValueError("Banner feature must be explicitly enabled")
     path = Path(path)
