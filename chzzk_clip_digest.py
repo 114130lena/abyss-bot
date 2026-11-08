@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import requests
 from creator_groups import CHZZK_GROUPS
 from resilience import load_json, save_json
-from schedule_display import schedule_label
+from schedule_display import schedule_label, format_saved_time
 
 KST = ZoneInfo("Asia/Seoul")
 CHANNEL_ID = next(key for key, value in CHZZK_GROUPS.items() if value == "hanayo")
@@ -197,7 +197,7 @@ def clip_video_url(clip, get=None):
         return ""
 
 
-def _render(clips, history, now=None):
+def _render(clips, history, now=None, collected_at=None):
     if not clips:
         return None
     lead = clips[0]
@@ -206,6 +206,9 @@ def _render(clips, history, now=None):
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": "**오늘의 히요리 클립**\n"
          "최근 24시간 클립 · 조회수 기준 " + str(len(clips[:10])) + "개"
+         + "\n\n**클립 수집 주기** · 2시간마다 (짝수 시각, KST)"
+         + "\n**마지막 수집 완료** · " + format_saved_time(collected_at)
+         + "\n**마지막 메시지 갱신** · " + format_saved_time(now)
          + "\n\n" + schedule_label(now)},
     ]
     # A Discord gallery can display up to ten images in a single message.
@@ -293,14 +296,16 @@ def publish_once(now=None, get=None, patch=None):
         clip["video_url"] = clip_video_url(clip, get=get)
     logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",
                  sum(bool(c["video_url"]) for c in clips), len(clips))
-    payload = _render(clips, {k: v for k, v in updated.items() if k != day}, now=now)
+    payload = _render(clips, {k: v for k, v in updated.items() if k != day},
+                      now=now, collected_at=state.get("collected_at"))
     from discord_message_sync import update_original
     status = update_original(channel, message, payload, token,
                              get=get or requests.get, patch=patch or requests.patch)
     if status.startswith("discord_rejected_") and any(c.get("video_url") for c in clips):
         for clip in clips:
             clip.pop("video_url", None)
-        fallback = _render(clips, {k: v for k, v in updated.items() if k != day}, now=now)
+        fallback = _render(clips, {k: v for k, v in updated.items() if k != day},
+                      now=now, collected_at=state.get("collected_at"))
         status = update_original(channel, message, fallback, token,
                                  get=get or requests.get, patch=patch or requests.patch)
         logging.warning("CHZZK_CLIP_INLINE_VIDEO_FALLBACK status=%s", status)
