@@ -68,14 +68,14 @@ def _components_v2_payload(payload):
         if embed.get("footer") and isinstance(embed["footer"], dict):
             caption.append("-# " + str(embed["footer"].get("text") or "")[:300])
         if caption:
-            parts.append({"type": 10, "content": "\\n\\n".join(caption)[:3500]})
+            parts.append({"type": 10, "content": "\n\n".join(caption)[:3500]})
         image = (embed.get("image") or {}).get("url") if isinstance(embed.get("image"), dict) else ""
         if isinstance(image, str) and image.startswith("https://"):
             parts.append({"type": 12, "items": [{"media": {"url": image}}]})
     # Nonempty components, keep at most 35 components per card.
     if not parts:
         raise ValueError("No display content for existing Components V2 message")
-    return {"components": [{"type": 17, "components": parts[:30]}],
+    return {"flags": 32768, "components": [{"type": 17, "components": parts[:30]}],
             "allowed_mentions": {"parse": []}}
 
 
@@ -99,6 +99,10 @@ def update_original(channel, message_id, payload, bot_token, *,
         return "not_configured"
     url = f"https://discord.com/api/v10/channels/{channel}/messages/{message_id}"
     headers = {"Authorization": "Bot " + bot_token}
+    # Explicitly set V2 flag and clear legacy fields when converting a message.
+    if payload.get("components") and not payload.get("content") and not payload.get("embeds"):
+        payload = {**payload, "flags": int(payload.get("flags", 0)) | 32768,
+                   "content": None, "embeds": []}
     result = patch(url, headers=headers, json=payload, timeout=12)
     if result.status_code in (200, 204):
         return "updated"
@@ -126,6 +130,9 @@ def update_original(channel, message_id, payload, bot_token, *,
         logging.warning("DISCORD_ORIGINAL_EDIT_BLOCKED message=%s reason=%s http=%s",
                         message_id, reason, result.status_code)
         return reason
+    # Webhook edits require component opt-in just like webhook creates.
+    if payload.get("components"):
+        webhook_url += ("&" if "?" in webhook_url else "?") + "with_components=true"
     result = patch(webhook_url, json=payload, timeout=12)
     if result.status_code in (403, 404):
         logging.warning("DISCORD_ORIGINAL_WEBHOOK_EDIT_BLOCKED message=%s http=%s",
