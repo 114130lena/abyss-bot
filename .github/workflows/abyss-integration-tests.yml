@@ -125,6 +125,24 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "BANNER_FILTER_AFTER_DEPLOY"
+          cd /home/ubuntu/chzzk-bot
+          .venv/bin/python - <<'PY'
+          import guild_server_banner as g
+          from fanart_discovery import read, BASE
+          from fanart_relevance import eligible_hanayo_banner
+          state=g.read_state()
+          pool=g.approved_hanayo_art()+g.collected_hanayo_art()
+          print("NEW_RELEVANCE_FILTER_DEPLOYED",bool(eligible_hanayo_banner))
+          print("CURRENT_BANNER",state.get("post_url"))
+          print("CURRENT_BANNER_ELIGIBLE", any(i.get("post_url")==state.get("post_url") for p,i in pool))
+          print("POOL_COUNT",len(pool))
+          q=read(BASE/'fanart_discovery.json')
+          for p,i in pool[:20]:
+              match=next((x for x in q.values() if isinstance(x,dict) and x.get('post_url')==i.get('post_url')), {})
+              print("POOL_CANDIDATE",i.get("post_url"),"TEXT",str(match.get("text",""))[:180])
+          PY
+
           echo "BANNER_UNIT_EXECUTION_METADATA"
           systemctl show abyss-guild-banner.service -p User -p Group -p ExecStart -p EnvironmentFiles -p FragmentPath --no-pager | sed -E 's/(DISCORD_BOT_TOKEN|TOKEN|SECRET)=[^ ]+/\\1=<redacted>/g'
           echo "BANNER_UNIT_FILE_SAFE_LINES"
