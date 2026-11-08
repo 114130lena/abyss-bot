@@ -59,6 +59,31 @@ class OriginalMessageTests(unittest.TestCase):
         self.assertEqual(fixed["components"][0]["type"],17)
         self.assertIn("hash.png",str(fixed))
 
+    def test_components_v2_edits_have_flag_and_clear_legacy_fields(self):
+        edit=Mock(return_value=resp(200, {"id":"333"}))
+        payload={"components":[{"type":17,"components":[{"type":10,"content":"배너 정보"}]}],
+                 "allowed_mentions":{"parse":[]}}
+        with patch.dict("os.environ", {}, clear=True):
+            status=sync.update_original("111","333",payload,"token",patch=edit)
+        self.assertEqual(status,"updated")
+        sent=edit.call_args.kwargs["json"]
+        self.assertEqual(sent["flags"],32768)
+        self.assertIsNone(sent["content"])
+        self.assertEqual(sent["embeds"],[])
+        self.assertIn("배너 정보",str(sent["components"]))
+
+    def test_webhook_owned_v2_edit_opts_into_components(self):
+        original=resp(200,{"id":"333","webhook_id":"123"})
+        editing=Mock(side_effect=[resp(403), resp(200,{"id":"333"})])
+        payload={"components":[{"type":17,"components":[{"type":10,"content":"원본"}]}]}
+        with patch.dict("os.environ",{"DISCORD_WEBHOOK_URL":
+                   "https://discord.com/api/webhooks/123/secret"},clear=True):
+            result=sync.update_original("111","333",payload,"token",
+                                        get=Mock(return_value=original),patch=editing)
+        self.assertEqual(result,"updated")
+        self.assertIn("with_components=true",editing.call_args.args[0])
+        self.assertEqual(editing.call_args.kwargs["json"]["flags"],32768)
+
     def test_400_for_other_reason_never_sends_duplicate(self):
         edit=Mock(return_value=resp(400, {"code":50035}))
         with patch.dict("os.environ", {}, clear=True):
