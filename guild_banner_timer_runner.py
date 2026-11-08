@@ -43,4 +43,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     data = run()
     print("GUILD_BANNER_BACKUP " + json.dumps(data, ensure_ascii=False))
-    raise SystemExit(0 if data["status"] in ("changed", "already_rotated") else 1)
+    raise SystemExit(0 if data["status"] in ("changed", "already_rotated", "exhausted_candidates") else 1)
