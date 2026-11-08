@@ -157,7 +157,7 @@ class HealthWarningsTests(unittest.TestCase):
             "spaces": {"configured": False},
             "discord_uncertain_deliveries": 0,
         }
-        with patch("health_monitor.snapshot", return_value=report), \\
+        with patch("health_monitor.snapshot", return_value=report), \
              patch("health_monitor.health_warnings",
                    return_value={"fanart_cache_integrity": "DO_NOT_LEAK"}):
             summarized = operational_audit.component_check_summary()
