@@ -39,6 +39,12 @@ class DeployWorkflowTests(unittest.TestCase):
         self.assertIn("-p 'test_fanart_fx_search.py' -v", source)
         self.assertNotIn("test_fanart_fx_search.py fanart_weekly_cleanup.py", source)
 
+    def test_production_result_is_published_as_commit_status(self):
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("statuses: write", source)
+        self.assertIn("if: always()", source)
+        self.assertIn('context="abyss/production-banner"', source)
+
     def test_live_banner_card_is_verified_after_restart(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertLess(source.index('sudo systemctl restart chzzk-bot'),
