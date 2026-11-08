@@ -34,5 +34,6 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          "$PY" /tmp/abyss_weekly_cleanup.py
+          # The script is staged under /tmp; import shared modules from the bot directory.
+          PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" "$PY" /tmp/abyss_weekly_cleanup.py
           REMOTE
