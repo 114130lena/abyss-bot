@@ -59,6 +59,9 @@ def snapshot():
         result["banner"]["collected_candidates"] = len(collected_hanayo_art())
     except (OSError, ValueError, ImportError) as exc:
         logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
+    from fanart_vision import enabled as vision_enabled, ready as vision_ready
+    result["banner"]["vision_enabled"] = vision_enabled()
+    result["banner"]["vision_ready"] = vision_ready()
     return result
 
 
