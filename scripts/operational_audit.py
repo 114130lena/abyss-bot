@@ -125,16 +125,26 @@ def component_check_summary():
     banner = raw.get("banner", {})
     clip = raw.get("clip", {})
     source_groups = art.get("hashtag_search", {})
+    artist_groups = art.get("known_artist_fallback", {})
+    profile_groups = art.get("profile_feeds", {})
     groups = {}
     for name in ("hanayo", "sakihane"):
         item = art.get(name, {})
         src = source_groups.get(name, {}) if isinstance(source_groups, dict) else {}
+        artist = artist_groups.get(name, {}) if isinstance(artist_groups, dict) else {}
+        profile = profile_groups.get(name, {}) if isinstance(profile_groups, dict) else {}
+        artist = artist if isinstance(artist, dict) else {}
+        profile = profile if isinstance(profile, dict) else {}
         groups[name] = {
             "posts": int(item.get("posts") or 0),
             "verified_cached_images": int(item.get("verified_cached_images") or 0),
             "missing_cached_images": int(item.get("missing_cached_images") or 0),
             "hashtag_source_status": str(src.get("status") or "unverified")
                 if isinstance(src, dict) else "unverified",
+            "artist_fallback_status": str(artist.get("status") or "unverified"),
+            "artist_fallback_checked": int(artist.get("checked") or 0),
+            "artist_fallback_successful": int(artist.get("successful") or 0),
+            "creator_profile_status": str(profile.get("status") or "unverified"),
         }
     return {
         "fanart": {

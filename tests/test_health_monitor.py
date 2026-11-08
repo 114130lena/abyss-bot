@@ -145,6 +145,15 @@ class HealthWarningsTests(unittest.TestCase):
                 "hashtag_search": {
                     "hanayo": {"status": "ok", "secret": "DO_NOT_LEAK"},
                     "sakihane": {"status": "unavailable"}},
+                "known_artist_fallback": {
+                    "hanayo": {"status": "ok", "checked": 3,
+                               "successful": 2, "artist": "DO_NOT_LEAK"},
+                    "sakihane": {"status": "partial", "checked": 3,
+                                 "successful": 1}},
+                "profile_feeds": {
+                    "hanayo": {"status": "unavailable",
+                               "error": "DO_NOT_LEAK"},
+                    "sakihane": {"status": "ok"}},
             },
             "banner": {"bot_rotation_enabled": True, "legacy_timer_active": False,
                        "total_eligible_candidates": 7, "unused_candidates": 4,
@@ -163,6 +172,9 @@ class HealthWarningsTests(unittest.TestCase):
             summarized = operational_audit.component_check_summary()
         self.assertEqual(summarized["banner"]["unused_candidates"], 4)
         self.assertEqual(summarized["fanart"]["groups"]["hanayo"]["missing_cached_images"], 1)
+        self.assertEqual(summarized["fanart"]["groups"]["hanayo"]["artist_fallback_status"], "ok")
+        self.assertEqual(summarized["fanart"]["groups"]["hanayo"]["artist_fallback_successful"], 2)
+        self.assertEqual(summarized["fanart"]["groups"]["sakihane"]["creator_profile_status"], "ok")
         self.assertEqual(summarized["warning_codes"], ["fanart_cache_integrity"])
         self.assertNotIn("DO_NOT_LEAK", str(summarized))
 
