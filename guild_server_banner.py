@@ -400,7 +400,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 2):
+            and state.get("banner_info_layout_version") == 3):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -413,7 +413,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 2
+    state["banner_info_layout_version"] = 3
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
