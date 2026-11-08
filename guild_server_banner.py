@@ -430,6 +430,14 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
         previous.get("last_sha256"), previous.get("rotation_used", []))
     if selected is None:
         return {"status": "no_approved_hanayo_art"}
+    # Do not overwrite an intentionally chosen manual banner with the only
+    # available candidate at the next scheduled slot. Info sync keeps running.
+    minimum = max(2, int(os.getenv("SERVER_BANNER_MIN_CANDIDATES", "2")))
+    if not manual and candidate_total < minimum:
+        logging.warning("SERVER_BANNER_ROTATION_SKIPPED candidates=%d minimum=%d",
+                        candidate_total, minimum)
+        return {"status": "insufficient_candidates",
+                "candidate_total": candidate_total, "minimum": minimum}
     source, metadata = selected
     image = convert_banner(source)
     if preview_path is not None:
