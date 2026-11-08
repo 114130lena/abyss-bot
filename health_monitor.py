@@ -100,6 +100,15 @@ def snapshot():
                         "source_known": bool(banner.get("artist") and banner.get("post_url")),
                         "audit_status": banner.get("banner_audit_status", "not_checked"),
                         "source_match_status": banner.get("banner_source_match_status", "not_checked")}
+    # Explain why a populated art queue may still yield only one valid
+    # server-banner candidate when visual recognition is not configured.
+    from fanart_relevance import eligible_hanayo_banner
+    hanayo_posts = [item for item in queue.values()
+                    if isinstance(item, dict) and item.get("group") == "hanayo"]
+    text_eligible = [item for item in hanayo_posts if eligible_hanayo_banner(item)]
+    result["banner"]["text_eligible_posts"] = len(text_eligible)
+    result["banner"]["text_eligible_cached_images"] = sum(
+        len(item.get("cached_files") or []) for item in text_eligible)
     from delivery_review import count_pending
     result["discord_uncertain_deliveries"] = count_pending()
     try:
