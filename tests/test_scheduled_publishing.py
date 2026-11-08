@@ -1,0 +1,93 @@
+"""No-network tests for shared guild-banner ownership and 08/18 clip verification."""
+from datetime import datetime
+from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
+import unittest
+
+import guild_banner_timer_runner as backup
+import guild_banner_healthcheck as banner_health
+import clip_healthcheck as clip_health
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def at(day, hour, minute):
+    return datetime(2026, 11, day, hour, minute, tzinfo=KST)
+
+
+class SchedulerCoordinationTests(unittest.TestCase):
+    def test_delayed_backup_uses_last_kst_slot(self):
+        self.assertEqual(backup.target_slot(at(8, 11, 34)),
+                         at(8, 8, 0))
+        self.assertEqual(backup.target_slot(at(8, 21, 34)),
+                         at(8, 18, 0))
+        self.assertEqual(backup.target_slot(at(9, 6, 12)),
+                         at(8, 18, 0))
+
+    def test_backup_uses_canonical_rotate_once_with_same_slot(self):
+        with patch("guild_server_banner.rotate_once", return_value={"status": "already_rotated"}) as rotate:
+            result = backup.run(at(8, 11, 34))
+        self.assertEqual(result["status"], "already_rotated")
+        rotate.assert_called_once_with(now=at(8, 8, 0))
+
+    def test_health_reads_single_canonical_state_not_legacy_timer(self):
+        state = {"last_slot": "2026-11-08 08:00",
+                 "guild_banner_hash": "newhash",
+                 "banner_info_updated_hash": "newhash",
+                 "candidate_total": 6}
+        with patch("guild_server_banner.read_state", return_value=state):
+            result = banner_health.check(at(8, 8, 45), current_hash="newhash")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["candidate_total"], 6)
+        with patch("guild_server_banner.read_state", return_value={**state, "last_slot": None}):
+            missed = banner_health.check(at(8, 8, 45), current_hash="newhash")
+        self.assertEqual(missed["status"], "missing_slot")
+
+
+class ClipPublishingTests(unittest.TestCase):
+    def test_clip_collection_is_independent_from_08_18_publication(self):
+        now = at(9, 8, 25)
+        saved = {"last_published_slot": "2026-11-09 08",
+                 "last_updated": "2026-11-09T08:02:00+09:00",
+                 "clips": [{"id": "redacted"}]}
+        response = Mock()
+        response.json.return_value = {"id": "200", "flags": 32768,
+                                      "components": [{"type": 17}],
+                                      "edited_timestamp": "2026-11-08T23:02:00+00:00"}
+        response.raise_for_status.return_value = None
+        with patch.dict("os.environ", {
+                "DISCORD_BOT_TOKEN": "fake",
+                "CHZZK_CLIP_CHANNEL_ID": "100",
+                "CHZZK_CLIP_MESSAGE_ID": "200"}), \
+             patch.object(clip_health, "load_json", return_value=saved):
+            result = clip_health.check(now=now, get=Mock(return_value=response))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["cached_clips"], 1)
+
+    def test_old_clip_slot_cannot_pass_if_data_was_collected_recently(self):
+        now = at(9, 8, 25)
+        saved = {"last_published_slot": "2026-11-08 18",
+                 "last_updated": "2026-11-08T18:02:00+09:00",
+                 "collected_at": "2026-11-09T08:00:00+09:00"}
+        with patch.object(clip_health, "load_json", return_value=saved):
+            result = clip_health.check(now=now)
+        self.assertEqual(result["status"], "missing_published_slot")
+
+    def test_metadata_success_cannot_mask_old_discord_message(self):
+        saved = {"last_published_slot": "2026-11-09 08",
+                 "last_updated": "2026-11-09T08:02:00+09:00"}
+        response = Mock()
+        response.json.return_value = {"id": "200", "flags": 32768,
+                                      "components": [{"type": 17}],
+                                      "edited_timestamp": "2026-11-08T09:00:00+00:00"}
+        with patch.dict("os.environ", {
+                "DISCORD_BOT_TOKEN": "fake",
+                "CHZZK_CLIP_CHANNEL_ID": "100",
+                "CHZZK_CLIP_MESSAGE_ID": "200"}), \
+             patch.object(clip_health, "load_json", return_value=saved):
+            result = clip_health.check(now=at(9, 8, 25), get=Mock(return_value=response))
+        self.assertEqual(result["status"], "original_not_edited_this_slot")
+
+
+if __name__ == "__main__":
+    unittest.main()
