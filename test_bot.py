@@ -674,7 +674,7 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("1564279305171640361", sent.call_args.args[1]["components"][0]["content"])
         with patch.object(twitter, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
              patch.object(twitter, "send_webhook") as sent:
-            twitter._notify({"text": "테스트", "url": "https://x.com/a/status/1"})
+            twitter._notify({"text": "테스트", "url": "https://x.com/HanayoHiyori/status/1"})
         self.assertEqual(sent.call_args.args[1]["allowed_mentions"]["roles"], [])
 
     def test_x_failed_delivery_keeps_post_unread(self):
