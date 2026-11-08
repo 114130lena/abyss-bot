@@ -42,6 +42,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
           python -m unittest -v test_guild_server_banner.py
           python -m unittest discover -s tests -p 'test_banner_info_sync.py' -v
+          python -m unittest discover -s tests -p 'test_banner_metadata_recovery.py' -v
           python -m unittest discover -s tests -p 'test_banner_secret_config.py' -v
           python -m unittest discover -s tests -p 'test_banner_min_candidates.py' -v
           python -m unittest discover -s tests -p 'test_clip_digest.py' -v
@@ -103,6 +104,8 @@ jobs:
               "SERVER_BANNER_INFO_CHANNEL_ID": "1567561255764500551",
               "SERVER_BANNER_INFO_MESSAGE_ID": "1567562116280360960",
               "SERVER_BANNER_INFO_POLL_SECONDS": "60",
+              "SERVER_BANNER_AUDIT_LOOKUP": "1",
+              "SERVER_BANNER_SOURCE_IMAGE_MATCH": "1",
               "CHZZK_CLIP_CHANNEL_ID": "1567760518977167501",
               "CHZZK_CLIP_MESSAGE_ID": "1567763296151539875",
           }, sys.stdout)
@@ -258,6 +261,13 @@ jobs:
               raise SystemExit("Discord banner card still displays a previous layout")
           if not (int(posted.get("flags") or 0) & 32768):
               raise SystemExit("Discord banner card is missing Components V2 flag")
+          from guild_server_banner import read_state
+          provenance = read_state()
+          print("BANNER_METADATA_LIVE audit=%s image_match=%s change_time_known=%s source_known=%s" % (
+              provenance.get("banner_audit_status", "not_checked"),
+              provenance.get("banner_source_match_status", "not_checked"),
+              bool(provenance.get("banner_changed_at")),
+              bool(provenance.get("artist") and provenance.get("post_url"))))
           print("BANNER_INFO_LIVE_VERIFIED all_five_fields=true original_message=true")
           PY
           REMOTE
@@ -320,6 +330,20 @@ jobs:
           if [ "$DEPLOY_RESULT" = "success" ]; then
             state=success
             description="Server deployed; existing Discord banner card verified"
+            if [ -f bot-health.json ]; then
+              provenance=$(python3 - <<'PY'
+import json
+with open("bot-health.json", encoding="utf-8") as stream:
+    data = json.load(stream)
+banner = data.get("banner", {})
+audit = banner.get("audit_status", "not_checked")
+source = "yes" if banner.get("source_known") else "no"
+changed = "yes" if banner.get("change_time_known") else "no"
+print("audit=%s source=%s time=%s" % (audit, source, changed))
+PY
+              )
+              description="Discord card verified; $provenance"
+            fi
           else
             state=failure
             description="Deployment or live Discord banner verification failed"

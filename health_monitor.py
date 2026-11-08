@@ -56,7 +56,11 @@ def snapshot():
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
     result["banner"] = {"last_slot": banner.get("last_slot"),
-                        "used_count": len(banner.get("rotation_used") or [])}
+                        "used_count": len(banner.get("rotation_used") or []),
+                        "change_time_known": bool(banner.get("banner_changed_at")),
+                        "source_known": bool(banner.get("artist") and banner.get("post_url")),
+                        "audit_status": banner.get("banner_audit_status", "not_checked"),
+                        "source_match_status": banner.get("banner_source_match_status", "not_checked")}
     from delivery_review import count_pending
     result["discord_uncertain_deliveries"] = count_pending()
     try:
