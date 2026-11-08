@@ -277,6 +277,38 @@ jobs:
           PY
           REMOTE
 
+      - name: Consolidate guild banner writes into the main bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          # Do not retire the legacy timer without a proven eligible pool.
+          "$BOT_PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from guild_server_banner import rotation_selection
+          _, _, count, _ = rotation_selection()
+          print("BANNER_CANONICAL_POOL eligible=%d minimum=2" % count)
+          if count < 2:
+              raise SystemExit("Refusing to retire fallback timer without at least two usable banners")
+          PY
+          sudo systemctl is-active --quiet chzzk-bot.service
+          if sudo systemctl list-unit-files --no-legend abyss-guild-banner.timer | grep -q 'abyss-guild-banner.timer'; then
+            sudo systemctl disable --now abyss-guild-banner.timer
+          fi
+          if sudo systemctl is-active --quiet abyss-guild-banner.timer; then
+            echo "Legacy server banner timer still active" >&2
+            exit 1
+          fi
+          echo "BANNER_CONTROLLER=main-bot LEGACY_TIMER=disabled GITHUB_BACKUP=enabled"
+          REMOTE
+
       - name: Capture redacted runtime health after deployment
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
