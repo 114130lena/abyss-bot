@@ -311,13 +311,18 @@ def _banner_card(guild_id, banner_hash, state):
         artist = str(state.get("artist") or "").strip()
         source = str(state.get("post_url") or "").strip()
         from fanart_usage import canonical_post
+        changed_at = str(state.get("banner_changed_at") or "").strip()
         if artist.startswith("@") and canonical_post(source):
-            info = f"**작가:** {artist}\n**원본:** {source}"
+            attribution = "**원본 작가** · " + artist + "\n**원본 게시물** · [X에서 보기](" + source + ")"
+            method = "봇 자동 변경"
         else:
-            info = "**출처:** 확인되지 않은 수동 변경 배너"
+            attribution = "**원본 작가** · 확인되지 않음\n**원본 게시물** · 확인되지 않음"
+            method = "변경 주체 확인 불가"
         description = (
-            "**현재 서버 배너**\n" + info +
-            "\n-# Discord에 적용된 배너를 기준으로 자동 갱신됩니다."
+            "**현재 적용된 서버 배너**\n"
+            "**변경 방식** · " + method + "\n"
+            "**변경 시각** · " + (changed_at or "기록 없음") + "\n"
+            + attribution
         )
     else:
         image_url = ""
@@ -389,6 +394,7 @@ def sync_banner_info(force=False):
         state["guild_banner_hash"] = actual
         state["artist"] = ""
         state["post_url"] = ""
+        state["banner_changed_at"] = ""
         state["banner_info_updated_hash"] = ""
     # Always target the explicitly identified ORIGINAL information message.
     # Earlier versions created an unwanted second bot message when the
@@ -400,7 +406,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 3):
+            and state.get("banner_info_layout_version") == 4):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -413,7 +419,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 3
+    state["banner_info_layout_version"] = 4
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
@@ -469,7 +475,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
                 "rotation_used": rotation_used, "candidate_total": candidate_total,
-                "remaining_after": remaining}
+                "remaining_after": remaining,
+                "banner_changed_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")}
     try:
         recorded["guild_banner_hash"] = _current_guild_banner(token, guild_id)
     except (requests.RequestException, ValueError):
