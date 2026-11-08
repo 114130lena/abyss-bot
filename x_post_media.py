@@ -117,7 +117,7 @@ def resolve_media(post, username):
         response=requests.get(endpoint,timeout=(1.5,3),headers={"User-Agent":"abyss-bot/1.0"})
         response.raise_for_status()
         data=response.json()
-        candidate=data.get("tweet") if isinstance(data,dict) else None
+        candidate=(data.get("tweet") or data.get("status")) if isinstance(data,dict) else None
         if not isinstance(candidate,dict):
             return existing,"",False,False
         tweet=candidate
@@ -132,14 +132,28 @@ def resolve_media(post, username):
             logging.warning("X_MEDIA_EMPTY_UNVERIFIED username=%s post=%s",username,post_id)
             return existing,"",False,False
         photos=[]
-        for item in media.get("photos",[]) or []:
-            if not isinstance(item,dict):continue
+        video_items=[]
+        # FxTwitter v1/v2 may report GIFs under photos, videos or media.all.
+        for item in media.get("photos") or []:
+            if not isinstance(item,dict): continue
+            if item.get("type") == "gif":
+                video_items.append(item)
+                continue
             url=_media_url(item.get("url") or item.get("media_url_https"))
             if url and url not in photos: photos.append(url)
-        if not photos:photos=existing
-        video_items=list(media.get("videos") or [])
-        video_items+=list(media.get("animated_gifs") or [])
-        video_items+=list(media.get("gifs") or [])
+        for key in ("videos", "animated_gifs", "gifs"):
+            for item in media.get(key) or []:
+                if isinstance(item,dict):
+                    video_items.append(item)
+        if not photos and not video_items:
+            for item in media.get("all") or []:
+                if not isinstance(item,dict): continue
+                if item.get("type") in ("video", "gif"):
+                    video_items.append(item)
+                elif item.get("type") == "photo":
+                    url=_media_url(item.get("url"))
+                    if url and url not in photos: photos.append(url)
+        if not photos: photos=existing
         has_video=bool(video_items)
         preview=""
         for v in video_items:
@@ -160,8 +174,7 @@ def resolve_media(post, username):
         logging.info("X_MEDIA_CLASSIFIED username=%s post=%s photos=%d video=%s preview=%s",
                      username,post_id,len(photos),has_video,bool(preview))
         # Require an explicit empty media list before claiming a text-only post.
-        confirmed=(bool(photos) or has_video or
-                   ("all" in media and isinstance(media["all"],list) and len(media["all"])==0))
+        confirmed=bool(photos) or has_video
         return photos[:4],preview,has_video,confirmed
     except (requests.RequestException,ValueError,TypeError) as exc:
         logging.warning("X_MEDIA_UNKNOWN username=%s post=%s reason=%s",username,post_id,str(exc)[:120])
