@@ -60,8 +60,9 @@ def snapshot():
     from delivery_review import count_pending
     result["discord_uncertain_deliveries"] = count_pending()
     try:
-        from guild_server_banner import collected_hanayo_art
+        from guild_server_banner import collected_hanayo_art, approved_hanayo_art
         result["banner"]["collected_candidates"] = len(collected_hanayo_art())
+        result["banner"]["approved_candidates"] = len(approved_hanayo_art())
     except (OSError, ValueError, ImportError) as exc:
         logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
     from fanart_vision import enabled as vision_enabled, ready as vision_ready
@@ -70,10 +71,42 @@ def snapshot():
     return result
 
 
+def health_warnings(report):
+    """Only status and counts, not user text or secrets, enter admin alerts."""
+    warnings = {}
+    banner = report.get("banner", {})
+    if os.getenv("SERVER_BANNER_ENABLED", "0") == "1":
+        if ("collected_candidates" in banner and "approved_candidates" in banner
+                and (banner["collected_candidates"] + banner["approved_candidates"])
+                < max(2, int(os.getenv("SERVER_BANNER_MIN_CANDIDATES", "2")))):
+            warnings["server_banner_pool"] = "서버 배너 후보가 최소 개수보다 부족합니다."
+    if os.getenv("FANART_FX_SEARCH_ENABLED", "1") == "1":
+        search = report.get("fanart", {}).get("hashtag_search", {})
+        if not search or any(v.get("status") != "ok" for v in search.values()
+                             if isinstance(v, dict)):
+            warnings["fanart_hashtag_search"] = "팬아트 전체 해시태그 검색이 성공 기록을 남기지 못했습니다."
+        if report.get("fanart", {}).get("search_age_hours", 0) > 3:
+            warnings["fanart_hashtag_search"] = "팬아트 전체 해시태그 검색 상태 기록이 3시간 이상 오래됐습니다."
+    return warnings
+
+
 def run():
+    failures = {}
     while True:
         try:
-            logging.info("ABYSS_HEALTH_SNAPSHOT %s", json.dumps(snapshot(), ensure_ascii=False, separators=(",", ":")))
+            report = snapshot()
+            logging.info("ABYSS_HEALTH_SNAPSHOT %s", json.dumps(report, ensure_ascii=False, separators=(",", ":")))
+            warnings = health_warnings(report)
+            for name in set(failures) | set(warnings):
+                if name not in warnings:
+                    failures[name] = 0
+                    continue
+                failures[name] = failures.get(name, 0) + 1
+                # Alerts are opt-in via ADMIN_DISCORD_WEBHOOK_URL, throttled in
+                # warn_failure; never send them to public notification threads.
+                if failures[name] >= 3:
+                    from resilience import warn_failure
+                    warn_failure(name, failures[name], RuntimeError(warnings[name]))
         except Exception:
             logging.exception("ABYSS_HEALTH_SNAPSHOT_FAILED")
         time.sleep(MONITOR_INTERVAL)
