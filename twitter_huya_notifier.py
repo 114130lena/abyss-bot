@@ -106,6 +106,11 @@ def _save_seen(ids):
 
 
 def _notify(post):
+    # Final safety gate: reposts must NEVER enter the normal broadcast webhook,
+    # even if a future poller inadvertently invokes this function directly.
+    from x_repost_notifier import is_repost_post
+    if is_repost_post(post, USERNAME):
+        raise ValueError("Repost cannot be sent via ordinary X notification")
     from x_post_media import resolve_media
     photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
     if photo_urls:
