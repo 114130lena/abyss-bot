@@ -29,63 +29,21 @@ def preferred_server_banner(width, height):
 
 
 def server_reserved_post_ids(group):
-    """Reserve every eligible landscape source post for the guild banner pool.
+    """Reserve EVERY eligible guild-banner source post from notification reuse.
 
-    The server banner picker prefers widescreen artworks and falls back to
-    portrait-fit only when there are none. Keep the same partition in cards.
-    Only read local image dimensions; never download or modify artwork.
+    Use the real guild-banner selectors, including the wide+fit fallback.
+    Previously only widescreen posts were reserved when one wide existed,
+    even though the guild picker could select a fitted image of another post.
     """
     if group != "hanayo":
         return set()
-    from pathlib import Path
-    from PIL import Image, ImageOps
-    queue = read(BASE / "fanart_discovery.json")
-    root = (BASE / "fanart_candidates" / "hanayo").resolve()
-    preferred, fitted = set(), set()
-    for item in queue.values() if isinstance(queue, dict) else []:
-        if not isinstance(item, dict) or item.get("group") != group:
-            continue
-        if item.get("hashtag", "").casefold() != "#hiyoriart_":
-            continue
-        from fanart_relevance import eligible_hanayo_banner
-        from fanart_vision import enabled as vision_enabled, classification as vision_classification
-        if not vision_enabled() and not eligible_hanayo_banner(item):
-            continue
-        if (item.get("review_status") == "blocked" or item.get("decision") == "blocked"
-                or item.get("server_banner_excluded") is True):
-            continue
-        from fanart_discovery import classify
-        if classify(item.get("text", "")) == "blocked":
-            continue
-        source_id = canonical_post(item.get("post_url"))
-        if not source_id:
-            continue
-        for rel in item.get("cached_files", [])[:4]:
-            if not isinstance(rel, str):
-                continue
-            path = (BASE / rel).resolve()
-            if root not in path.parents or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
-                continue
-            if not path.is_file():
-                continue
-            try:
-                with Image.open(path) as im:
-                    width, height = ImageOps.exif_transpose(im).size
-                if vision_enabled():
-                    result = vision_classification(path)
-                    if not result or not result.get("banner_eligible"):
-                        continue
-            except (OSError, ValueError):
-                continue
-            if preferred_server_banner(width, height):
-                preferred.add(source_id)
-                break
-            if width >= 600 and height >= 600 and .5 <= width / height <= 2.5:
-                fitted.add(source_id)
-    if preferred:
-        return preferred
-    import os
-    return fitted if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" else set()
+    from guild_server_banner import approved_hanayo_art, collected_hanayo_art
+    result = set()
+    for _path, meta in approved_hanayo_art() + collected_hanayo_art():
+        post_id = canonical_post(meta.get("post_url"))
+        if post_id:
+            result.add(post_id)
+    return result
 
 
 def excluded_notification_art(group):
