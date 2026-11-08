@@ -635,8 +635,8 @@ class RoutingTests(unittest.TestCase):
                           "url": "https://x.com/SakihaneHuya/status/123",
                           "pub_date": "", "images": []})
         payload = sent.call_args.args[1]
-        self.assertEqual(payload["components"][0]["content"], "<@&1564279305171640361>")
-        self.assertEqual(payload["allowed_mentions"]["roles"], ["1564279305171640361"])
+        self.assertNotIn("content", payload["components"][0])
+        self.assertEqual(payload["allowed_mentions"]["roles"], [])
         self.assertIn("SAKIHANE HUYA", str(payload))
 
     def test_huya_x_initializes_without_historical_notifications(self):
@@ -675,7 +675,7 @@ class RoutingTests(unittest.TestCase):
         with patch.object(twitter, "get_banner", return_value="https://yt3.googleusercontent.com/banner"), \
              patch.object(twitter, "send_webhook") as sent:
             twitter._notify({"text": "테스트", "url": "https://x.com/a/status/1"})
-        self.assertIn("1563499860135772211", sent.call_args.args[1]["components"][0]["content"])
+        self.assertEqual(sent.call_args.args[1]["allowed_mentions"]["roles"], [])
 
     def test_x_failed_delivery_keeps_post_unread(self):
         post = {"id": "900", "text": "new", "url": "https://x.com/test/status/900",
