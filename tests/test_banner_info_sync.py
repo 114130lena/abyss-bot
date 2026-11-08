@@ -39,13 +39,13 @@ class BannerInfoTests(unittest.TestCase):
         self.assertEqual(result["status"], "updated")
         self.assertTrue(result["external"])
         payload = edit.call_args.kwargs["json"]
-        self.assertNotIn("@oldartist", payload["embeds"][0]["description"])
-        self.assertIn("newhash", payload["embeds"][0]["image"]["url"])
+        self.assertNotIn("@oldartist", str(payload["components"]))
+        self.assertIn("newhash", str(payload["components"]))
         self.assertEqual(save.call_args.args[0]["banner_info_message_id"], "789")
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789"}
+                 "banner_info_message_id": "789", "banner_info_layout_version": 2}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
              patch.object(banner, "read_state", return_value=state), \
              patch.object(banner.requests, "patch") as edit:
@@ -82,7 +82,7 @@ class BannerInfoTests(unittest.TestCase):
              patch.object(banner, "write_state"), \
              patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
             banner.sync_banner_info()
-        self.assertIn("@realartist", edit.call_args.kwargs["json"]["embeds"][0]["description"])
+        self.assertIn("@realartist", str(edit.call_args.kwargs["json"]["components"]))
 
 
 if __name__ == "__main__":

@@ -90,33 +90,86 @@ def fetch_recent_clips(now=None, get=None):
                          "url": "https://chzzk.naver.com/clips/" + uid,
                          "thumbnail": image, "views": max(0, views),
                          "date": dt.astimezone(KST).isoformat()})
-    return sorted(accepted, key=lambda c: (-c["views"], c["id"]))
+    # One page may contain fewer than ten eligible clips. Read additional
+    # pages only as needed, without increasing the first request timeout.
+    if accepted and len(accepted) < 10:
+        seen = {clip["id"] for clip in accepted}
+        for page in (1, 2):
+            try:
+                extra = fetch(url, params={
+                    "filterType": "ALL", "orderType": "RECENT",
+                    "page": page, "size": size}, timeout=(2, 7),
+                    headers={"Accept": "application/json",
+                             "Referer": "https://chzzk.naver.com/"})
+                extra.raise_for_status()
+                more = extra.json()
+                batch = (more.get("content") or {}).get("data") if isinstance(more, dict) else None
+                if not isinstance(batch, list) or not batch:
+                    break
+                for item in batch:
+                    if not isinstance(item, dict) or item.get("ownerChannelId") != CHANNEL_ID:
+                        continue
+                    uid = str(item.get("clipUID", ""))
+                    dt = _date(item.get("createdDate"))
+                    if not _ID.fullmatch(uid) or uid in seen or not dt:
+                        continue
+                    age = now - dt.astimezone(KST)
+                    if not timedelta(0) <= age <= timedelta(hours=24):
+                        continue
+                    if (item.get("adult") or item.get("privateUserBlock")
+                            or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
+                        continue
+                    image = str(item.get("thumbnailImageUrl") or "")
+                    parsed = urlsplit(image)
+                    if parsed.scheme != "https" or not parsed.hostname:
+                        image = ""
+                    accepted.append({"id": uid,
+                                     "title": str(item.get("clipTitle") or "히요리 클립")[:160],
+                                     "url": "https://chzzk.naver.com/clips/" + uid,
+                                     "thumbnail": image,
+                                     "views": max(0, int(item.get("readCount") or 0)),
+                                     "date": dt.astimezone(KST).isoformat()})
+                    seen.add(uid)
+                if len(accepted) >= 10:
+                    break
+            except (requests.RequestException, ValueError, TypeError):
+                logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
+                break
+    return sorted(accepted, key=lambda c: (-c["views"], c["id"]))[:10]
 
 
 def _render(clips, history):
     if not clips:
         return None
     lead = clips[0]
-    lines = ["**오늘의 히요리 클립**", "",
-             "**[" + lead["title"] + "](" + lead["url"] + ")**",
-             "", "**최근 24시간 클립**"]
-    for item in clips[:10]:
-        title = item["title"].replace("[", "").replace("]", "").replace("\n", " ")
-        lines.append("• [" + title[:95] + "](" + item["url"] + ")")
+    parts = [
+        {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
+        {"type": 14, "divider": True, "spacing": 1},
+        {"type": 10, "content": "**오늘의 히요리 클립**\n"
+         "최근 24시간 조회수 기준 상위 " + str(len(clips[:10])) + "개"},
+    ]
+    # A Discord gallery can display up to ten images in a single message.
+    # CHZZK's public API exposes thumbnails, not reliable direct MP4 files;
+    # preserve clickable source links instead of falsely claiming playback.
+    media = [{"media": {"url": clip["thumbnail"]},
+              "description": clip["title"][:120]}
+             for clip in clips[:10] if clip.get("thumbnail")]
+    if media:
+        parts.append({"type": 12, "items": media[:10]})
+    links = []
+    for index, clip in enumerate(clips[:10], 1):
+        title = clip["title"].replace("[", "").replace("]", "").replace("\n", " ")
+        links.append(str(index) + ". [" + title[:75] + "](" + clip["url"] + ")")
+    parts.append({"type": 10, "content": "\n".join(links)[:3500]})
     previous = []
     for day, clip in sorted(history.items(), reverse=True)[:7]:
         if isinstance(clip, dict) and _ID.fullmatch(str(clip.get("id", ""))):
             previous.append("[" + day + "](https://chzzk.naver.com/clips/" + clip["id"] + ")")
     if previous:
-        lines.append("")
-        lines.append("**지난 대표 클립** · " + " · ".join(previous))
-    content = "\n".join(lines)
-    embed = {"title": "하나요 히요리 · 클립", "url": lead["url"],
-             "description": "클립을 누르면 치지직에서 재생됩니다.",
-             "color": 0x8EA1DF}
-    if lead["thumbnail"]:
-        embed["image"] = {"url": lead["thumbnail"]}
-    return {"content": content[:2000], "embeds": [embed],
+        parts.append({"type": 14, "divider": True, "spacing": 1})
+        parts.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
+    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+                             "components": parts}],
             "allowed_mentions": {"parse": []}}
 
 

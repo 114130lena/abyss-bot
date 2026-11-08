@@ -39,9 +39,24 @@ class ClipTests(unittest.TestCase):
                   "url": "https://chzzk.naver.com/clips/clip" + str(i).zfill(4),
                   "thumbnail": "", "views": 10000, "date": NOW.isoformat()} for i in range(12)]
         payload = clips._render(items, {})
-        self.assertEqual(payload["content"].count("chzzk.naver.com/clips/"), 11)
-        self.assertNotIn("조회수", payload["content"])
-        self.assertNotIn("재생시간", payload["content"])
+        parts = payload["components"][0]["components"]
+        text = "\\n".join(p.get("content", "") for p in parts)
+        self.assertEqual(text.count("chzzk.naver.com/clips/"), 10)
+        self.assertIn("오늘의 히요리 클립", text)
+        self.assertNotIn("재생시간", text)
+        self.assertNotIn("트로피", text)
+        self.assertEqual(payload["components"][0]["type"], 17)
+
+    def test_gallery_contains_ten_distinct_thumbnails(self):
+        items = [{"id": "clip" + str(i).zfill(4), "title": "영상 " + str(i),
+                  "url": "https://chzzk.naver.com/clips/clip" + str(i).zfill(4),
+                  "thumbnail": "https://example.com/" + str(i) + ".jpg",
+                  "views": 100 - i, "date": NOW.isoformat()} for i in range(10)]
+        payload = clips._render(items, {})
+        gallery = [p for p in payload["components"][0]["components"]
+                   if p["type"] == 12]
+        self.assertEqual(len(gallery), 1)
+        self.assertEqual(len(gallery[0]["items"]), 10)
 
     def test_never_creates_message_if_unconfigured(self):
         with patch.dict("os.environ", {"CHZZK_CLIP_CHANNEL_ID": "", "CHZZK_CLIP_MESSAGE_ID": ""}), \
