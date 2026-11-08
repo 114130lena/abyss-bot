@@ -48,7 +48,8 @@ def server_reserved_post_ids(group):
         if item.get("hashtag", "").casefold() != "#hiyoriart_":
             continue
         from fanart_relevance import eligible_hanayo_banner
-        if not eligible_hanayo_banner(item):
+        from fanart_vision import enabled as vision_enabled, classification as vision_classification
+        if not vision_enabled() and not eligible_hanayo_banner(item):
             continue
         if (item.get("review_status") == "blocked" or item.get("decision") == "blocked"
                 or item.get("server_banner_excluded") is True):
@@ -70,6 +71,10 @@ def server_reserved_post_ids(group):
             try:
                 with Image.open(path) as im:
                     width, height = ImageOps.exif_transpose(im).size
+                if vision_enabled():
+                    result = vision_classification(path)
+                    if not result or not result.get("banner_eligible"):
+                        continue
             except (OSError, ValueError):
                 continue
             if preferred_server_banner(width, height):
