@@ -170,13 +170,13 @@ def prepare_payload(payload):
             return payload, None
         credit = "-# 🎨 FAN ART · " + record["artist"] + " · [원본 게시물](" + record["post_url"] + ")"
         for part in parts:
-            if part.get("type") == 10 and "OFFICIAL LINKS" in part.get("content", ""):
+            if part.get("type") == 10 and ("공식 채널" in part.get("content", "") or "OFFICIAL LINKS" in part.get("content", "")):
                 part["content"] += "\n" + credit
                 break
     section["accessory"]["media"]["url"] = "attachment://abyss_profile" + selected["profile"][0].suffix
     # Only the gallery immediately following the official links signature is the footer.
     for i, part in enumerate(parts[:-1]):
-        if part.get("type")==10 and "OFFICIAL LINKS" in part.get("content",""):
+        if part.get("type")==10 and ("공식 채널" in part.get("content","") or "OFFICIAL LINKS" in part.get("content","")):
             gallery=parts[i+1]
             if gallery.get("type")==12:
                 gallery["items"]=[{"media":{"url":"attachment://abyss_banner"+selected["banner"][0].suffix},
