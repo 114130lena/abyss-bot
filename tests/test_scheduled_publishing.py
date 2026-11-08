@@ -16,6 +16,21 @@ def at(day, hour, minute):
 
 
 class SchedulerCoordinationTests(unittest.TestCase):
+    def test_legacy_timer_is_retired_and_github_backup_uses_new_runner(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        deploy = (root / ".github/workflows/deploy.yml").read_text("utf-8")
+        backup_source = (root / ".github/workflows/guild-banner-schedule.yml").read_text("utf-8")
+        health_source = (root / ".github/workflows/guild-banner-health-monitor.yml").read_text("utf-8")
+        clip_source = (root / ".github/workflows/clip-schedule-health.yml").read_text("utf-8")
+        self.assertIn("sudo systemctl disable --now abyss-guild-banner.timer", deploy)
+        self.assertIn("BANNER_CANONICAL_POOL eligible=", deploy)
+        self.assertIn("guild_banner_timer_runner.py", backup_source)
+        self.assertNotIn(".guild_banner_auth.env", backup_source)
+        self.assertIn("guild_banner_healthcheck.py", health_source)
+        self.assertIn("clip_healthcheck.py", clip_source)
+        self.assertIn("25 23,9 * * *", clip_source)
+
     def test_delayed_backup_uses_last_kst_slot(self):
         self.assertEqual(backup.target_slot(at(8, 11, 34)),
                          at(8, 8, 0))
