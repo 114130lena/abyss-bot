@@ -64,7 +64,8 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 7}
+                 "banner_info_message_id": "789", "banner_info_layout_version": 7,
+                 "banner_first_observed_at": "2026-11-08 18:00 KST"}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
              patch.object(banner, "read_state", return_value=state), \
              patch.object(banner.requests, "patch") as edit:
@@ -159,7 +160,7 @@ class BannerInfoTests(unittest.TestCase):
         self.assertEqual(saved["post_url"], "https://x.com/actual/status/123")
         self.assertEqual(saved["banner_changed_at"], "")
         self.assertEqual(saved["banner_source_recorded_at"], "2026-11-05 08:00 KST")
-        self.assertIn("이전 자동 배너 복원", str(edit.call_args.kwargs["json"]))
+        self.assertIn("이전 자동 배너 재사용 감지", str(edit.call_args.kwargs["json"]))
 
     def test_external_unknown_hash_drops_stale_artist_but_keeps_history(self):
         prior = {"guild_banner_hash": "olderhash", "artist": "@old",
