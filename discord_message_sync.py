@@ -9,7 +9,11 @@ from urllib.parse import urlsplit
 import requests
 
 
-def _matching_webhook(message, channel, message_id, headers, get):
+def _matching_webhook(channel, message_id, headers, get):
+    if not any(os.getenv(name, "").strip() for name in (
+            "SERVER_BANNER_INFO_WEBHOOK_URL", "CHZZK_CLIP_WEBHOOK_URL",
+            "DISCORD_WEBHOOK_URL")):
+        return None, "webhook_credential_missing"
     url = f"https://discord.com/api/v10/channels/{channel}/messages/{message_id}"
     try:
         response = get(url, headers=headers, timeout=10)
@@ -54,8 +58,7 @@ def update_original(channel, message_id, payload, bot_token, *,
         result.raise_for_status()
         return "updated"
     webhook_url, reason = _matching_webhook(message_id=message_id, channel=channel,
-                                           headers=headers, message=payload,
-                                           get=get)
+                                           headers=headers, get=get)
     if not webhook_url:
         logging.warning("DISCORD_ORIGINAL_EDIT_BLOCKED message=%s reason=%s http=%s",
                         message_id, reason, result.status_code)
