@@ -125,6 +125,25 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "BANNER_UNIT_EXECUTION_METADATA"
+          systemctl show abyss-guild-banner.service -p User -p Group -p ExecStart -p EnvironmentFiles -p FragmentPath --no-pager | sed -E 's/(DISCORD_BOT_TOKEN|TOKEN|SECRET)=[^ ]+/\\1=<redacted>/g'
+          echo "BANNER_UNIT_FILE_SAFE_LINES"
+          systemctl cat abyss-guild-banner.service | grep -E '^User=|^Group=|^ExecStart=|^WorkingDirectory=|^EnvironmentFile=' | sed -E 's/(DISCORD_BOT_TOKEN|TOKEN|SECRET)=[^ ]+/\\1=<redacted>/g' || true
+          echo "NEW_BANNER_CANDIDATES_AND_CURRENT"
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python; else BOT_PY=python3; fi
+          "$BOT_PY" - <<'PY'
+          import guild_server_banner as b
+          current=b.read_state()
+          approved=b.approved_hanayo_art()
+          collected=b.collected_hanayo_art()
+          print("CURRENT_SOURCE",current.get("post_url"))
+          print("CURRENT_SOURCE_ELIGIBLE",any(info.get('post_url')==current.get('post_url') for path,info in approved+collected))
+          print("APPROVED",len(approved),"COLLECTED",len(collected))
+          for path,info in (approved+collected)[:12]:
+              print("CANDIDATE",info.get('post_url'),"ARTIST",info.get('artist'),"ASPECT",info.get('server_aspect'))
+          PY
+
           echo "CURRENT_GUILD_BANNER_SOURCE_AND_POST_METADATA"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
