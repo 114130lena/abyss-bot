@@ -32,7 +32,7 @@ def snapshot():
         "chzzk_replay": ROOT / "chzzk_replay_seen.json",
     }
     result = {"timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "states": {}, "fanart": {}, "banner": {}}
+              "states": {}, "fanart": {}, "banner": {}, "clip": {}, "spaces": {}}
     for name, path in files.items():
         if path.is_file():
             result["states"][name] = {"age_hours": round((now - path.stat().st_mtime) / 3600, 1)}
@@ -53,6 +53,45 @@ def snapshot():
     result["fanart"]["hashtag_search"] = fx_state.get("groups", {})
     if fx_path.is_file():
         result["fanart"]["search_age_hours"] = round((now - fx_path.stat().st_mtime) / 3600, 1)
+    # The clip worker refreshes its offline state every two hours but only
+    # edits the existing Discord message at 08:00/18:00 KST. Expose both times,
+    # and never mistake an old publication for successful recent collection.
+    clip_path = ROOT / "daily_clip_state.json"
+    clip = _read(clip_path, {})
+    clip_list = clip.get("clips")
+    def _age_from_iso(raw):
+        if not isinstance(raw, str) or not raw:
+            return None
+        try:
+            moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if moment.tzinfo is None:
+                return None
+            return round(max(0, (datetime.now(timezone.utc) -
+                                  moment.astimezone(timezone.utc)).total_seconds()) / 3600, 2)
+        except (ValueError, OverflowError, OSError):
+            return None
+    result["clip"] = {
+        "configured": bool(os.getenv("DISCORD_BOT_TOKEN", "").strip()
+                           and os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip().isdigit()
+                           and os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip().isdigit()),
+        "state_exists": clip_path.is_file(),
+        "cached_clips": len(clip_list) if isinstance(clip_list, list) else 0,
+        "collected_age_hours": _age_from_iso(clip.get("collected_at")),
+        "published_age_hours": _age_from_iso(clip.get("last_updated")),
+        "last_published_slot": str(clip.get("last_published_slot") or ""),
+    }
+    # Merely having the source module in the repository does not enable Spaces.
+    result["spaces"] = {
+        "configured": bool(os.getenv("X_BEARER_TOKEN", "").strip()
+            and (os.getenv("HANAYO_X_USER_ID", "").strip().isdigit()
+                 or os.getenv("SAKIHANE_X_USER_ID", "").strip().isdigit()))
+    }
+    profile_path = ROOT / "creator_media" / "fanart_profile_state.json"
+    profile = _read(profile_path, {})
+    result["fanart"]["profile_feeds"] = profile.get("groups", {})
+    if profile_path.is_file():
+        result["fanart"]["profile_age_hours"] = round(
+            max(0, now - profile_path.stat().st_mtime) / 3600, 2)
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
     result["banner"] = {"last_slot": banner.get("last_slot"),
@@ -84,6 +123,12 @@ def health_warnings(report):
                 and (banner["collected_candidates"] + banner["approved_candidates"])
                 < max(2, int(os.getenv("SERVER_BANNER_MIN_CANDIDATES", "2")))):
             warnings["server_banner_pool"] = "서버 배너 후보가 최소 개수보다 부족합니다."
+    if report.get("clip", {}).get("configured"):
+        clip = report["clip"]
+        if not clip.get("state_exists") or clip.get("collected_age_hours") is None:
+            warnings["clip_collection"] = "클립 수집 상태 파일이나 성공 기록이 없습니다."
+        elif clip["collected_age_hours"] > 3:
+            warnings["clip_collection"] = "클립 최근 수집 성공 기록이 3시간 이상 오래됐습니다."
     if os.getenv("FANART_FX_SEARCH_ENABLED", "1") == "1":
         search = report.get("fanart", {}).get("hashtag_search", {})
         if not search or any(v.get("status") != "ok" for v in search.values()
