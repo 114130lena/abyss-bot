@@ -317,7 +317,7 @@ def _banner_card(guild_id, banner_hash, state):
             method = "봇 자동 변경"
         else:
             attribution = "**원본 작가** · 확인되지 않음\n**원본 게시물** · 확인되지 않음"
-            method = "변경 주체 확인 불가"
+            method = "관리자 변경 또는 이전 기록 없음"
         description = (
             "**현재 적용된 서버 배너**\n"
             "**변경 방식** · " + method + "\n"
@@ -389,13 +389,18 @@ def sync_banner_info(force=False):
     expected = previous.get("guild_banner_hash")
     # If the current banner differs from the last bot-applied banner, any
     # recorded artist is stale, even after a restart or manual replacement.
-    changed = expected != actual
+    # Missing hash is an uninitialized record, not proof of an external change.
+    changed = expected is not None and expected != actual
+    uninitialized = expected is None
     state = dict(previous)
     if changed:
         state["guild_banner_hash"] = actual
         state["artist"] = ""
         state["post_url"] = ""
-        state["banner_changed_at"] = ""
+        state["banner_changed_at"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
+        state["banner_info_updated_hash"] = ""
+    if uninitialized:
+        state["guild_banner_hash"] = actual
         state["banner_info_updated_hash"] = ""
     # Always target the explicitly identified ORIGINAL information message.
     # Earlier versions created an unwanted second bot message when the
@@ -499,6 +504,7 @@ def run_server_banner_scheduler():
         return
     attempted = None
     last_info_check = 0.0
+    last_info_slot = None
     while True:
         try:
             now_slot = slot()
@@ -506,10 +512,14 @@ def run_server_banner_scheduler():
                 attempted = now_slot
                 logging.info("server-banner result: %s", rotate_once())
             now = time.monotonic()
-            if now - last_info_check >= max(30, int(os.getenv("SERVER_BANNER_INFO_POLL_SECONDS", "60"))):
+            due_info = bool(now_slot and last_info_slot != now_slot)
+            if due_info or now - last_info_check >= max(30, int(os.getenv("SERVER_BANNER_INFO_POLL_SECONDS", "60"))):
                 last_info_check = now
                 try:
-                    logging.info("server-banner info: %s", sync_banner_info())
+                    result = sync_banner_info(force=due_info)
+                    logging.info("server-banner info: %s", result)
+                    if due_info and result.get("status") in ("updated", "up_to_date"):
+                        last_info_slot = now_slot
                 except (requests.RequestException, ValueError, OSError):
                     logging.exception("서버 배너 정보 동기화 실패; 다음 주기 재시도")
         except Exception:

@@ -53,6 +53,30 @@ class BannerInfoTests(unittest.TestCase):
         self.assertEqual(result["status"], "up_to_date")
         edit.assert_not_called()
 
+    def test_uninitialized_hash_keeps_existing_artist_and_source(self):
+        state = {"artist": "@realartist", "post_url": "https://x.com/realartist/status/123",
+                 "banner_changed_at": "2026-11-08 08:00 KST"}
+        with patch.object(banner, "_current_guild_banner", return_value="firsthash"), \
+             patch.object(banner, "read_state", return_value=state), \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
+            result = banner.sync_banner_info()
+        self.assertFalse(result["external"])
+        self.assertEqual(save.call_args.args[0]["artist"], "@realartist")
+        self.assertEqual(save.call_args.args[0]["guild_banner_hash"], "firsthash")
+        self.assertIn("@realartist", str(edit.call_args.kwargs["json"]))
+
+    def test_forced_slot_sync_updates_unchanged_message(self):
+        state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
+                 "banner_info_message_id": "789", "banner_info_layout_version": 5}
+        with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
+             patch.object(banner, "read_state", return_value=state), \
+             patch.object(banner, "write_state"), \
+             patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
+            result = banner.sync_banner_info(force=True)
+        self.assertEqual(result["status"], "updated")
+        edit.assert_called_once()
+
     def test_missing_original_id_never_creates_duplicate(self):
         with patch.dict("os.environ", {"SERVER_BANNER_INFO_MESSAGE_ID": ""}), \
              patch.object(banner, "_current_guild_banner", return_value="hash"), \
