@@ -380,28 +380,27 @@ def sync_banner_info(force=False):
         state["artist"] = ""
         state["post_url"] = ""
         state["banner_info_updated_hash"] = ""
-    message_id = str(state.get("banner_info_message_id") or
-                     os.getenv("SERVER_BANNER_INFO_MESSAGE_ID", "")).strip()
-    if (not force and not changed and message_id
+    # Always target the explicitly identified ORIGINAL information message.
+    # Earlier versions created an unwanted second bot message when the
+    # original was a webhook post or not found in the 100-message history.
+    # Neither auto-discovery nor new POST is safe for an existing channel.
+    message_id = os.getenv("SERVER_BANNER_INFO_MESSAGE_ID", "").strip()
+    if not message_id.isdigit():
+        return {"status": "original_message_id_required"}
+    if (not force and not changed
+            and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     headers = {"Authorization": "Bot " + token, "Content-Type": "application/json"}
     base = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-    response = None
-    if not message_id.isdigit():
-        try:
-            message_id = _find_existing_banner_info(headers, base)
-        except (requests.RequestException, ValueError, TypeError, AttributeError):
-            logging.warning("기존 배너 정보 메시지 탐색 실패; 새 정보 메시지를 작성합니다")
-    if message_id.isdigit():
-        response = requests.patch(base + "/" + message_id, headers=headers,
-                                  json=payload, timeout=12)
-        if response.status_code not in (403, 404):
-            response.raise_for_status()
-    if not message_id.isdigit() or (response is not None and response.status_code in (403, 404)):
-        response = requests.post(base, headers=headers, json=payload, timeout=12)
-        response.raise_for_status()
+    response = requests.patch(base + "/" + message_id, headers=headers,
+                              json=payload, timeout=12)
+    if response.status_code in (403, 404):
+        logging.warning("BANNER_INFO_ORIGINAL_UNEDITABLE message=%s status=%d; no new message sent",
+                        message_id, response.status_code)
+        return {"status": "original_message_uneditable", "message_id": message_id}
+    response.raise_for_status()
     data = response.json()
     if not isinstance(data, dict) or not str(data.get("id", "")).isdigit():
         raise ValueError("Discord did not confirm banner information message")
