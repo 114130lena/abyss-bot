@@ -199,7 +199,8 @@ def scan(max_new=_MAX_API_CALLS):
                 try:
                     with Image.open(path) as im:
                         w, h = ImageOps.exif_transpose(im).size
-                    if w < 960 or h < 540 or w / h < 1.4 or w / h > 2.0:
+                    from guild_server_banner import kind
+                    if not kind(w, h):
                         continue
                     digest = _digest(path)
                     if digest in seen:
