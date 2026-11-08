@@ -64,7 +64,7 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 7,
+                 "banner_info_message_id": "789", "banner_info_layout_version": 8,
                  "banner_first_observed_at": "2026-11-08 18:00 KST"}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
              patch.object(banner, "read_state", return_value=state), \

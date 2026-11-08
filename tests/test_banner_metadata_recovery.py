@@ -117,7 +117,7 @@ class BannerMetadataRecoveryTests(unittest.TestCase):
         state = save.call_args.args[0]
         self.assertEqual(state["banner_change_method"], audit["banner_change_method"])
         self.assertEqual(state["banner_changed_at"], audit["banner_changed_at"])
-        self.assertEqual(state["banner_info_layout_version"], 7)
+        self.assertEqual(state["banner_info_layout_version"], 8)
 
     def test_first_observed_is_not_falsely_labeled_exact_change_time(self):
         state = {"banner_first_observed_at": "2026-11-08 20:00 KST"}
@@ -143,7 +143,8 @@ class BannerMetadataRecoveryTests(unittest.TestCase):
             "banner_change_method": "기존 기록 · 변경 주체 미상",
             "banner_first_observed_at": "2026-11-08 20:00 KST"})
         body = str(card["components"])
-        self.assertIn("Discord 감사 로그 권한 없음", body)
+        self.assertIn("이전 배너 · 변경 방식 미확인", body)
+        self.assertNotIn("Discord 감사 로그 권한 없음", body)
         self.assertIn("정확한 변경 시각 미확인", body)
 
     def test_no_audit_retry_for_same_hash_when_attempt_already_recorded(self):

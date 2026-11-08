@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from PIL import Image, ImageOps, ImageFilter, UnidentifiedImageError
+from schedule_display import schedule_label
 
 KST = ZoneInfo("Asia/Seoul")
 SLOTS = {(8, 0), (18, 0)}
@@ -494,12 +495,11 @@ def _banner_card(guild_id, banner_hash, state):
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
     method = str(state.get("banner_change_method") or "").strip()
-    if state.get("banner_audit_status") == "permission_denied" and (
-            not method or method.startswith(("기존 기록", "이전 기록"))):
-        method = "Discord 감사 로그 권한 없음 · 변경 주체 확인 불가"
-    elif not method:
-        method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
-                  else "이전 기록 없음 · 변경 주체 확인 불가")
+    # Audit-log access is only an internal diagnostic for historical banners.
+    # Keep the public card about the banner itself, not the bot's permissions.
+    if not method or method.startswith(("기존 기록", "이전 기록")):
+        method = ("이전 배너 · 변경 방식 미확인" if known_source
+                  else "이전 배너 · 변경 기록 없음")
     changed_at = str(state.get("banner_changed_at") or "").strip()
     if not changed_at and state.get("banner_first_observed_at"):
         changed_at = ("정확한 변경 시각 미확인 (최초 확인 · "
@@ -511,7 +511,7 @@ def _banner_card(guild_id, banner_hash, state):
     description = ("**현재 적용된 서버 배너**\n"
                    "**변경 방식** · " + method + "\n"
                    "**변경 시각** · " + (changed_at or "기록 없음") + "\n"
-                   + attribution)
+                   + attribution + "\n\n" + schedule_label())
     parts = [
         {"type": 10, "content": "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"},
         {"type": 14, "divider": True, "spacing": 1},
@@ -653,7 +653,7 @@ def sync_banner_info(force=False):
     if (not force and not changed
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
-            and state.get("banner_info_layout_version") == 7):
+            and state.get("banner_info_layout_version") == 8):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state)
     from discord_message_sync import update_original
@@ -666,7 +666,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 7
+    state["banner_info_layout_version"] = 8
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
                  channel_id, actual[:12], message_id, changed)
