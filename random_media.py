@@ -4,6 +4,7 @@ Supported candidate sources: verified YouTube caches, and explicitly configured
 X/CHZZK/Cafe image URLs. Set ABYSS_RANDOM_MEDIA=1 to enable. No platform
 scraping or assumption of inaccessible private images.
 """
+from datetime import datetime, timezone
 import json
 import os
 import random
@@ -119,13 +120,35 @@ def _local_candidates(group, kind):
     return found
 
 def choose_local(group, kind):
-    """Prefer a different image than the previous successfully delivered alert."""
+    """Banner images exhaust the fresh pool before reusing an old image.
+
+    Keep the creator profile rotation independent. Restore history across bot
+    restarts; recycling after exhaustion prefers the least recently delivered
+    candidate rather than repeatedly showing the latest banner.
+    """
     pool = _local_candidates(group, kind)
     if not pool:
         return None
-    previous = _load(MEDIA_LAST).get(group, {}).get(kind)
-    allowed = [item for item in pool if item[1] != previous]
-    return random.SystemRandom().choice(allowed or pool)
+    values = _load(MEDIA_LAST).get(group, {})
+    values = values if isinstance(values, dict) else {}
+    previous = values.get(kind)
+    if kind == "banner":
+        history = values.get("banner_used", {})
+        history = history if isinstance(history, dict) else {}
+        seen = set(history)
+        if previous:
+            seen.add(previous)
+        unused = [item for item in pool if item[1] not in seen]
+        if unused:
+            return random.SystemRandom().choice(unused)
+        oldest = min(str(history.get(item[1], "")) for item in pool)
+        choices = [item for item in pool
+                   if str(history.get(item[1], "")) == oldest]
+        different = [item for item in choices if item[1] != previous]
+        return random.SystemRandom().choice(different or choices)
+    other = [item for item in pool if item[1] != previous]
+    return random.SystemRandom().choice(other or pool)
+
 
 def mark_delivered(group, selected):
     from resilience import save_json
@@ -133,6 +156,12 @@ def mark_delivered(group, selected):
     values = index.setdefault(group, {})
     for kind, (_, sha) in selected.items():
         values[kind] = sha
+        if kind == "banner":
+            history = values.setdefault("banner_used", {})
+            if not isinstance(history, dict):
+                history = {}
+                values["banner_used"] = history
+            history[sha] = datetime.now(timezone.utc).isoformat()
     save_json(MEDIA_LAST, index)
 
 def prepare_payload(payload):
