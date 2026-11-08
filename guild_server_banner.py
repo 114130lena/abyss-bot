@@ -277,7 +277,16 @@ def change_guild_banner(image, token, guild_id):
         timeout=25,
     )
     response.raise_for_status()
-
+    # The successful PATCH response is authoritative for the new banner hash.
+    # A GET immediately afterwards may still return the old CDN revision.
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        return None
+    if (isinstance(data, dict) and str(data.get("id", guild_id)) == guild_id
+            and isinstance(data.get("banner"), str) and data["banner"]):
+        return data["banner"]
+    return None
 
 
 # Persistent source-information card. This is independent of the banner's
@@ -341,7 +350,7 @@ def _banner_card(guild_id, banner_hash, state):
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
-    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
                              "components": parts}],
             "allowed_mentions": {"parse": []}}
 
@@ -478,7 +487,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
     guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
     if not token or not guild_id.isdigit():
         return {"status": "missing_discord_credentials"}
-    change_guild_banner(image, token, guild_id)
+    changed_hash = change_guild_banner(image, token, guild_id)
     # The guild PATCH succeeded. Record its new banner hash when available;
     # never guess a CDN hash from the local JPEG.
     recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
@@ -487,7 +496,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None):
                 "remaining_after": remaining,
                 "banner_changed_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")}
     try:
-        recorded["guild_banner_hash"] = _current_guild_banner(token, guild_id)
+        recorded["guild_banner_hash"] = (changed_hash if isinstance(changed_hash, str) and changed_hash
+                                          else _current_guild_banner(token, guild_id))
     except (requests.RequestException, ValueError):
         # Prevent stale attribution if a later reconciliation cannot verify it.
         recorded["guild_banner_hash"] = None

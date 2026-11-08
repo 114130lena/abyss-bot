@@ -31,6 +31,61 @@ class ClipTests(unittest.TestCase):
         self.assertFalse(clips.clip_refresh_due(NOW.replace(hour=19), None))
         self.assertTrue(clips.clip_refresh_due(NOW.replace(hour=20), "2026-11-08 18"))
 
+    def test_publish_slots_are_only_08_and_18(self):
+        for hour in (8, 18):
+            now = NOW.replace(hour=hour, minute=27)
+            self.assertTrue(clips.clip_publish_due(now, None))
+            self.assertFalse(clips.clip_publish_due(now, now.strftime("%Y-%m-%d %H")))
+        for hour in (0, 2, 6, 10, 12, 16, 20, 22):
+            self.assertFalse(clips.clip_publish_due(NOW.replace(hour=hour), None))
+
+    def test_collect_preserves_discord_history_and_never_edits(self):
+        clip = {"id": "clip1234", "title": "clip", "url": "https://chzzk.naver.com/clips/clip1234",
+                "thumbnail": "", "views": 4, "date": NOW.isoformat()}
+        state = {"history": {"2026-11-07": {"id": "old"}}, "last_published_slot": "2026-11-08 08"}
+        with patch.object(clips, "fetch_recent_clips", return_value=[clip]), \
+             patch.object(clips, "load_json", return_value=state), \
+             patch.object(clips, "save_json") as save, \
+             patch("discord_message_sync.update_original") as edit:
+            result = clips.collect_once(NOW)
+        self.assertEqual(result["status"], "collected")
+        saved = save.call_args.args[1]
+        self.assertEqual(saved["last_published_slot"], "2026-11-08 08")
+        self.assertEqual(saved["clips"][0]["id"], "clip1234")
+        edit.assert_not_called()
+
+    def test_publish_cached_clips_without_recollecting(self):
+        clip = {"id": "clip1234", "title": "clip", "url": "https://chzzk.naver.com/clips/clip1234",
+                "thumbnail": "", "views": 4, "date": NOW.isoformat()}
+        state = {"clips": [clip], "collected_at": NOW.isoformat(), "history": {}}
+        with patch.dict("os.environ", {"DISCORD_BOT_TOKEN": "dummy",
+                                      "CHZZK_CLIP_CHANNEL_ID": "100", "CHZZK_CLIP_MESSAGE_ID": "200"}), \
+             patch.object(clips, "load_json", return_value=state), \
+             patch.object(clips, "fetch_recent_clips") as fetch, \
+             patch.object(clips, "clip_video_url", return_value=""), \
+             patch("discord_message_sync.update_original", return_value="updated") as edit, \
+             patch.object(clips, "save_json") as save:
+            result = clips.publish_once(NOW)
+        self.assertEqual(result["status"], "updated")
+        fetch.assert_not_called()
+        edit.assert_called_once()
+        self.assertEqual(save.call_args.args[1]["last_published_slot"], "2026-11-08 18")
+
+    def test_view_ranking_scans_later_pages_even_when_first_has_ten(self):
+        def item(uid, views):
+            return {"clipUID": uid, "clipTitle": uid, "ownerChannelId": clips.CHANNEL_ID,
+                    "readCount": views, "createdDate": NOW.isoformat(),
+                    "thumbnailImageUrl": "https://example.com/" + uid + ".jpg"}
+        first = [item("first" + str(i), i) for i in range(10)]
+        second = [item("winner789", 1000)]
+        get = Mock(side_effect=[
+            fake_response({"code": 200, "content": {"data": first}}),
+            fake_response({"code": 200, "content": {"data": second}}),
+            fake_response({"code": 200, "content": {"data": []}}),
+        ])
+        self.assertEqual(clips.fetch_recent_clips(NOW, get=get)[0]["id"], "winner789")
+        self.assertEqual(get.call_count, 3)
+
     def test_timeout_retries_with_smaller_clip_page(self):
         from requests.exceptions import ReadTimeout
         clips_api={"code": 200, "content": {"data": []}}
@@ -109,7 +164,8 @@ class ClipTests(unittest.TestCase):
              patch.object(clips.requests, "post") as post:
             result = clips.refresh_once(NOW, patch=Mock(return_value=fake_response({}, 403)))
         self.assertEqual(result["status"], "original_message_uneditable")
-        save.assert_not_called()
+        self.assertTrue(save.called)  # Offline snapshot survives even when the Discord edit fails.
+        self.assertNotIn("last_updated", save.call_args.args[1] if len(save.call_args.args)>1 else {})
         post.assert_not_called()
 
 

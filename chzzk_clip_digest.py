@@ -90,51 +90,48 @@ def fetch_recent_clips(now=None, get=None):
                          "url": "https://chzzk.naver.com/clips/" + uid,
                          "thumbnail": image, "views": max(0, views),
                          "date": dt.astimezone(KST).isoformat()})
-    # One page may contain fewer than ten eligible clips. Read additional
-    # pages only as needed, without increasing the first request timeout.
-    if len(accepted) < 10:
-        seen = {clip["id"] for clip in accepted}
-        for page in range(1, 6):
-            try:
-                extra = fetch(url, params={
-                    "filterType": "ALL", "orderType": "RECENT",
-                    "page": page, "size": size}, timeout=(2, 7),
-                    headers={"Accept": "application/json",
-                             "Referer": "https://chzzk.naver.com/"})
-                extra.raise_for_status()
-                more = extra.json()
-                batch = (more.get("content") or {}).get("data") if isinstance(more, dict) else None
-                if not isinstance(batch, list) or not batch:
-                    break
-                for item in batch:
-                    if not isinstance(item, dict) or item.get("ownerChannelId") != CHANNEL_ID:
-                        continue
-                    uid = str(item.get("clipUID", ""))
-                    dt = _date(item.get("createdDate"))
-                    if not _ID.fullmatch(uid) or uid in seen or not dt:
-                        continue
-                    age = now - dt.astimezone(KST)
-                    if not timedelta(0) <= age <= timedelta(hours=24):
-                        continue
-                    if (item.get("adult") or item.get("privateUserBlock")
-                            or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
-                        continue
-                    image = str(item.get("thumbnailImageUrl") or "")
-                    parsed = urlsplit(image)
-                    if parsed.scheme != "https" or not parsed.hostname:
-                        image = ""
-                    accepted.append({"id": uid,
-                                     "title": str(item.get("clipTitle") or "히요리 클립")[:160],
-                                     "url": "https://chzzk.naver.com/clips/" + uid,
-                                     "thumbnail": image,
-                                     "views": max(0, int(item.get("readCount") or 0)),
-                                     "date": dt.astimezone(KST).isoformat()})
-                    seen.add(uid)
-                if len(accepted) >= 10:
-                    break
-            except (requests.RequestException, ValueError, TypeError):
-                logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
+    # Rank across recent pages, not merely the first ten recent uploads.
+    # RECENT is upload order, whereas selection is by readCount.
+    seen = {clip["id"] for clip in accepted}
+    for page in range(1, 6):
+        try:
+            extra = fetch(url, params={
+                "filterType": "ALL", "orderType": "RECENT",
+                "page": page, "size": size}, timeout=(2, 7),
+                headers={"Accept": "application/json",
+                         "Referer": "https://chzzk.naver.com/"})
+            extra.raise_for_status()
+            more = extra.json()
+            batch = (more.get("content") or {}).get("data") if isinstance(more, dict) else None
+            if not isinstance(batch, list) or not batch:
                 break
+            for item in batch:
+                if not isinstance(item, dict) or item.get("ownerChannelId") != CHANNEL_ID:
+                    continue
+                uid = str(item.get("clipUID", ""))
+                dt = _date(item.get("createdDate"))
+                if not _ID.fullmatch(uid) or uid in seen or not dt:
+                    continue
+                age = now - dt.astimezone(KST)
+                if not timedelta(0) <= age <= timedelta(hours=24):
+                    continue
+                if (item.get("adult") or item.get("privateUserBlock")
+                        or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
+                    continue
+                image = str(item.get("thumbnailImageUrl") or "")
+                parsed = urlsplit(image)
+                if parsed.scheme != "https" or not parsed.hostname:
+                    image = ""
+                accepted.append({"id": uid,
+                                 "title": str(item.get("clipTitle") or "히요리 클립")[:160],
+                                 "url": "https://chzzk.naver.com/clips/" + uid,
+                                 "thumbnail": image,
+                                 "views": max(0, int(item.get("readCount") or 0)),
+                                 "date": dt.astimezone(KST).isoformat()})
+                seen.add(uid)
+        except (requests.RequestException, ValueError, TypeError):
+            logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
+            break
     # Only clips created in the last 24 hours; never backfill older videos.
     unique = {clip["id"]: clip for clip in accepted}
     return sorted(unique.values(), key=lambda c: (-c["views"], c["id"]))[:10]
@@ -233,37 +230,68 @@ def _render(clips, history):
     if previous:
         parts.append({"type": 14, "divider": True, "spacing": 1})
         parts.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
-    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
                              "components": parts}],
             "allowed_mentions": {"parse": []}}
 
 
-def refresh_once(now=None, get=None, patch=None):
+def collect_once(now=None, get=None):
+    """Update the offline top-ten snapshot; NEVER edit a Discord message."""
+    now = (now or datetime.now(KST)).astimezone(KST)
+    clips = fetch_recent_clips(now, get=get)
+    state = load_json(STATE_FILE, {})
+    if not isinstance(state, dict):
+        state = {}
+    # Keep publication history untouched by the two-hour collection job.
+    state["clips"] = clips
+    state["collected_at"] = now.isoformat()
+    state["collected_slot"] = now.strftime("%Y-%m-%d %H") if now.hour % 2 == 0 else ""
+    save_json(STATE_FILE, state)
+    logging.info("CHZZK_CLIP_COLLECTED count=%d at=%s", len(clips), now.isoformat())
+    return {"status": "collected", "count": len(clips)}
+
+
+def clip_publish_due(now, last_slot):
+    """Only 08:00 and 18:00 KST may edit the public Discord clip card."""
+    now = now.astimezone(KST)
+    slot = now.strftime("%Y-%m-%d %H")
+    return now.hour in (8, 18) and slot != last_slot
+
+
+def publish_once(now=None, get=None, patch=None):
+    """Publish cached clips to the existing message, never POST a replacement."""
     token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
     channel = os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip()
     message = os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip()
     if not token or not channel.isdigit() or not message.isdigit():
         return {"status": "not_configured"}
     now = (now or datetime.now(KST)).astimezone(KST)
-    clips = fetch_recent_clips(now, get=get)
-    if not clips:
-        return {"status": "no_recent_clips"}
     state = load_json(STATE_FILE, {})
     if not isinstance(state, dict):
         state = {}
+    refreshed = _date(state.get("collected_at"))
+    if (refreshed is None or not timedelta(0) <= now - refreshed.astimezone(KST) <= timedelta(hours=2, minutes=10)):
+        # The collection worker might have failed; try once on the display slot.
+        result = collect_once(now, get=get)
+        if result["status"] != "collected":
+            return result
+        state = load_json(STATE_FILE, {})
+    clips = [dict(clip) for clip in state.get("clips", []) if isinstance(clip, dict)
+             and _date(clip.get("date")) is not None
+             and timedelta(0) <= now - _date(clip["date"]).astimezone(KST) <= timedelta(hours=24)]
+    if not clips:
+        return {"status": "no_recent_clips"}
     history = state.get("history") if isinstance(state.get("history"), dict) else {}
     day = now.strftime("%Y-%m-%d")
     updated = dict(history)
     updated[day] = {"id": clips[0]["id"], "title": clips[0]["title"]}
     updated = dict(sorted(updated.items(), reverse=True)[:14])
-    # Media galleries support direct video URLs; thumbnails remain a safe fallback.
+    # Signed playback URLs are intentionally looked up only on the display slot.
     for clip in clips:
         clip["video_url"] = clip_video_url(clip, get=get)
     logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",
                  sum(bool(c["video_url"]) for c in clips), len(clips))
     payload = _render(clips, {k: v for k, v in updated.items() if k != day})
-    if not payload:
-        return {"status": "no_recent_clips"}
     from discord_message_sync import update_original
     status = update_original(channel, message, payload, token,
                              get=get or requests.get, patch=patch or requests.patch)
@@ -278,34 +306,58 @@ def refresh_once(now=None, get=None, patch=None):
         logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE message=%s reason=%s; no replacement sent",
                         message, status)
         return {"status": "original_message_uneditable", "reason": status}
-    save_json(STATE_FILE, {"history": updated,
-                           "latest_id": clips[0]["id"],
-                           "last_updated": now.isoformat()})
+    state["history"] = updated
+    state["latest_id"] = clips[0]["id"]
+    state["last_updated"] = now.isoformat()
+    if now.hour in (8, 18):
+        state["last_published_slot"] = now.strftime("%Y-%m-%d %H")
+    save_json(STATE_FILE, state)
     logging.info("CHZZK_CLIP_UPDATED id=%s available=%d", clips[0]["id"], len(clips))
     return {"status": "updated", "clip": clips[0]["id"], "count": len(clips)}
 
 
+def refresh_once(now=None, get=None, patch=None):
+    """Explicit/manual refresh compatibility; scheduler uses separate jobs."""
+    if not (os.getenv("DISCORD_BOT_TOKEN", "").strip()
+            and os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip().isdigit()
+            and os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip().isdigit()):
+        return {"status": "not_configured"}
+    result = collect_once(now, get=get)
+    if result["status"] != "collected":
+        return result
+    return publish_once(now, get=get, patch=patch)
+
+
 def clip_refresh_due(now, last_slot):
-    """Refresh at every even KST hour (00, 02, ..., 22), once per slot."""
+    """Collect on even KST hours, independently of 08:00/18:00 publication."""
     now = now.astimezone(KST)
     slot = now.strftime("%Y-%m-%d %H")
     return now.hour % 2 == 0 and slot != last_slot
 
 
 def run_clip_scheduler():
-    """Refresh the original message every two hours in Korea Standard Time."""
-    last_slot = None
+    """Collect every 2h, edit the original Discord message at 08 and 18 KST."""
     first = True
+    next_publish_attempt = 0.0
     while True:
         now = datetime.now(KST)
-        slot = now.strftime("%Y-%m-%d %H")
-        due = clip_refresh_due(now, last_slot)
-        if first or due:
+        state = load_json(STATE_FILE, {})
+        if not isinstance(state, dict):
+            state = {}
+        collected_slot = state.get("collected_slot")
+        # Startup collection is offline; restarting outside 08/18 NEVER edits Discord.
+        if first or clip_refresh_due(now, collected_slot):
             first = False
-            if due:
-                last_slot = slot
             try:
-                logging.info("CHZZK_CLIP_RESULT %s", refresh_once(now))
+                logging.info("CHZZK_CLIP_COLLECT_RESULT %s", collect_once(now))
             except (requests.RequestException, OSError, ValueError, TypeError):
-                logging.exception("클립 업데이트 실패: 기존 메시지 유지")
+                logging.exception("클립 수집 실패: 기존 메시지 유지")
+        if (clip_publish_due(now, state.get("last_published_slot"))
+                and time.monotonic() >= next_publish_attempt):
+            # A failed slot can retry, without spamming the Discord API every 30s.
+            next_publish_attempt = time.monotonic() + 300
+            try:
+                logging.info("CHZZK_CLIP_RESULT %s", publish_once(now))
+            except (requests.RequestException, OSError, ValueError, TypeError):
+                logging.exception("클립 메시지 갱신 실패: 기존 메시지 유지")
         time.sleep(30)
