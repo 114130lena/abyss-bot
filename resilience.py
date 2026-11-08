@@ -145,6 +145,56 @@ def _collect_x_video_attachments(prepared):
     return []
 
 
+def _role_mention_expectations(payload):
+    """Only roles explicitly allowed and rendered in Text Display can be pinged."""
+    allowed = payload.get("allowed_mentions") or {}
+    roles = [str(r) for r in allowed.get("roles", []) if str(r).isdigit()]
+    texts = []
+    def visit(items):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == 10:
+                texts.append(str(item.get("content", "")))
+            visit(item.get("components") or [])
+    visit(payload.get("components") or [])
+    content = "\\n".join(texts)
+    return [role for role in roles if "<@&" + role + ">" in content]
+
+
+def _audit_role_mention(response, payload):
+    """Verify whether Discord parsed the configured role; never resend to test."""
+    expected = _role_mention_expectations(payload)
+    allowed = (payload.get("allowed_mentions") or {}).get("roles", [])
+    if allowed and not expected:
+        logging.warning("DISCORD_ROLE_MENTION_PAYLOAD_INVALID roles_allowed=%d", len(allowed))
+        return
+    if not expected:
+        return  # Reposts and test previews intentionally have no role ping.
+    if response.status_code != 200:
+        logging.warning("DISCORD_ROLE_MENTION_UNVERIFIED reason=no_message_response http=%s",
+                        response.status_code)
+        return
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        logging.warning("DISCORD_ROLE_MENTION_UNVERIFIED reason=invalid_response")
+        return
+    if not isinstance(data, dict):
+        logging.warning("DISCORD_ROLE_MENTION_UNVERIFIED reason=missing_message")
+        return
+    actual = [str(role) for role in data.get("mention_roles", [])]
+    missing = [role for role in expected if role not in actual]
+    if missing:
+        logging.warning("DISCORD_ROLE_MENTION_MISSING expected=%s actual=%s message_id=%s",
+                        ",".join(expected), ",".join(actual), str(data.get("id", "")))
+    else:
+        logging.info("DISCORD_ROLE_MENTION_RECOGNIZED count=%d message_id=%s",
+                     len(expected), str(data.get("id", "")))
+    if data.get("flags", 0) & 4096:
+        logging.warning("DISCORD_ROLE_MENTION_SUPPRESSED flag=SUPPRESS_NOTIFICATIONS")
+
+
 def send_webhook(url, payload, attempts=3):
     """Retry transient HTTP/network failures, respecting Discord retry_after."""
     if not url.startswith("https://"):
@@ -152,6 +202,10 @@ def send_webhook(url, payload, attempts=3):
     if payload.get("flags", 0) & 32768:
         separator = "&" if "?" in url else "?"
         url = url + separator + "with_components=true"
+    # Discord normally returns 204. wait=true returns the message object, letting
+    # us distinguish a visible @role from a role that Discord actually parsed.
+    if "wait=" not in url:
+        url += ("&" if "?" in url else "?") + "wait=true"
     for attempt in range(attempts):
         delivery_started = time.monotonic()
         try:
@@ -267,6 +321,7 @@ def send_webhook(url, payload, attempts=3):
                         mark_delivered(*chosen)
                     except Exception as exc:
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
+                _audit_role_mention(response, prepared)
                 logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
                              attempt + 1, time.monotonic() - delivery_started,
                              len(x_photos) + len(x_videos) + (2 if chosen else 0) + (1 if local_fanart else 0))
