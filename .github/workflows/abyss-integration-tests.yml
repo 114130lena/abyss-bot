@@ -125,6 +125,57 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "DISCORD_ROLE_MENTION_DIAGNOSIS"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          import pathlib,urllib.request,urllib.error,json,urllib.parse
+          env={}
+          for line in pathlib.Path('.env').read_text().splitlines():
+              if '=' in line and not line.lstrip().startswith('#'):
+                  k,v=line.split('=',1);env[k]=v.strip().strip('"').strip("'")
+          token=env.get('DISCORD_BOT_TOKEN','')
+          guild=env.get('DISCORD_GUILD_ID','')
+          webhook=env.get('DISCORD_WEBHOOK_URL','')
+          def api(url,auth=None):
+              headers={'User-Agent':'abyss-bot role audit','Accept':'application/json'}
+              if auth:headers['Authorization']='Bot '+auth
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=10) as response:return json.load(response)
+              except urllib.error.HTTPError as e:return {'audit_http_error':e.code}
+              except Exception as e:return {'audit_error':type(e).__name__}
+          print('GUILD_CONFIG',bool(token),bool(guild),bool(webhook))
+          if token and guild:
+              roles=api('https://discord.com/api/v10/guilds/'+guild+'/roles',token)
+              for role_id in ['1563499860135772211','1564279305171640361']:
+                  found=next((r for r in roles if isinstance(r,dict) and r.get('id')==role_id),None) if isinstance(roles,list) else None
+                  print('ROLE',role_id,'found',bool(found),'mentionable',found.get('mentionable') if found else None,'managed',found.get('managed') if found else None)
+              if not isinstance(roles,list):print('ROLE_FETCH_ERROR',roles)
+              bot=api('https://discord.com/api/v10/users/@me',token)
+              botid=bot.get('id') if isinstance(bot,dict) else None
+              if botid:
+                  member=api('https://discord.com/api/v10/guilds/'+guild+'/members/'+botid,token)
+                  ids=member.get('roles',[]) if isinstance(member,dict) else []
+                  if isinstance(roles,list):
+                      perms=0
+                      for r in roles:
+                          if r['id']==guild or r['id'] in ids:perms|=int(r.get('permissions','0'))
+                      print('BOT_MEMBER_FETCH',bool(member.get('user')),'MENTION_EVERYONE',(perms & 131072)!=0,'ADMINISTRATOR',(perms & 8)!=0)
+                  else:print('MEMBER_FETCH_ERROR',member)
+          if webhook.startswith('https://discord.com/api/webhooks/'):
+              w=api(webhook.split('?',1)[0])
+              print('WEBHOOK_META','channel_id',w.get('channel_id'),'guild_match',w.get('guild_id')==guild,'type',w.get('type')) if isinstance(w,dict) and 'audit_http_error' not in w and 'audit_error' not in w else print('WEBHOOK_FETCH_ERROR',w)
+              channel=w.get('channel_id') if isinstance(w,dict) else None
+              if channel and token:
+                  messages=api('https://discord.com/api/v10/channels/'+channel+'/messages?limit=30',token)
+                  if isinstance(messages,list):
+                      for msg in messages[:20]:
+                          if msg.get('webhook_id')!=w.get('id'):continue
+                          blocks=msg.get('components') or []
+                          mentions=[b.get('content','') for b in blocks if b.get('type')==10 and '<@&' in b.get('content','')]
+                          print('RECENT_WEBHOOK_MENTION','id_suffix',str(msg.get('id'))[-5:],'mention_roles',msg.get('mention_roles'),'outer_text_role',bool(mentions),'flags',msg.get('flags'))
+                  else:print('MESSAGE_FETCH_ERROR',messages)
+          PY
+
           echo "FINAL_DEPLOYED_HEALTH"
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python; else BOT_PY=.venv-test/bin/python; fi
