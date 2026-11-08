@@ -256,12 +256,24 @@ def refresh_once(now=None, get=None, patch=None):
     updated = dict(history)
     updated[day] = {"id": clips[0]["id"], "title": clips[0]["title"]}
     updated = dict(sorted(updated.items(), reverse=True)[:14])
-    # Media galleries support direct video URLs; thumbnails remain a safe fallback.\n    for clip in clips:\n        clip["video_url"] = clip_video_url(clip, get=get)\n    logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",\n                 sum(bool(c["video_url"]) for c in clips), len(clips))\n    payload = _render(clips, {k: v for k, v in updated.items() if k != day})
+    # Media galleries support direct video URLs; thumbnails remain a safe fallback.
+    for clip in clips:
+        clip["video_url"] = clip_video_url(clip, get=get)
+    logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",
+                 sum(bool(c["video_url"]) for c in clips), len(clips))
+    payload = _render(clips, {k: v for k, v in updated.items() if k != day})
     if not payload:
         return {"status": "no_recent_clips"}
     from discord_message_sync import update_original
     status = update_original(channel, message, payload, token,
                              get=get or requests.get, patch=patch or requests.patch)
+    if status.startswith("discord_rejected_") and any(c.get("video_url") for c in clips):
+        for clip in clips:
+            clip.pop("video_url", None)
+        fallback = _render(clips, {k: v for k, v in updated.items() if k != day})
+        status = update_original(channel, message, fallback, token,
+                                 get=get or requests.get, patch=patch or requests.patch)
+        logging.warning("CHZZK_CLIP_INLINE_VIDEO_FALLBACK status=%s", status)
     if status != "updated":
         logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE message=%s reason=%s; no replacement sent",
                         message, status)
