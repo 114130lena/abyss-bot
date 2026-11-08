@@ -32,6 +32,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_restore_local_fanart.py' -v
           python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v
           python -m unittest discover -s tests -p 'test_fanart_fx_search.py' -v
+          python -m unittest discover -s tests -p 'test_health_monitor.py' -v
           python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
           python -m unittest -v test_guild_server_banner.py
           python -m unittest discover -s tests -p 'test_banner_info_sync.py' -v
@@ -200,6 +201,36 @@ jobs:
           echo "::endgroup::"
           echo "Deployment complete."
           REMOTE
+
+      - name: Capture redacted runtime health after deployment
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' > bot-health.json <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import json
+          from health_monitor import snapshot
+          print(json.dumps(snapshot(), ensure_ascii=False, separators=(",", ":")))
+          PY
+          REMOTE
+          python3 -m json.tool bot-health.json > /dev/null
+          echo '### Production health snapshot (counts/status only)' >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+          cat bot-health.json >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted health report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-health-${{ github.sha }}
+          path: bot-health.json
+          retention-days: 7
 
       - name: Send one approved YouTube preview (no role mentions)
         if: ${{ github.event_name == 'push' && github.event.head_commit.message == 'Send single YouTube preview for approved unified design' }}
