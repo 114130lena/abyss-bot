@@ -125,6 +125,23 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "IMAGE_VISION_CAPABILITY_AUDIT"
+          cd /home/ubuntu/chzzk-bot
+          python3 - <<'PY'
+          from pathlib import Path
+          env={}
+          for p in (Path('.env'),Path('.guild_banner_auth.env')):
+            if p.is_file():
+              for line in p.read_text().splitlines():
+                if '=' in line and not line.lstrip().startswith('#'):
+                  k,v=line.split('=',1);env[k.strip()]=v.strip().strip('"').strip("'")
+          for key in ('OPENAI_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','HF_TOKEN','HUGGINGFACE_HUB_TOKEN','BANNER_VISION_ENABLED'):
+            print('VISION_CONFIG',key,'present',bool(env.get(key)))
+          print('SYSTEM_MEMORY',next((s.strip() for s in Path('/proc/meminfo').read_text().splitlines() if s.startswith('MemTotal:')),None))
+          print('SYSTEM_AVAILABLE',next((s.strip() for s in Path('/proc/meminfo').read_text().splitlines() if s.startswith('MemAvailable:')),None))
+          print('SYSTEM_CPU_COUNT',len([v for v in Path('/proc/cpuinfo').read_text().splitlines() if v.startswith('processor')]))
+          PY
+
           echo "BANNER_FILTER_AFTER_DEPLOY"
           cd /home/ubuntu/chzzk-bot
           .venv/bin/python - <<'PY'
