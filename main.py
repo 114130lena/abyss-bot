@@ -167,6 +167,12 @@ def main():
                          name="guild-banner-rotation", daemon=True).start()
     start_websub()
     start_health_monitor()
+    # Vision analysis runs independently of notification delivery and banner rotation.
+    from fanart_vision import enabled as banner_vision_enabled, scan as scan_banner_vision
+    if banner_vision_enabled():
+        threading.Thread(target=run_worker,
+                         args=("히요리 이미지 분석", scan_banner_vision, 1800),
+                         name="banner-vision", daemon=True).start()
     # Check public profile feeds every 2 hours. Entries enter a private review
     # queue and can never become public fanart without explicit permission.
     if os.getenv("FANART_DISCOVERY_ENABLED", "1") == "1":
