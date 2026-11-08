@@ -76,7 +76,7 @@ def fetch_recent_clips(now=None, get=None):
         if not _ID.fullmatch(uid) or not dt:
             continue
         age = now - dt.astimezone(KST)
-        if not timedelta(0) <= age <= timedelta(days=365):
+        if not timedelta(0) <= age <= timedelta(hours=24):
             continue
         if (item.get("adult") or item.get("privateUserBlock")
                 or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -114,7 +114,7 @@ def fetch_recent_clips(now=None, get=None):
                     if not _ID.fullmatch(uid) or uid in seen or not dt:
                         continue
                     age = now - dt.astimezone(KST)
-                    if not timedelta(0) <= age <= timedelta(days=365):
+                    if not timedelta(0) <= age <= timedelta(hours=24):
                         continue
                     if (item.get("adult") or item.get("privateUserBlock")
                             or item.get("blindType") not in (None, "", "NONE", "NORMAL", "PUBLIC")):
@@ -135,12 +135,9 @@ def fetch_recent_clips(now=None, get=None):
             except (requests.RequestException, ValueError, TypeError):
                 logging.info("CHZZK_CLIP_EXTRA_PAGE_UNAVAILABLE page=%d", page)
                 break
-    # Prioritize clips from the last 24 hours, then fill the remaining slots
-    # with older clips (up to one year), without repeating a clip.
+    # Only clips created in the last 24 hours; never backfill older videos.
     unique = {clip["id"]: clip for clip in accepted}
-    return sorted(unique.values(), key=lambda c: (
-        0 if now - datetime.fromisoformat(c["date"]) <= timedelta(hours=24) else 1,
-        -c["views"], c["id"]))[:10]
+    return sorted(unique.values(), key=lambda c: (-c["views"], c["id"]))[:10]
 
 
 def _render(clips, history):
@@ -151,7 +148,7 @@ def _render(clips, history):
         {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": "**오늘의 히요리 클립**\n"
-         "최근 24시간 우선 · 이전 클립 포함 " + str(len(clips[:10])) + "개"},
+         "최근 24시간 클립 · 조회수 기준 " + str(len(clips[:10])) + "개"},
     ]
     # A Discord gallery can display up to ten images in a single message.
     # CHZZK's public API exposes thumbnails, not reliable direct MP4 files;
@@ -217,16 +214,21 @@ def refresh_once(now=None, get=None, patch=None):
     return {"status": "updated", "clip": clips[0]["id"], "count": len(clips)}
 
 
+def clip_refresh_due(now, last_slot):
+    """Refresh at every even KST hour (00, 02, ..., 22), once per slot."""
+    now = now.astimezone(KST)
+    slot = now.strftime("%Y-%m-%d %H")
+    return now.hour % 2 == 0 and slot != last_slot
+
+
 def run_clip_scheduler():
-    """KST: update at 18:00 and every 2 hours until 22:00, not overnight."""
+    """Refresh the original message every two hours in Korea Standard Time."""
     last_slot = None
-    # Update the original immediately on startup, including after deploy.
-    # Time slots remain 18/20/22 KST, with no overnight polling.
     first = True
     while True:
         now = datetime.now(KST)
         slot = now.strftime("%Y-%m-%d %H")
-        due = now.hour in (18, 20, 22) and slot != last_slot
+        due = clip_refresh_due(now, last_slot)
         if first or due:
             first = False
             if due:

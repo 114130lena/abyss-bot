@@ -23,7 +23,13 @@ class ClipTests(unittest.TestCase):
                  item("clip789", 30, 9000), item("clip333", 1, 9999, "wrong")]
         get = Mock(return_value=fake_response({"code": 200, "content": {"data": items}}))
         recent = clips.fetch_recent_clips(NOW, get)
-        self.assertEqual([x["id"] for x in recent], ["clip456", "clip123", "clip789"])
+        self.assertEqual([x["id"] for x in recent], ["clip456", "clip123"])
+
+    def test_refresh_schedule_every_two_hours(self):
+        self.assertTrue(clips.clip_refresh_due(NOW, None))
+        self.assertFalse(clips.clip_refresh_due(NOW, "2026-11-08 18"))
+        self.assertFalse(clips.clip_refresh_due(NOW.replace(hour=19), None))
+        self.assertTrue(clips.clip_refresh_due(NOW.replace(hour=20), "2026-11-08 18"))
 
     def test_timeout_retries_with_smaller_clip_page(self):
         from requests.exceptions import ReadTimeout
