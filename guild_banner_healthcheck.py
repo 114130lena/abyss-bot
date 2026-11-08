@@ -41,7 +41,14 @@ def check(now=None, current_hash=None):
             return {"status": "missing_credentials", "expected_slot": expected}
         current_hash = _current_guild_banner(token, guild)
     if last_slot != expected:
-        status = "missing_slot"
+        # No unseen images is a deliberate hold, not a missed write. Never
+        # misreport the paused safe state as a broken 08/18 rotation.
+        from guild_server_banner import banner_inventory
+        inventory = banner_inventory(state)
+        status = ("waiting_for_new_art"
+                  if inventory["total"] > 0 and inventory["unused"] == 0
+                  and recorded_hash and recorded_hash == current_hash
+                  else "missing_slot")
     elif not recorded_hash or recorded_hash != current_hash:
         status = "banner_hash_mismatch"
     elif state.get("banner_info_updated_hash") != current_hash:
@@ -61,4 +68,4 @@ if __name__ == "__main__":
         logging.warning("BANNER_HEALTH_FAILED reason=%s", type(exc).__name__)
         result = {"status": "unavailable"}
     print("BANNER_HEALTH " + json.dumps(result, ensure_ascii=False))
-    raise SystemExit(0 if result["status"] == "ok" else 1)
+    raise SystemExit(0 if result["status"] in ("ok", "waiting_for_new_art") else 1)
