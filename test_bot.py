@@ -72,6 +72,57 @@ class CrossPlatformTitleLinkTests(unittest.TestCase):
                 self.assertRegex(chzzk_button, r"^https://chzzk[.]naver[.]com/[0-9a-f]{32}$")
 
 
+class DiscordRoleMentionReceiptTests(unittest.TestCase):
+    def test_expected_role_is_present_in_v2_component(self):
+        from resilience import _role_mention_expectations
+        payload = unified_alert("chzzk", "하나요 히요리",
+                                role_id="1563499860135772211",
+                                title="새 방송", url="https://chzzk.naver.com/live/test")
+        self.assertEqual(_role_mention_expectations(payload), ["1563499860135772211"])
+
+    def test_retweet_without_role_never_requires_mention(self):
+        from resilience import _role_mention_expectations
+        payload = unified_alert("x", "하나요 히요리", role_id="",
+                                title="리트윗", url="https://x.com/example/status/123")
+        self.assertEqual(_role_mention_expectations(payload), [])
+
+    def test_receipt_audit_recognizes_and_detects_missing_role(self):
+        from resilience import _audit_role_mention
+        from unittest.mock import Mock
+        payload = unified_alert("youtube", "사키하네 후야",
+                                role_id="1564279305171640361", title="영상",
+                                url="https://www.youtube.com/watch?v=abc")
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "id": "123", "flags": 32768, "mention_roles": ["1564279305171640361"]
+        }
+        with self.assertLogs(level="INFO") as logs:
+            _audit_role_mention(response, payload)
+        self.assertIn("DISCORD_ROLE_MENTION_RECOGNIZED", "\\n".join(logs.output))
+        response.json.return_value["mention_roles"] = []
+        with self.assertLogs(level="WARNING") as logs:
+            _audit_role_mention(response, payload)
+        self.assertIn("DISCORD_ROLE_MENTION_MISSING", "\\n".join(logs.output))
+
+    def test_webhook_asks_for_message_receipt_without_extra_send(self):
+        from resilience import send_webhook
+        from unittest.mock import Mock
+        response = Mock(status_code=200)
+        response.json.return_value = {"id": "200", "flags": 32768,
+                                      "mention_roles": ["1563499860135772211"]}
+        payload = unified_alert("chzzk", "하나요 히요리",
+                                role_id="1563499860135772211",
+                                title="방송", url="https://chzzk.naver.com/live/a")
+        with patch("resilience.requests.post", return_value=response) as sent:
+            send_webhook("https://discord.com/api/webhooks/12/token?thread_id=456",
+                         payload)
+        self.assertEqual(sent.call_count, 1)
+        url = sent.call_args.args[0]
+        self.assertIn("thread_id=456", url)
+        self.assertIn("with_components=true", url)
+        self.assertIn("wait=true", url)
+
+
 class DeliveryReviewTests(unittest.TestCase):
     def test_unknown_outcome_records_no_message_body_or_webhook(self):
         import delivery_review
