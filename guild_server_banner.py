@@ -491,12 +491,12 @@ def _banner_card(guild_id, banner_hash, state):
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
     method = str(state.get("banner_change_method") or "").strip()
-    if not method:
-        if state.get("banner_audit_status") == "permission_denied":
-            method = "Discord 감사 로그 권한 없음 · 변경 주체 확인 불가"
-        else:
-            method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
-                      else "이전 기록 없음 · 변경 주체 확인 불가")
+    if state.get("banner_audit_status") == "permission_denied" and (
+            not method or method.startswith(("기존 기록", "이전 기록"))):
+        method = "Discord 감사 로그 권한 없음 · 변경 주체 확인 불가"
+    elif not method:
+        method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
+                  else "이전 기록 없음 · 변경 주체 확인 불가")
     changed_at = str(state.get("banner_changed_at") or "").strip()
     if not changed_at and state.get("banner_first_observed_at"):
         changed_at = ("정확한 변경 시각 미확인 (최초 확인 · "
