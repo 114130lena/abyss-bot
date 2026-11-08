@@ -19,6 +19,7 @@ class BannerInfoTests(unittest.TestCase):
         self.env = patch.dict("os.environ", {
             "DISCORD_BOT_TOKEN": "dummy",
             "DISCORD_GUILD_ID": "123456",
+            "SERVER_BANNER_INFO_MESSAGE_ID": "789",
         })
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -52,15 +53,25 @@ class BannerInfoTests(unittest.TestCase):
         self.assertEqual(result["status"], "up_to_date")
         edit.assert_not_called()
 
-    def test_new_card_is_persisted_only_on_success(self):
+    def test_missing_original_id_never_creates_duplicate(self):
+        with patch.dict("os.environ", {"SERVER_BANNER_INFO_MESSAGE_ID": ""}), \
+             patch.object(banner, "_current_guild_banner", return_value="hash"), \
+             patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner.requests, "post") as create, \
+             patch.object(banner.requests, "patch") as edit:
+            result = banner.sync_banner_info()
+        self.assertEqual(result["status"], "original_message_id_required")
+        create.assert_not_called()
+        edit.assert_not_called()
+
+    def test_uneditable_original_never_creates_duplicate(self):
         with patch.object(banner, "_current_guild_banner", return_value="hash"), \
              patch.object(banner, "read_state", return_value={}), \
-             patch.object(banner, "_find_existing_banner_info", return_value=""), \
-             patch.object(banner, "write_state") as save, \
-             patch.object(banner.requests, "post", return_value=response({"id": "999"})):
+             patch.object(banner.requests, "post") as create, \
+             patch.object(banner.requests, "patch", return_value=response({}, 403)):
             result = banner.sync_banner_info()
-        self.assertEqual(result["message_id"], "999")
-        self.assertEqual(save.call_args.args[0]["banner_info_updated_hash"], "hash")
+        self.assertEqual(result["status"], "original_message_uneditable")
+        create.assert_not_called()
 
     def test_attribution_remains_for_confirmed_bot_rotation(self):
         state = {"guild_banner_hash": "bot_hash", "artist": "@realartist",
