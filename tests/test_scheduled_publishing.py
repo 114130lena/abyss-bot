@@ -31,17 +31,26 @@ class SchedulerCoordinationTests(unittest.TestCase):
         self.assertIn("clip_healthcheck.py", clip_source)
         self.assertIn("25 23,9 * * *", clip_source)
 
-    def test_delayed_backup_uses_last_kst_slot(self):
-        self.assertEqual(backup.target_slot(at(8, 11, 34)),
-                         at(8, 8, 0))
-        self.assertEqual(backup.target_slot(at(8, 21, 34)),
-                         at(8, 18, 0))
-        self.assertEqual(backup.target_slot(at(9, 6, 12)),
-                         at(8, 18, 0))
+    def test_backup_only_uses_its_current_kst_hour(self):
+        self.assertEqual(backup.target_slot(at(8, 8, 27)), at(8, 8, 0))
+        self.assertEqual(backup.target_slot(at(8, 8, 59)), at(8, 8, 0))
+        self.assertEqual(backup.target_slot(at(8, 18, 47)), at(8, 18, 0))
+        for when in (at(8, 7, 59), at(8, 11, 34),
+                     at(8, 17, 59), at(8, 21, 34),
+                     at(9, 1, 6), at(9, 6, 12)):
+            with self.subTest(when=when):
+                self.assertIsNone(backup.target_slot(when))
+
+    def test_stale_github_job_cannot_change_banner_overnight(self):
+        with patch("guild_server_banner.rotate_once") as rotate:
+            result = backup.run(at(9, 1, 6))
+        self.assertEqual(result["status"], "outside_schedule")
+        self.assertIsNone(result["target_slot"])
+        rotate.assert_not_called()
 
     def test_backup_uses_canonical_rotate_once_with_same_slot(self):
         with patch("guild_server_banner.rotate_once", return_value={"status": "already_rotated"}) as rotate:
-            result = backup.run(at(8, 11, 34))
+            result = backup.run(at(8, 8, 34))
         self.assertEqual(result["status"], "already_rotated")
         rotate.assert_called_once_with(now=at(8, 8, 0))
 

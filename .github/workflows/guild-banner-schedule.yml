@@ -4,6 +4,7 @@ on:
   schedule:
     # Primary: Oracle systemd every 5m during 08:xx/18:xx Korea time.
     # Backup: 08:27/08:47 and 18:27/18:47 Korea time, away from 5m ticks.
+    # Delayed runs outside the corresponding KST hour must not update banners.
     - cron: '27,47 23 * * *'
     - cron: '27,47 9 * * *'
   workflow_dispatch:
