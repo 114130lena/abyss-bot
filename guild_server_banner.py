@@ -341,7 +341,7 @@ def _banner_card(guild_id, banner_hash, state):
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 마지막 확인 · " + datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")})
-    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
                              "components": parts}],
             "allowed_mentions": {"parse": []}}
 
