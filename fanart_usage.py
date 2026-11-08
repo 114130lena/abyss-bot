@@ -47,6 +47,9 @@ def server_reserved_post_ids(group):
             continue
         if item.get("hashtag", "").casefold() != "#hiyoriart_":
             continue
+        from fanart_relevance import eligible_hanayo_banner
+        if not eligible_hanayo_banner(item):
+            continue
         if (item.get("review_status") == "blocked" or item.get("decision") == "blocked"
                 or item.get("server_banner_excluded") is True):
             continue

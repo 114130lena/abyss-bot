@@ -50,6 +50,13 @@ class BannerTests(unittest.TestCase):
         with patch.dict("os.environ", {"SERVER_BANNER_USE_COLLECTED": "1"}):
             self.assertEqual(mod.collected_hanayo_art(), [])
 
+    def test_group_collab_repost_never_enter_automatic_hiyori_banner_pool(self):
+        from fanart_relevance import eligible_hanayo_banner
+        self.assertFalse(eligible_hanayo_banner({
+            "text": "RT by @ROFAN_reader_: #toart_ #Rangart_ #hiyoriart_ #maryart_ 어비스 첫 오리지널곡 발매 축하해!"
+        }))
+        self.assertTrue(eligible_hanayo_banner({"text": "하나요 히요리 팬아트 #hiyoriart_"}))
+
     def test_rotation_uses_every_candidate_before_repeating(self):
         pool = [(Path(f"/tmp/{c}.jpg"), {"sha256": c}) for c in ("a", "b", "c")]
         history = []
