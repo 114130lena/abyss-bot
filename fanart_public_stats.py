@@ -46,8 +46,7 @@ def snapshot():
                 if not isinstance(relative, str):
                     continue
                 candidate = (BASE / relative).resolve()
-                if (cache_root in candidate.parents and candidate.is_file()
-                        and candidate.is_file()):
+                if (cache_root in candidate.parents and candidate.is_file()):
                     valid_images += 1
         result["groups"][group] = {"posts": len(items) if queue_exists else None,
                                     "cached_images": valid_images if queue_exists else None,
