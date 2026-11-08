@@ -12,7 +12,6 @@ from resilience import send_webhook,save_json,load_json
 from discord_v2 import alert
 from banner_manager import get_banner
 from creator_profiles import handle,avatar
-from creator_groups import role_for
 
 BASE=Path(os.getenv("BOT_DATA_DIR","/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE/".env")
@@ -59,11 +58,11 @@ def check_spaces():
         url="https://x.com/i/spaces/"+sid
         title=("🎙️ X SPACE · LIVE" if stage=="live" else "📅 X SPACE · 예정")
         payload=alert("x",NAMES[group],get_banner(group),
-            role_id=role_for(group),title=title+" · "+str(space.get("title") or "제목 없음")[:200],
+            role_id="",title=title+" · "+str(space.get("title") or "제목 없음")[:200],
             body=("실시간 스페이스가 시작되었습니다." if stage=="live" else
                   "예정된 스페이스가 등록되었습니다.")+
                  ("\\n예정 시작: "+str(space["scheduled_start"]) if stage=="scheduled" and space.get("scheduled_start") else ""),
-            url=url,handle=handle(group),avatar=avatar(group),ping=True)
+            url=url,handle=handle(group),avatar=avatar(group),ping=False)
         send_webhook(WEBHOOK,payload)
     previous.update(observed)
     save_json(STATE,previous)
