@@ -498,8 +498,7 @@ def _banner_card(guild_id, banner_hash, state):
     # Audit-log access is only an internal diagnostic for historical banners.
     # Keep the public card about the banner itself, not the bot's permissions.
     if not method or method.startswith(("기존 기록", "이전 기록")):
-        method = ("이전 배너 · 변경 방식 미확인" if known_source
-                  else "이전 배너 · 변경 기록 없음")
+        method = "이전 배너 · 변경 방식 미확인"
     changed_at = str(state.get("banner_changed_at") or "").strip()
     if not changed_at and state.get("banner_first_observed_at"):
         changed_at = ("정확한 변경 시각 미확인 (최초 확인 · "
