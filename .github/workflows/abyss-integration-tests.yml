@@ -125,6 +125,30 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "MENTION_CURRENT_AUDIT"
+          cd /home/ubuntu/chzzk-bot
+          echo "ROLE_DELIVERY_LOGS"
+          sudo journalctl -u chzzk-bot.service --since '5 hours ago' --no-pager -o cat | grep -E 'DISCORD_ROLE_MENTION|DISCORD_WEBHOOK_DELIVERED' | tail -n 35 || true
+          echo "ROLE_IDS_CURRENT"
+          grep -n '^GROUP_ROLES' creator_groups.py
+          python3 - <<'PY'
+          import pathlib,urllib.request,urllib.error,json,urllib.parse
+          env={}
+          for line in pathlib.Path(".env").read_text().splitlines():
+              if "=" in line and not line.lstrip().startswith("#"):
+                  k,v=line.split("=",1);env[k]=v.strip().strip('"').strip("'")
+          url=env.get("DISCORD_WEBHOOK_URL","").split("?",1)[0]
+          if url.startswith("https://discord.com/api/webhooks/"):
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers={"User-Agent":"abyss-bot audit"}),timeout=8) as response:
+                      w=json.load(response)
+                  print("WEBHOOK_GUILD_ID",w.get("guild_id"))
+                  print("WEBHOOK_CHANNEL_ID",w.get("channel_id"))
+              except Exception as e:print("WEBHOOK_AUDIT_FAILED",type(e).__name__)
+          print("BOT_TOKEN_PRESENT",bool(env.get("DISCORD_BOT_TOKEN")))
+          print("GUILD_ID_PRESENT",bool(env.get("DISCORD_GUILD_ID")))
+          PY
+
           echo "MENTION_AUDIT_POST_DEPLOY"
           cd /home/ubuntu/chzzk-bot
           grep -q 'DISCORD_ROLE_MENTION_RECOGNIZED' resilience.py && echo 'MENTION_RECEIPT_CODE=DEPLOYED' || echo 'MENTION_RECEIPT_CODE=MISSING'
