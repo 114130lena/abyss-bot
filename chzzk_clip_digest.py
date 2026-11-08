@@ -39,11 +39,28 @@ def _date(value):
 def fetch_recent_clips(now=None, get=None):
     now = (now or datetime.now(KST)).astimezone(KST)
     url = f"https://api.chzzk.naver.com/service/v1/channels/{CHANNEL_ID}/clips"
-    response = (get or requests.get)(url, params={
-        "clipUID": "", "filterType": "ALL", "orderType": "RECENT",
-        "page": 0, "size": 100}, timeout=(3, 12))
-    response.raise_for_status()
-    root = response.json()
+    # This undocumented public endpoint occasionally stalls on large pages.
+    # Bound retry cost and avoid blocking the other bot workers.
+    fetch = get or requests.get
+    last_error = None
+    for size in (30, 10):
+        try:
+            response = fetch(url, params={
+                "filterType": "ALL", "orderType": "RECENT",
+                "page": 0, "size": size}, timeout=(2, 7),
+                headers={"User-Agent": "Mozilla/5.0 (compatible; abyss-bot/1.0)",
+                         "Accept": "application/json",
+                         "Referer": "https://chzzk.naver.com/"})
+            response.raise_for_status()
+            root = response.json()
+            break
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error = exc
+            logging.warning("CHZZK_CLIP_SOURCE_RETRY page_size=%d reason=%s",
+                            size, type(exc).__name__)
+    else:
+        logging.warning("CHZZK_CLIP_SOURCE_UNAVAILABLE after_two_attempts")
+        raise last_error
     if not isinstance(root, dict) or root.get("code") != 200:
         raise ValueError("Invalid CHZZK clip response")
     block = root.get("content") or {}

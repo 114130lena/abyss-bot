@@ -25,6 +25,15 @@ class ClipTests(unittest.TestCase):
         recent = clips.fetch_recent_clips(NOW, get)
         self.assertEqual([x["id"] for x in recent], ["clip456", "clip123"])
 
+    def test_timeout_retries_with_smaller_clip_page(self):
+        from requests.exceptions import ReadTimeout
+        clips_api={"code": 200, "content": {"data": []}}
+        fetch=Mock(side_effect=[ReadTimeout("timed out"), fake_response(clips_api)])
+        self.assertEqual(clips.fetch_recent_clips(NOW, fetch), [])
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(fetch.call_args_list[0].kwargs["params"]["size"], 30)
+        self.assertEqual(fetch.call_args_list[1].kwargs["params"]["size"], 10)
+
     def test_renders_ten_clips_without_view_counts_or_duration(self):
         items = [{"id": "clip" + str(i).zfill(4), "title": "영상 " + str(i),
                   "url": "https://chzzk.naver.com/clips/clip" + str(i).zfill(4),
