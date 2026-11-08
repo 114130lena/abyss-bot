@@ -262,9 +262,13 @@ jobs:
                       yield from all_text(item.get("components") or [])
           text = "\\n".join(all_text(parts))
           required = ("현재 적용된 서버 배너", "변경 방식", "변경 시각",
-                      "원본 작가", "원본 게시물")
+                      "원본 작가", "원본 게시물", "정기 업데이트",
+                      "다음 업데이트", "업데이트까지")
           if not all(value in text for value in required):
               raise SystemExit("Discord banner card still displays a previous layout")
+          import re
+          if not re.search(r"<t:\d+:R>", text) or not re.search(r"<t:\d+:F>", text):
+              raise SystemExit("Discord banner countdown is missing relative or absolute timestamp")
           if not (int(posted.get("flags") or 0) & 32768):
               raise SystemExit("Discord banner card is missing Components V2 flag")
           from guild_server_banner import read_state
