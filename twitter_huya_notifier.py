@@ -114,7 +114,7 @@ def _notify(post):
     # illustrated X post as confirmed text-only and display unrelated fanart.
     uncertain_photo = not media_known
     payload = unified_alert(
-        "x", "사키하네 후야", get_banner(GROUP), ROLE,
+        "x", "사키하네 후야", get_banner(GROUP), "",
         body=(post["text"] or "새 게시글")[:2500],
         url=post["url"], date=post.get("pub_date", ""),
         images=post.get("images", []), media_url=video_preview,
