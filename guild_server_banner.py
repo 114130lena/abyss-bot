@@ -13,7 +13,7 @@ import os
 import random
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -461,6 +461,29 @@ def _recover_cached_image_source(guild_id, actual, get=None):
             "post_url": result["post_url"]}
 
 
+
+def _audit_retry_due(state, banner_hash, now=None):
+    """Retry transient/missing-permission audit lookup periodically, not every poll.
+
+    An operator can grant VIEW_AUDIT_LOG after initial failure. Do not freeze
+    provenance recovery for the remaining lifetime of the same banner hash.
+    """
+    if state.get("banner_audit_checked_hash") != banner_hash:
+        return True
+    if state.get("banner_audit_status") not in (
+            "permission_denied", "unavailable", "invalid_response"):
+        return False
+    last = str(state.get("banner_audit_checked_at") or "")
+    try:
+        previous = datetime.fromisoformat(last)
+        if previous.tzinfo is None:
+            return True
+    except (ValueError, TypeError):
+        return True
+    now = now or datetime.now(KST)
+    return now - previous.astimezone(KST) >= timedelta(minutes=5)
+
+
 def _banner_card(guild_id, banner_hash, state):
     """Every card displays all four metadata fields, even for unknown sources."""
     from datetime import datetime
@@ -468,7 +491,10 @@ def _banner_card(guild_id, banner_hash, state):
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
     method = str(state.get("banner_change_method") or "").strip()
-    if not method:
+    if state.get("banner_audit_status") == "permission_denied" and (
+            not method or method.startswith(("기존 기록", "이전 기록"))):
+        method = "Discord 감사 로그 권한 없음 · 변경 주체 확인 불가"
+    elif not method:
         method = ("기존 출처 기록 있음 · 변경 방식 미상" if known_source
                   else "이전 기록 없음 · 변경 주체 확인 불가")
     changed_at = str(state.get("banner_changed_at") or "").strip()
@@ -588,10 +614,11 @@ def sync_banner_info(force=False):
         or not state.get("banner_changed_at")
         or state.get("banner_change_method", "").startswith(("기존 기록", "이전 기록"))))
     if (audit_needed and os.getenv("SERVER_BANNER_AUDIT_LOOKUP", "0") == "1"
-            and state.get("banner_audit_checked_hash") != actual):
+            and _audit_retry_due(state, actual)):
         audit = _audit_banner_change(token, guild_id, actual)
         state["banner_audit_checked_hash"] = actual
         state["banner_audit_status"] = audit["status"]
+        state["banner_audit_checked_at"] = datetime.now(KST).isoformat()
         if audit["status"] == "matched":
             state["banner_change_method"] = audit["banner_change_method"]
             state["banner_changed_at"] = audit["banner_changed_at"]
