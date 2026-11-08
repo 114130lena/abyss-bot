@@ -1,0 +1,64 @@
+name: Verify published Hanayo clip message
+on:
+  schedule:
+    # KST 08:25 and 18:25; collection continues independently every 2 hours.
+    - cron: '25 23,9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: abyss-clip-publication-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == '114130lena/abyss-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Connect to the existing Ubuntu bot server
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/clip_health_key
+          chmod 600 ~/.ssh/clip_health_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Verify original Discord clip publication, open issue only on failure
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          report="$(mktemp)"
+          title="[chzzk-clip] Scheduled Discord clip message was not updated"
+          if ssh -i ~/.ssh/clip_health_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
+              'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" clip_healthcheck.py' > "$report" 2>&1; then
+            cat "$report"
+            existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
+              --jq '.[] | select(.title == "[chzzk-clip] Scheduled Discord clip message was not updated") | .number' | head -n 1)"
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body "Clip publishing recovered: verified original message and slot in Actions run $GITHUB_RUN_ID."
+              gh issue close "$existing" --repo "$REPO"
+            fi
+            echo "CHZZK_CLIP_PUBLISH_HEALTH=ok"
+            exit 0
+          fi
+          cat "$report"
+          existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
+              --jq '.[] | select(.title == "[chzzk-clip] Scheduled Discord clip message was not updated") | .number' | head -n 1)"
+          if [ -z "$existing" ]; then
+            gh issue create --repo "$REPO" --title "$title" \
+              --body "The existing Discord clip message was not verified for the latest 08:00/18:00 KST slot. The normal notification service was left running. Logs: https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+          else
+            echo "CHZZK_CLIP_PUBLISH_HEALTH existing_issue=$existing"
+          fi
+          exit 1
