@@ -56,7 +56,8 @@ def snapshot():
         for item in queue.values():
             if not isinstance(item, dict) or item.get("group") != group:
                 continue
-            for value in item.get("cached_files") or []:
+            files = item.get("cached_files")
+            for value in files if isinstance(files, list) else []:
                 if not isinstance(value, str):
                     missing += 1
                     continue
@@ -148,6 +149,9 @@ def health_warnings(report):
     """Only status and counts, not user text or secrets, enter admin alerts."""
     warnings = {}
     banner = report.get("banner", {})
+    if any((report.get("fanart", {}).get(group, {}).get("missing_cached_images") or 0) > 0
+           for group in ("hanayo", "sakihane")):
+        warnings["fanart_cache_integrity"] = "팬아트 캐시 참조 중 파일이 없는 이미지가 있습니다."
     if os.getenv("SERVER_BANNER_ENABLED", "0") == "1":
         if ("collected_candidates" in banner and "approved_candidates" in banner
                 and (banner["collected_candidates"] + banner["approved_candidates"])
