@@ -58,6 +58,7 @@ class DeployWorkflowTests(unittest.TestCase):
         self.assertIn("statuses: write", source)
         self.assertIn("if: always()", source)
         self.assertIn('context="abyss/production-banner"', source)
+        self.assertIn('context="abyss/banner-provenance/$provenance_status"', source)
 
     def test_live_banner_card_is_verified_after_restart(self):
         source = WORKFLOW.read_text(encoding="utf-8")
