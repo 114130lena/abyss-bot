@@ -46,6 +46,28 @@ def snapshot():
             "posts": len(items),
             "cached_images": sum(len(v.get("cached_files") or []) for v in items),
         }
+    # cached_images above counts references in the persisted queue. Confirm
+    # actual disk files separately: a fresh queue timestamp alone does not
+    # mean a successful new-art download.
+    art_base = (ROOT / "creator_media").resolve()
+    for group in ("hanayo", "sakihane"):
+        safe_root = (art_base / "fanart_candidates" / group).resolve()
+        valid, missing = 0, 0
+        for item in queue.values():
+            if not isinstance(item, dict) or item.get("group") != group:
+                continue
+            files = item.get("cached_files")
+            for value in files if isinstance(files, list) else []:
+                if not isinstance(value, str):
+                    missing += 1
+                    continue
+                candidate = (art_base / value).resolve()
+                if safe_root in candidate.parents and candidate.is_file():
+                    valid += 1
+                else:
+                    missing += 1
+        result["fanart"][group]["verified_cached_images"] = valid
+        result["fanart"][group]["missing_cached_images"] = missing
     if queue_path.is_file():
         result["fanart"]["queue_age_hours"] = round((now - queue_path.stat().st_mtime) / 3600, 1)
     fx_path = ROOT / "creator_media" / "fanart_fx_search_state.json"
@@ -127,6 +149,9 @@ def health_warnings(report):
     """Only status and counts, not user text or secrets, enter admin alerts."""
     warnings = {}
     banner = report.get("banner", {})
+    if any((report.get("fanart", {}).get(group, {}).get("missing_cached_images") or 0) > 0
+           for group in ("hanayo", "sakihane")):
+        warnings["fanart_cache_integrity"] = "팬아트 캐시 참조 중 파일이 없는 이미지가 있습니다."
     if os.getenv("SERVER_BANNER_ENABLED", "0") == "1":
         if ("collected_candidates" in banner and "approved_candidates" in banner
                 and (banner["collected_candidates"] + banner["approved_candidates"])

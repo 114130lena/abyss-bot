@@ -69,7 +69,8 @@ def fetch_group(group,session=None):
             "decision":decision,"review_status":"blocked" if decision=="blocked" else "pending",
             "source":"fxtwitter_profile_feed","text":combined[:2000]}
         added+=1
-    write(QUEUE,queue)
+    if added:
+        write(QUEUE,queue)
     return {"account":account,"matched":seen,"added":added}
 
 def run():
