@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - '.github/workflows/**'
   workflow_dispatch:
 
 concurrency:
@@ -107,7 +105,7 @@ jobs:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
         run: |
-          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "DEPLOY_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           diagnose_deploy_failure() {
             rc=${1:-$?}
@@ -190,6 +188,11 @@ jobs:
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
+          # Record the actual source revision independently of the server's git log:
+          # deployment copies files over SSH and does not advance its local git HEAD.
+          printf '%s\n' "$DEPLOY_SHA" > .deploy-staging/deployed_revision
+          mv .deploy-staging/deployed_revision .deployed_revision
+          echo "DEPLOYED_REVISION=$DEPLOY_SHA"
           trap - ERR
           echo "::endgroup::"
           echo "Deployment complete."
