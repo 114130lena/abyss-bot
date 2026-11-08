@@ -36,6 +36,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_restore_local_fanart.py' -v
           python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v
           python -m unittest discover -s tests -p 'test_fanart_fx_search.py' -v
+          python -m unittest discover -s tests -p 'test_fanart_artist_watch.py' -v
           python -m unittest discover -s tests -p 'test_fanart_rss_health.py' -v
           python -m unittest discover -s tests -p 'test_health_monitor.py' -v
           python -m unittest discover -s tests -p 'test_x_spaces_worker.py' -v
