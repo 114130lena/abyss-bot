@@ -46,6 +46,27 @@ def snapshot():
             "posts": len(items),
             "cached_images": sum(len(v.get("cached_files") or []) for v in items),
         }
+    # cached_images above counts references in the persisted queue. Confirm
+    # actual disk files separately: a fresh queue timestamp alone does not
+    # mean a successful new-art download.
+    art_base = (ROOT / "creator_media").resolve()
+    for group in ("hanayo", "sakihane"):
+        safe_root = (art_base / "fanart_candidates" / group).resolve()
+        valid, missing = 0, 0
+        for item in queue.values():
+            if not isinstance(item, dict) or item.get("group") != group:
+                continue
+            for value in item.get("cached_files") or []:
+                if not isinstance(value, str):
+                    missing += 1
+                    continue
+                candidate = (art_base / value).resolve()
+                if safe_root in candidate.parents and candidate.is_file():
+                    valid += 1
+                else:
+                    missing += 1
+        result["fanart"][group]["verified_cached_images"] = valid
+        result["fanart"][group]["missing_cached_images"] = missing
     if queue_path.is_file():
         result["fanart"]["queue_age_hours"] = round((now - queue_path.stat().st_mtime) / 3600, 1)
     fx_path = ROOT / "creator_media" / "fanart_fx_search_state.json"
