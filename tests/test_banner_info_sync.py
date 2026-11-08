@@ -64,7 +64,7 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 9,
+                 "banner_info_message_id": "789", "banner_info_layout_version": 10,
                  "banner_info_stats_checksum": "fixed-stats",
                  "banner_first_observed_at": "2026-11-08 18:00 KST"}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
@@ -130,9 +130,10 @@ class BannerInfoTests(unittest.TestCase):
         buttons = [p for p in parts if p.get("type") == 1]
         self.assertEqual(buttons[0]["components"][0]["url"], source)
         self.assertEqual(buttons[0]["components"][0]["label"], "원본 게시물")
-        self.assertLess(next(i for i,p in enumerate(parts) if p.get("type")==10 and
-                             "원본 작가" in p.get("content", "")),
-                        next(i for i,p in enumerate(parts) if p.get("type")==12))
+        # Gallery is now directly below the title, before the metadata block.
+        self.assertGreater(next(i for i,p in enumerate(parts) if p.get("type")==10 and
+                                "원본 작가" in p.get("content", "")),
+                           next(i for i,p in enumerate(parts) if p.get("type")==12))
 
     def test_no_banner_still_has_source_fields_without_inventing_an_artist(self):
         card = banner._banner_card("123456", "", {"artist": "@old",

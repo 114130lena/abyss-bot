@@ -33,7 +33,7 @@ def snapshot():
     queue_exists = QUEUE.is_file()
     queue = read(QUEUE)
     result = {"available": queue_exists, "groups": {}, "checked_at": "",
-              "last_new_post_at": "", "server_banner_images": None}
+              "last_new_post_at": "", "server_banner_images": None, "server_banner_total": None, "server_banner_used": None}
     for group in ("hanayo", "sakihane"):
         items = [item for item in queue.values()
                  if isinstance(item, dict) and item.get("group") == group]
@@ -50,26 +50,24 @@ def snapshot():
                     valid_images += 1
         result["groups"][group] = {"posts": len(items) if queue_exists else None,
                                     "cached_images": valid_images if queue_exists else None,
-                                    "notification_posts": None}
+                                    "notification_posts": None, "notification_total": None, "notification_reusable": None}
     if not queue_exists:
         return result
 
     # Reuse actual eligibility and exclusion logic; do not count blocked
     # artworks, reused server banners or incorrectly tagged content.
-    from fanart_url_media import candidates as notification_candidates
+    from fanart_url_media import candidates as notification_candidates, availability
     for group in ("hanayo", "sakihane"):
-        posts = notification_candidates(group)
-        result["groups"][group]["notification_posts"] = len({
-            post.get("post_url") for post in posts if isinstance(post, dict)
-            and post.get("post_url")
-        })
+        actual = availability(group, pool=notification_candidates(group))
+        result["groups"][group]["notification_posts"] = actual["unused"]
+        result["groups"][group]["notification_total"] = actual["total"]
+        result["groups"][group]["notification_reusable"] = actual["reusable"]
 
-    from guild_server_banner import approved_hanayo_art, collected_hanayo_art
-    result["server_banner_images"] = len({
-        meta["sha256"]
-        for _path, meta in approved_hanayo_art() + collected_hanayo_art()
-        if isinstance(meta, dict) and isinstance(meta.get("sha256"), str)
-    })
+    from guild_server_banner import banner_inventory
+    guild_pool = banner_inventory()
+    result["server_banner_images"] = guild_pool["unused"]
+    result["server_banner_total"] = guild_pool["total"]
+    result["server_banner_used"] = guild_pool["used"]
     profile = read(BASE / "fanart_profile_state.json")
     search = read(BASE / "fanart_fx_search_state.json")
     artists = read(BASE / "fanart_artist_watch_state.json")
@@ -95,19 +93,33 @@ def _value(value, unit):
     return (str(value) + unit) if isinstance(value, int) else "집계 불가"
 
 
-def card_text(report):
+def card_sections(report):
+    """Separate collection, remaining candidates and timestamps into clear blocks."""
+    if not report.get("available"):
+        return ("**🎨 팬아트 수집 현황**\n수집 데이터 확인 불가 · 서버 기록을 확인할 수 없습니다.",)
     h = report.get("groups", {}).get("hanayo", {})
     f = report.get("groups", {}).get("sakihane", {})
-    if not report.get("available"):
-        return ("**팬아트 수집 현황**\n"
-                "수집 데이터 확인 불가 · 기존 수집 기록을 검사하는 중입니다.")
-    return (
-        "**팬아트 수집 현황**\n"
-        f"**수집 게시글** · 히요리 {_value(h.get('posts'), '건')} / 후야 {_value(f.get('posts'), '건')}\n"
-        f"**저장된 이미지** · 히요리 {_value(h.get('cached_images'), '장')} / 후야 {_value(f.get('cached_images'), '장')}\n"
-        f"**서버 배너용 후보** · 히요리 {_value(report.get('server_banner_images'), '장')}\n"
-        f"**알림 배너·팬아트 후보** · 히요리 {_value(h.get('notification_posts'), '건')} / 후야 {_value(f.get('notification_posts'), '건')}\n"
-        f"**마지막 수집 점검** · {format_saved_time(report.get('checked_at'))}\n"
-        f"**마지막 신규 게시글 발견** · {format_saved_time(report.get('last_new_post_at'))}\n"
-        "-# 서버 배너 후보는 이미지 수, 알림용 후보는 원본 게시글 수입니다."
+    stored = (
+        "**🎨 팬아트 수집 현황**\n"
+        f"**수집 게시글**　히요리 {_value(h.get('posts'), '건')} · 후야 {_value(f.get('posts'), '건')}\n"
+        f"**저장된 이미지**　히요리 {_value(h.get('cached_images'), '장')} · 후야 {_value(f.get('cached_images'), '장')}"
     )
+    available = (
+        "**📌 사용 가능한 후보**\n"
+        f"**서버 배너용 후보**　히요리 {_value(report.get('server_banner_images'), '장')}"
+        f" / 전체 {_value(report.get('server_banner_total'), '장')}\n"
+        f"**알림 배너·팬아트 후보**　히요리 {_value(h.get('notification_posts'), '건')}"
+        f" · 후야 {_value(f.get('notification_posts'), '건')}\n"
+        "-# 서버 배너는 사용 후 제외 · 알림 팬아트는 소진 시에만 재사용"
+    )
+    checked = (
+        "**🕒 수집 기록**\n"
+        f"**마지막 수집 점검**　{format_saved_time(report.get('checked_at'))}\n"
+        f"**마지막 신규 게시글 발견**　{format_saved_time(report.get('last_new_post_at'))}"
+    )
+    return stored, available, checked
+
+
+def card_text(report):
+    """Text-only view and test compatibility."""
+    return "\n\n".join(card_sections(report))

@@ -68,10 +68,10 @@ class PublicFanartStatsTests(unittest.TestCase):
             self.assertEqual(result["last_new_post_at"], "2026-11-08T13:00:00+00:00")
             self.assertEqual(selectors.call_count, 2)
             displayed = stats.card_text(result)
-            self.assertIn("수집 게시글** · 히요리 2건 / 후야 1건", displayed)
-            self.assertIn("저장된 이미지** · 히요리 2장 / 후야 1장", displayed)
-            self.assertIn("서버 배너용 후보** · 히요리 2장", displayed)
-            self.assertIn("알림 배너·팬아트 후보** · 히요리 1건 / 후야 2건", displayed)
+            self.assertIn("수집 게시글**　히요리 2건 · 후야 1건", displayed)
+            self.assertIn("저장된 이미지**　히요리 2장 · 후야 1장", displayed)
+            self.assertIn("서버 배너용 후보**　히요리 2장", displayed)
+            self.assertIn("알림 배너·팬아트 후보**　히요리 1건 · 후야 2건", displayed)
             self.assertIn("마지막 수집 점검", displayed)
             self.assertIn("마지막 신규 게시글 발견", displayed)
             self.assertEqual(stats.checksum(result), stats.checksum(dict(result)))
@@ -101,7 +101,7 @@ class PublicCardSyncTests(unittest.TestCase):
                   "last_new_post_at": ""}
         current = {"guild_banner_hash": "samehash",
                    "banner_info_updated_hash": "samehash", "banner_info_message_id": "789",
-                   "banner_info_layout_version": 9,
+                   "banner_info_layout_version": 10,
                    "banner_info_stats_checksum": "old-value",
                    "banner_changed_at": "2026-11-08 18:00 KST",
                    "banner_change_method": "봇 자동 교체"}
@@ -117,7 +117,7 @@ class PublicCardSyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "updated")
         self.assertEqual(edit.call_count, 1)
         self.assertEqual(edit.call_args.args[1], "789")
-        self.assertIn("히요리 2건 / 후야 1건", str(edit.call_args.args[2]))
+        self.assertIn("히요리 2건 · 후야 1건", str(edit.call_args.args[2]))
         new_state = saved.call_args.args[0]
         self.assertEqual(new_state["banner_info_stats_checksum"], stats.checksum(report))
         with patch.dict("os.environ", {"DISCORD_BOT_TOKEN": "token", "DISCORD_GUILD_ID": "123",

@@ -51,6 +51,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_scheduled_publishing.py' -v
           python -m unittest discover -s tests -p 'test_schedule_display.py' -v
           python -m unittest discover -s tests -p 'test_public_card_statistics.py' -v
+          python -m unittest discover -s tests -p 'test_nonrepeating_media_and_banner_ui.py' -v
           python -m unittest discover -s tests -p 'test_clip_digest.py' -v
           python -m unittest discover -s tests -p 'test_original_message_edit.py' -v
           python -m unittest -v test_bot.py
