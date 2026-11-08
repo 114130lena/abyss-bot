@@ -312,12 +312,12 @@ def _banner_card(guild_id, banner_hash, state):
         source = str(state.get("post_url") or "").strip()
         from fanart_usage import canonical_post
         if artist.startswith("@") and canonical_post(source):
-            info = f"**작가:** {artist}\\n**원본:** {source}"
+            info = f"**작가:** {artist}\n**원본:** {source}"
         else:
             info = "**출처:** 확인되지 않은 수동 변경 배너"
         description = (
-            "**현재 서버 배너**\\n" + info +
-            "\\n-# Discord에 적용된 배너를 기준으로 자동 갱신됩니다."
+            "**현재 서버 배너**\n" + info +
+            "\n-# Discord에 적용된 배너를 기준으로 자동 갱신됩니다."
         )
     else:
         image_url = ""
@@ -328,6 +328,33 @@ def _banner_card(guild_id, banner_hash, state):
     if image_url:
         embed["image"] = {"url": image_url}
     return {"embeds": [embed], "allowed_mentions": {"parse": []}}
+
+
+def _find_existing_banner_info(headers, base):
+    """Reuse a previous bot-authored banner card before creating a duplicate."""
+    identity = requests.get("https://discord.com/api/v10/users/@me",
+                            headers=headers, timeout=12)
+    identity.raise_for_status()
+    bot_id = str(identity.json().get("id", ""))
+    if not bot_id.isdigit():
+        return ""
+    response = requests.get(base, headers=headers, params={"limit": 100}, timeout=12)
+    response.raise_for_status()
+    messages = response.json()
+    if not isinstance(messages, list):
+        return ""
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if str((message.get("author") or {}).get("id")) != bot_id:
+            continue
+        titles = [str(e.get("title", "")) for e in message.get("embeds", [])
+                  if isinstance(e, dict)]
+        if "서버 배너 정보" in titles:
+            identifier = str(message.get("id", ""))
+            if identifier.isdigit():
+                return identifier
+    return ""
 
 
 def sync_banner_info(force=False):
@@ -362,6 +389,11 @@ def sync_banner_info(force=False):
     headers = {"Authorization": "Bot " + token, "Content-Type": "application/json"}
     base = f"https://discord.com/api/v10/channels/{channel_id}/messages"
     response = None
+    if not message_id.isdigit():
+        try:
+            message_id = _find_existing_banner_info(headers, base)
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            logging.warning("기존 배너 정보 메시지 탐색 실패; 새 정보 메시지를 작성합니다")
     if message_id.isdigit():
         response = requests.patch(base + "/" + message_id, headers=headers,
                                   json=payload, timeout=12)
