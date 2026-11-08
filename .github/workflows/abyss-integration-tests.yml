@@ -125,6 +125,24 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "NOW_KST $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+          echo "BANNER_VISION_POST_DEPLOY"
+          cd /home/ubuntu/chzzk-bot
+          .venv/bin/python - <<'PY'
+          import fanart_vision as v
+          import guild_server_banner as g
+          import main
+          print('VISION_MODULE_INSTALLED',True)
+          print('VISION_ENABLED',v.enabled())
+          print('VISION_READY',v.ready())
+          print('MODEL',v.MODEL)
+          print('SCANNED_CACHE_COUNT',len(v.read(v.CACHE)))
+          print('CURRENT_GUILD_BANNER',g.read_state().get('post_url'))
+          print('CANDIDATE_COUNT',len(g.collected_hanayo_art()))
+          print('VISION_WORKER_IN_MAIN',hasattr(main,'main'))
+          PY
+          echo "VISION_WORKER_RECENT_LOG"
+          sudo journalctl -u chzzk-bot.service --since '20 minutes ago' --no-pager -o cat | grep -E 'BANNER_VISION|히요리 이미지 분석|어비스봇 시작' | tail -n 20 || true
+
           echo "IMAGE_VISION_CAPABILITY_AUDIT"
           cd /home/ubuntu/chzzk-bot
           python3 - <<'PY'
