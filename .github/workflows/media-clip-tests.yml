@@ -1,0 +1,32 @@
+name: Media and clip regression
+
+on:
+  pull_request:
+    paths:
+      - 'x_post_media.py'
+      - 'x_repost_notifier.py'
+      - 'guild_server_banner.py'
+      - 'chzzk_clip_digest.py'
+      - 'main.py'
+      - 'tests/test_x_post_media.py'
+      - 'tests/test_media_visibility.py'
+      - 'tests/test_clip_digest.py'
+      - '.github/workflows/media-clip-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  media-clip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m py_compile x_post_media.py x_repost_notifier.py chzzk_clip_digest.py guild_server_banner.py
+      - run: python -m unittest discover -s tests -p 'test_x_post_media.py' -v
+      - run: python -m unittest discover -s tests -p 'test_media_visibility.py' -v
+      - run: python -m unittest discover -s tests -p 'test_clip_digest.py' -v
