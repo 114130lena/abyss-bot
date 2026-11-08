@@ -42,11 +42,9 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
-          # Token stays in Oracle's chmod 600 private file, never copied to Actions.
-          set -a
-          . ./.guild_banner_auth.env
-          set +a
-          export SERVER_BANNER_USE_COLLECTED=1 SERVER_BANNER_ALLOW_FIT=1
+          # Canonical banner runner loads production .env; never use the
+          # legacy timer's separate auth/configuration or rotation database.
+          test -f .env
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           /usr/bin/flock -w 120 creator_media/guild_banner_rotation.lock "$PY" guild_banner_timer_runner.py
           REMOTE

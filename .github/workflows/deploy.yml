@@ -24,7 +24,7 @@ jobs:
 
       - name: Validate bot Python files
         run: |
-          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py health_monitor.py delivery_review.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py notice_intelligence.py resilience.py test_alert.py test_image_card.py test_bot.py x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_candidate_cache.py fanart_review.py fanart_library.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py fanart_weekly_cleanup.py
+          python -m py_compile main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py health_monitor.py delivery_review.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py notice_intelligence.py resilience.py test_alert.py test_image_card.py test_bot.py x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py clip_healthcheck.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_candidate_cache.py fanart_review.py fanart_library.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py fanart_weekly_cleanup.py
 
       - name: Install Korean font for profile image headers
         run: sudo apt-get update -qq && sudo apt-get install -y fonts-nanum
@@ -48,6 +48,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_banner_metadata_recovery.py' -v
           python -m unittest discover -s tests -p 'test_banner_secret_config.py' -v
           python -m unittest discover -s tests -p 'test_banner_min_candidates.py' -v
+          python -m unittest discover -s tests -p 'test_scheduled_publishing.py' -v
           python -m unittest discover -s tests -p 'test_clip_digest.py' -v
           python -m unittest discover -s tests -p 'test_original_message_edit.py' -v
           python -m unittest -v test_bot.py
@@ -75,7 +76,7 @@ jobs:
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
             'mkdir -p /home/ubuntu/chzzk-bot/.deploy-staging'
           scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
-            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py health_monitor.py delivery_review.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py notice_intelligence.py resilience.py test_alert.py test_image_card.py x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py requirements.txt youtube_channels.txt \
+            main.py chzzk_replay_notifier.py cafe_notifier.py twitter_notifier.py twitter_huya_notifier.py youtube_notifier.py youtube_websub.py health_monitor.py delivery_review.py banner_manager.py creator_profiles.py creator_groups.py discord_v2.py notice_intelligence.py resilience.py test_alert.py test_image_card.py x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py clip_healthcheck.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py requirements.txt youtube_channels.txt \
             "$SSH_USER@$SSH_HOST:/home/ubuntu/chzzk-bot/.deploy-staging/"
 
       - name: Configure banner credentials from GitHub Secrets
@@ -146,7 +147,7 @@ jobs:
             exit 1
           fi
           echo "Using Python: $BOT_PY"
-          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_spaces_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_artist_watch.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py
+          "$BOT_PY" -m py_compile .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_spaces_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/guild_banner_timer_runner.py .deploy-staging/guild_banner_healthcheck.py .deploy-staging/clip_healthcheck.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_artist_watch.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py
           "$BOT_PY" -m pip install -r .deploy-staging/requirements.txt
 
           echo "::endgroup::"
@@ -169,7 +170,7 @@ jobs:
           if [ -f test_alert.py ]; then cp test_alert.py "$backup_dir/"; fi
           if [ -f test_image_card.py ]; then cp test_image_card.py "$backup_dir/"; fi
           # Backup every optional runtime module; preserve absence for rollback.
-          for module in x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py; do
+          for module in x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py clip_healthcheck.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py; do
             if [ -f "$module" ]; then cp "$module" "$backup_dir/"; fi
           done
           restore() {
@@ -189,7 +190,7 @@ jobs:
             if [ -f "$backup_dir/notice_intelligence.py" ]; then cp "$backup_dir/notice_intelligence.py" .; else rm -f notice_intelligence.py; fi
             if [ -f "$backup_dir/test_alert.py" ]; then cp "$backup_dir/test_alert.py" .; else rm -f test_alert.py; fi
             if [ -f "$backup_dir/test_image_card.py" ]; then cp "$backup_dir/test_image_card.py" .; else rm -f test_image_card.py; fi
-            for module in x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py; do
+            for module in x_post_media.py x_repost_notifier.py x_spaces_notifier.py x_feed_health.py x_fx_feed.py fanart_discovery.py fanart_url_media.py random_media.py guild_server_banner.py guild_banner_timer_runner.py guild_banner_healthcheck.py clip_healthcheck.py fanart_fx_rss.py fanart_fx_search.py fanart_artist_watch.py fanart_weekly_cleanup.py fanart_review.py fanart_library.py fanart_candidate_cache.py fanart_refresh.py fanart_usage.py fanart_relevance.py fanart_vision.py chzzk_clip_digest.py discord_message_sync.py; do
               if [ -f "$backup_dir/$module" ]; then cp "$backup_dir/$module" .; else rm -f "$module"; fi
             done
             sudo systemctl restart chzzk-bot
@@ -201,7 +202,7 @@ jobs:
             diagnose_deploy_failure "$rc"
           }
           trap rollback_on_error ERR
-          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_spaces_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_artist_watch.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py .
+          cp .deploy-staging/main.py .deploy-staging/chzzk_replay_notifier.py .deploy-staging/cafe_notifier.py .deploy-staging/twitter_notifier.py .deploy-staging/twitter_huya_notifier.py .deploy-staging/youtube_notifier.py .deploy-staging/youtube_websub.py .deploy-staging/health_monitor.py .deploy-staging/delivery_review.py .deploy-staging/banner_manager.py .deploy-staging/creator_profiles.py .deploy-staging/creator_groups.py .deploy-staging/discord_v2.py .deploy-staging/notice_intelligence.py .deploy-staging/resilience.py .deploy-staging/test_alert.py .deploy-staging/test_image_card.py .deploy-staging/requirements.txt .deploy-staging/youtube_channels.txt .deploy-staging/x_post_media.py .deploy-staging/x_repost_notifier.py .deploy-staging/x_spaces_notifier.py .deploy-staging/x_feed_health.py .deploy-staging/x_fx_feed.py .deploy-staging/fanart_discovery.py .deploy-staging/fanart_url_media.py .deploy-staging/random_media.py .deploy-staging/guild_server_banner.py .deploy-staging/guild_banner_timer_runner.py .deploy-staging/guild_banner_healthcheck.py .deploy-staging/clip_healthcheck.py .deploy-staging/fanart_fx_rss.py .deploy-staging/fanart_fx_search.py .deploy-staging/fanart_artist_watch.py .deploy-staging/fanart_weekly_cleanup.py .deploy-staging/fanart_review.py .deploy-staging/fanart_library.py .deploy-staging/fanart_candidate_cache.py .deploy-staging/fanart_refresh.py .deploy-staging/fanart_usage.py .deploy-staging/fanart_relevance.py .deploy-staging/fanart_vision.py .deploy-staging/chzzk_clip_digest.py .deploy-staging/discord_message_sync.py .
           sudo systemctl restart chzzk-bot
           sleep 3
           sudo systemctl is-active --quiet chzzk-bot
@@ -274,6 +275,38 @@ jobs:
               bool(provenance.get("artist") and provenance.get("post_url"))))
           print("BANNER_INFO_LIVE_VERIFIED all_five_fields=true original_message=true")
           PY
+          REMOTE
+
+      - name: Consolidate guild banner writes into the main bot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          # Do not retire the legacy timer without a proven eligible pool.
+          "$BOT_PY" - <<'PY'
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from guild_server_banner import rotation_selection
+          _, _, count, _ = rotation_selection()
+          print("BANNER_CANONICAL_POOL eligible=%d minimum=2" % count)
+          if count < 2:
+              raise SystemExit("Refusing to retire fallback timer without at least two usable banners")
+          PY
+          sudo systemctl is-active --quiet chzzk-bot.service
+          if sudo systemctl list-unit-files --no-legend abyss-guild-banner.timer | grep -q 'abyss-guild-banner.timer'; then
+            sudo systemctl disable --now abyss-guild-banner.timer
+          fi
+          if sudo systemctl is-active --quiet abyss-guild-banner.timer; then
+            echo "Legacy server banner timer still active" >&2
+            exit 1
+          fi
+          echo "BANNER_CONTROLLER=main-bot LEGACY_TIMER=disabled GITHUB_BACKUP=enabled"
           REMOTE
 
       - name: Capture redacted runtime health after deployment
