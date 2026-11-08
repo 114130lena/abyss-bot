@@ -109,7 +109,7 @@ def resolve_media(post, username):
     if not post_id.isdigit():
         return existing,"",False,bool(existing)
     try:
-        endpoint=f"https://api.fxtwitter.com/{username}/status/{post_id}"
+        endpoint=f"https://api.fxtwitter.com/2/status/{post_id}"
         media=None
         tweet={}
         # One bounded enrichment attempt. RSS photos remain as fallback;
@@ -117,10 +117,23 @@ def resolve_media(post, username):
         response=requests.get(endpoint,timeout=(1.5,3),headers={"User-Agent":"abyss-bot/1.0"})
         response.raise_for_status()
         data=response.json()
-        candidate=(data.get("tweet") or data.get("status")) if isinstance(data,dict) else None
+        if not isinstance(data,dict) or data.get("code", 200) != 200:
+            return existing,"",False,False
+        candidate=data.get("status") or data.get("tweet")
         if not isinstance(candidate,dict):
             return existing,"",False,False
         tweet=candidate
+        # Check the returned post, not merely the requested URL. Wrong-account
+        # metadata is worse than temporarily missing media.
+        actual_id = str(tweet.get("id") or tweet.get("id_str") or "")
+        if actual_id and actual_id != post_id:
+            logging.warning("X_MEDIA_ID_MISMATCH expected=%s actual=%s", post_id, actual_id)
+            return existing,"",False,False
+        author = tweet.get("author") or {}
+        actual_handle = (author.get("screen_name") or author.get("username") or "") if isinstance(author,dict) else ""
+        if actual_handle and actual_handle.casefold() != username.lstrip("@").casefold():
+            logging.warning("X_MEDIA_AUTHOR_MISMATCH expected=%s", username)
+            return existing,"",False,False
         media=tweet.get("media")
         if media is None or media == {}:
             verified = _recheck_empty(post, username, post_id, tweet)
