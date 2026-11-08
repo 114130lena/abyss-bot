@@ -230,7 +230,7 @@ def _render(clips, history):
     if previous:
         parts.append({"type": 14, "divider": True, "spacing": 1})
         parts.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
-    return {"components": [{"type": 17, "accent_color": 0x8391BB,
+    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
                              "components": parts}],
             "allowed_mentions": {"parse": []}}
 
