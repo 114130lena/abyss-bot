@@ -325,7 +325,7 @@ def _banner_card(guild_id, banner_hash, state):
     # Original header-style card, expressed natively as Components V2 so
     # editing the existing V2 message does not flatten the design.
     header = "**HANAYO HIYORI**  ·  STELLIVE · ABYSS"
-    body = "**서버 배너 정보**\\n" + description
+    body = "**서버 배너 정보**\n" + description
     parts = [{"type": 10, "content": header},
              {"type": 14, "divider": True, "spacing": 1},
              {"type": 10, "content": body}]
