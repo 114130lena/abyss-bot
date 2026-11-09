@@ -7,10 +7,16 @@ on:
       - 'x_repost_notifier.py'
       - 'guild_server_banner.py'
       - 'chzzk_clip_digest.py'
+      - 'resilience.py'
+      - 'delivery_latency.py'
+      - 'scripts/ops_status_card.py'
       - 'main.py'
       - 'tests/test_x_post_media.py'
       - 'tests/test_media_visibility.py'
       - 'tests/test_clip_digest.py'
+      - 'tests/test_clip_quality.py'
+      - 'tests/test_delivery_latency.py'
+      - 'tests/test_ops_status_card.py'
       - 'tests/test_deploy_staging_paths.py'
       - '.github/workflows/deploy.yml'
       - '.github/workflows/media-clip-tests.yml'
@@ -32,4 +38,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_x_post_media.py' -v
       - run: python -m unittest discover -s tests -p 'test_media_visibility.py' -v
       - run: python -m unittest discover -s tests -p 'test_clip_digest.py' -v
+      - run: python -m unittest discover -s tests -p 'test_clip_quality.py' -v
+      - run: python -m unittest discover -s tests -p 'test_delivery_latency.py' -v
+      - run: python -m unittest discover -s tests -p 'test_ops_status_card.py' -v
       - run: python -m unittest discover -s tests -p 'test_deploy_staging_paths.py' -v
