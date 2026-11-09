@@ -56,7 +56,11 @@ def discover(session=None):
     catalog=read(QUEUE)
     state=read(STATE)
     added=0
+    groups={}
+    known_artists={str(v.get("artist") or "").casefold() for v in catalog.values() if isinstance(v,dict)}
     for group,tag in TAGS.items():
+        group_added=0
+        newly_discovered_authors=set()
         old=state.get(group,{})
         since=old.get("since_id")
         params={"query":f"#{tag} has:images -is:retweet",
@@ -72,7 +76,8 @@ def discover(session=None):
                  headers={"Authorization":"Bearer "+token},timeout=18)
             if response.status_code in (401,403,429):
                 logging.warning("X API restricted for %s HTTP %d",group,response.status_code)
-                return {"status":"api_unavailable","added":added,"http":response.status_code}
+                return {"status":"api_unavailable","added":added,"http":response.status_code,
+                        "groups":groups}
             response.raise_for_status()
             data=response.json()
             users={u["id"]:u.get("username","") for u in data.get("includes",{}).get("users",[])}
@@ -90,6 +95,9 @@ def discover(session=None):
                 if not artist:continue
                 key=group+":"+post_id
                 if key in catalog:continue
+                if ("@"+artist).casefold() not in known_artists:
+                    newly_discovered_authors.add(artist.casefold())
+                    known_artists.add(("@"+artist).casefold())
                 decision=classify(post.get("text",""))
                 catalog[key]={"group":group,"hashtag":"#"+tag,"post_id":post_id,
                     "post_url":f"https://x.com/{artist}/status/{post_id}",
@@ -97,16 +105,19 @@ def discover(session=None):
                     "decision":decision,"review_status":"blocked" if decision=="blocked" else "pending",
                     "discovered_at":datetime.now(timezone.utc).isoformat(),"text":post.get("text","")[:2000]}
                 added+=1
+                group_added+=1
             page_token=data.get("meta",{}).get("next_token")
             if not page_token:break
         if max_id:
             state[group]={"since_id":max_id,"checked_at":datetime.now(timezone.utc).isoformat()}
+        groups[group]={"status":"ok","added":group_added,
+                       "new_authors":len(newly_discovered_authors)}
         write(QUEUE,catalog)
         write(STATE,state)
     if len(catalog)>MAX_SEEN:
         # Preserve blocked and old history; never truncate without a retention policy.
         logging.warning("Fanart candidate queue exceeded %s entries",MAX_SEEN)
-    return {"status":"ok","added":added}
+    return {"status":"ok","added":added,"groups":groups}
 
 if __name__=="__main__":
     logging.basicConfig(level=logging.INFO)
