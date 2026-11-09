@@ -63,6 +63,7 @@ def check_spaces():
                   "예정된 스페이스가 등록되었습니다.")+
                  ("\\n예정 시작: "+str(space["scheduled_start"]) if stage=="scheduled" and space.get("scheduled_start") else ""),
             url=url,handle=handle(group),avatar=avatar(group),ping=False)
+        payload["_abyss_event_key"] = "x-space:" + group + ":" + sid + ":" + stage
         send_webhook(WEBHOOK,payload)
     previous.update(observed)
     save_json(STATE,previous)
