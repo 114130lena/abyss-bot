@@ -1,4 +1,4 @@
-name: Apply paired title-video clip layout once
+name: Apply compact clip grid layout once
 
 on:
   issues:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   apply:
-    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-clip] apply-paired-layout-once' && github.event.issue.user.login == github.repository_owner }}
+    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-clip] apply-grid-layout-once' && github.event.issue.user.login == github.repository_owner }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -33,7 +33,7 @@ jobs:
           chmod 600 ~/.ssh/oracle_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Edit the existing clip message once without changing its scheduled slot
+      - name: Apply the compact grid to the existing message without retiming
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
@@ -45,16 +45,16 @@ jobs:
           # Publish the reviewed main-branch renderer directly from checkout;
           # the normal deployment queue may still be processing older commits.
           # This stage is temporary and does not overwrite the running bot.
-          grep -q CLIP_TITLE_MEDIA_PAIR_V2 chzzk_clip_digest.py
-          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes chzzk_clip_digest.py "$SSH_USER@$SSH_HOST:/tmp/abyss_clip_layout_once_$REFRESH_REQUEST.py"
+          grep -q CLIP_GRID_TITLES_V2 chzzk_clip_digest.py
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes chzzk_clip_digest.py "$SSH_USER@$SSH_HOST:/tmp/abyss_clip_grid_once_$REFRESH_REQUEST.py"
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "REFRESH_REQUEST=$REFRESH_REQUEST bash -se" <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           test -f .env
-          test -f "/tmp/abyss_clip_layout_once_${REFRESH_REQUEST}.py"
-          grep -q CLIP_TITLE_MEDIA_PAIR_V2 "/tmp/abyss_clip_layout_once_${REFRESH_REQUEST}.py"
+          test -f "/tmp/abyss_clip_grid_once_${REFRESH_REQUEST}.py"
+          grep -q CLIP_GRID_TITLES_V2 "/tmp/abyss_clip_grid_once_${REFRESH_REQUEST}.py"
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          /usr/bin/flock -w 90 creator_media/clip_paired_layout.lock "$PY" - <<'PY'
+          /usr/bin/flock -w 90 creator_media/clip_grid_layout.lock "$PY" - <<'PY'
           import json
           import os
           from dotenv import load_dotenv
@@ -63,9 +63,9 @@ jobs:
           from pathlib import Path
           from resilience import load_json, save_json
           # Import exactly the paired renderer staged from the latest main.
-          source = Path("/tmp/abyss_clip_layout_once_" +
+          source = Path("/tmp/abyss_clip_grid_once_" +
                         os.environ["REFRESH_REQUEST"] + ".py")
-          spec = importlib.util.spec_from_file_location("paired_clip_digest", source)
+          spec = importlib.util.spec_from_file_location("grid_clip_digest", source)
           if spec is None or spec.loader is None:
               raise SystemExit("Clip renderer not found")
           paired = importlib.util.module_from_spec(spec)
@@ -78,17 +78,16 @@ jobs:
           before = load_json(STATE_FILE, {})
           if not isinstance(before, dict):
               before = {}
-          if request_id in (before.get("paired_layout_request_ids") or []):
-              print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({"status": "already_updated"}))
+          if request_id in (before.get("grid_layout_request_ids") or []):
+              print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({"status": "already_updated"}))
               raise SystemExit(0)
 
-          # User requested an immediate one-off layout change to the existing
-          # message; scheduled 08:00/18:00 posts and representative history
-          # must not be re-timed or rewritten.
+          # User requested one compact grid layout on the existing message.
+          # Scheduled 08:00/18:00 KST posts and representative history remain.
           result = publish_once()
           status = str(result.get("status") or "unknown")
           if status != "updated":
-              print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({"status": status}))
+              print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({"status": status}))
               raise SystemExit(1)
 
           after = load_json(STATE_FILE, {})
@@ -107,14 +106,14 @@ jobs:
           else:
               after.pop("latest_id", None)
           requests = list(dict.fromkeys(
-              str(x) for x in (after.get("paired_layout_request_ids") or [])
+              str(x) for x in (after.get("grid_layout_request_ids") or [])
               if str(x).isdigit()))
           if request_id not in requests:
               requests.append(request_id)
-          after["paired_layout_request_ids"] = requests[-20:]
+          after["grid_layout_request_ids"] = requests[-20:]
           save_json(STATE_FILE, after)
-          # Independently verify the displayed Discord message has a title
-          # immediately followed by its associated media or safe fallback.
+          # Independently GET the original message; verify ONE media gallery
+          # with numbered alt descriptions plus a compact clickable title list.
           import re
           import requests
           channel = os.getenv("CHZZK_CLIP_CHANNEL_ID", "")
@@ -126,32 +125,34 @@ jobs:
           response.raise_for_status()
           posted = response.json()
           if str(posted.get("id")) != message or not (int(posted.get("flags") or 0) & 32768):
-              raise SystemExit("Existing Discord clip message not verified")
+              raise SystemExit("Original Discord clip message not verified")
           containers = posted.get("components") or []
-          if not containers or len(containers) > 10:
-              raise SystemExit("Invalid clip message container count")
-          paired_count = 0
-          media_count = 0
-          for c in containers:
-              if c.get("type") != 17:
-                  raise SystemExit("Unexpected top-level clip component")
-              children = c.get("components") or []
-              if len(children) > 10:
-                  raise SystemExit("Clip container exceeds component limit")
-              for i, p in enumerate(children):
-                  if p.get("type") == 12:
-                      media_count += len(p.get("items") or [])
-                  if p.get("type") == 10 and re.match(
-                      r"\*\*[0-9]{2}\. ", str(p.get("content") or "")):
-                      if i + 1 >= len(children) or children[i + 1].get("type") not in (10, 12):
-                          raise SystemExit("Clip title/media pairing missing")
-                      paired_count += 1
-          if paired_count != min(int(result.get("count") or 0), 10) or media_count > 10:
-              raise SystemExit("Clip title/media pairing count mismatch")
-          print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({
-              "status": "updated", "clip_count": paired_count,
-              "media_count": media_count, "original_message": True,
-              "schedule_preserved": True, "history_preserved": True,
+          if len(containers) != 1 or containers[0].get("type") != 17:
+              raise SystemExit("Clip grid must use one compact V2 container")
+          children = containers[0].get("components") or []
+          galleries = [p for p in children if p.get("type") == 12]
+          if len(galleries) != 1 or len(galleries[0].get("items") or []) > 10:
+              raise SystemExit("Expected one compact 10-item media grid")
+          titles = [str(p.get("content") or "") for p in children
+                    if p.get("type") == 10 and "클립 제목 · 갤러리 순서" in
+                       str(p.get("content") or "")]
+          if len(titles) != 1:
+              raise SystemExit("Clip grid title legend missing")
+          expected = min(int(result.get("count") or 0), 10)
+          for index in range(1, expected + 1):
+              if not re.search(r"\\*\\*%02d\\*\\* \\[" % index, titles[0]):
+                  raise SystemExit("Missing ordered clip-title link")
+          media = galleries[0]["items"]
+          if media and not all(re.match(r"^\\d\\d\\. ",
+                                    str(item.get("description") or "")) for item in media):
+              raise SystemExit("Grid alt text lacks original clip numbers")
+          if len(children) > 10 or len(media) > expected:
+              raise SystemExit("Discord clip grid exceeds component limits")
+          print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({
+              "status": "updated", "clip_count": expected,
+              "media_count": len(media), "original_message": True,
+              "single_grid": True, "title_links": expected,
+              "schedule_preserved": True, "history_preserved": True
           }))
           PY
           REMOTE
