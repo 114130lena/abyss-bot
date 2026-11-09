@@ -24,7 +24,9 @@ class MediaVisibilityTests(unittest.TestCase):
              patch.object(x_repost_notifier, "send_webhook") as send, \
              patch.object(x_repost_notifier, "get_banner", return_value=""), \
              patch.object(x_repost_notifier, "avatar", return_value=""), \
-             patch.object(x_repost_notifier, "handle", return_value="@HanayoHiyori"):
+             patch.object(x_repost_notifier, "handle", return_value="@HanayoHiyori"), \
+             patch("x_repost_delivery_ledger.reserve", return_value=True), \
+             patch("x_repost_delivery_ledger.mark_sent"):
             x_repost_notifier.notify("hanayo", post, "https://discord.com/api/webhooks/123/token")
         self.assertEqual(resolver.call_args.args[1], "Artist")
         webhook, payload = send.call_args.args

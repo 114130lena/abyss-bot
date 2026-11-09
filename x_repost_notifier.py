@@ -104,7 +104,21 @@ def notify(group,post,webhook):
                  group,post.get("id"),len(resolved_images),has_video,photo_known,
                  bool(payload.get("_abyss_verified_text_only")))
     payload["allowed_mentions"]={"parse":[]}
+    from x_repost_delivery_ledger import reserve, mark_sent, mark_uncertain
+    if not reserve(group, post):
+        return {"status": "duplicate_suppressed"}
     started=time.monotonic()
-    send_webhook(thread_url(webhook),payload)
+    try:
+        send_webhook(thread_url(webhook),payload)
+        mark_sent(group, post)
+    except Exception as exc:
+        # A webhook timeout may occur AFTER Discord accepted the message.
+        # Keep the atomic reservation; do not cause an automatic duplicate.
+        try:
+            mark_uncertain(group, post, type(exc).__name__)
+        except (OSError, ValueError, TypeError):
+            logging.exception("X_REPOST_UNCERTAIN_LEDGER_WRITE_FAILED")
+        raise
     logging.info("X_REPOST_DELIVERED creator=%s id=%s source=%s delivery_seconds=%.2f",group,post.get("id",""),post.get("source","?"),time.monotonic()-started)
     logging.info("X_REPOST_TOTAL creator=%s id=%s elapsed_seconds=%.2f",group,post.get("id"),time.monotonic()-started_total)
+    return {"status": "sent"}
