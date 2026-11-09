@@ -75,6 +75,29 @@ class BannerMinimumTests(unittest.TestCase):
                     "all_used_post_ids": ["54321"]})
                 self.assertEqual(used["unused"], 0)
 
+    def test_single_fresh_candidate_allowed_after_previous_automatic_rotation(self):
+        selected = ("image.jpg", {"sha256": "fresh", "artist": "@artist",
+                                  "post_url": "https://x.com/artist/status/123"})
+        state = {"banner_change_method": "봇 자동 교체", "last_sha256": "old",
+                 "guild_banner_hash": "old_hash"}
+        with patch.object(banner, "slot", return_value="2026-11-10 08:00"), \
+             patch.object(banner, "read_state", return_value=state), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(selected, ["old", "fresh"], 1, 0)), \
+             patch.object(banner, "convert_banner", return_value=b"jpeg"), \
+             patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "1",
+                                       "DISCORD_BOT_TOKEN": "token",
+                                       "DISCORD_GUILD_ID": "123"}), \
+             patch.object(banner, "change_guild_banner", return_value="new_hash") as change, \
+             patch.object(banner, "write_state"), \
+             patch.object(banner, "sync_banner_info"):
+            result = banner.rotate_once(manual=False,
+                                        now=__import__("datetime").datetime(
+                                            2026, 11, 10, 8, 0,
+                                            tzinfo=__import__("zoneinfo").ZoneInfo("Asia/Seoul")))
+        self.assertEqual(result["status"], "changed")
+        change.assert_called_once()
+
     def test_single_candidate_does_not_replace_guild_on_schedule(self):
         selected = ("image.jpg", {"sha256": "a", "artist": "@artist"})
         with patch.object(banner, "slot", return_value="2026-11-08 18:00"), \
