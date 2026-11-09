@@ -135,7 +135,24 @@ def fetch_recent_clips(now=None, get=None):
             break
     # Only clips created in the last 24 hours; never backfill older videos.
     unique = {clip["id"]: clip for clip in accepted}
-    return sorted(unique.values(), key=lambda c: (-c["views"], c["id"]))[:10]
+    # Keep the highest-viewed item when two uploads reuse the exact same
+    # preview AND normalized title.  Title-only dedup can discard different
+    # moments, so it is deliberately forbidden.
+    ranked = sorted(unique.values(),
+                    key=lambda c: (-c["views"], -_date(c["date"]).timestamp(), c["id"]))
+    chosen, signatures = [], set()
+    for clip in ranked:
+        title = " ".join(clip["title"].casefold().split())
+        image = clip.get("thumbnail") or ""
+        signature = (title, image) if title and image else None
+        if signature and signature in signatures:
+            continue
+        if signature:
+            signatures.add(signature)
+        chosen.append(clip)
+        if len(chosen) == 10:
+            break
+    return chosen
 
 
 def _find_mp4_urls(node):
