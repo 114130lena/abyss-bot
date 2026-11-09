@@ -198,45 +198,71 @@ def clip_video_url(clip, get=None):
 
 
 def _render(clips, history, now=None, collected_at=None):
+    """Pair every clip title, source link and media in ordered V2 blocks.
+
+    Discord has a 10-child limit per container and a 40-component message
+    budget. CLIP_TITLE_MEDIA_PAIR_V2 groups up to three clips per container:
+    title/link -> single media gallery -> optional separator -> next clip.
+    """
     if not clips:
         return None
-    lead = clips[0]
-    parts = [
+    selected = clips[:10]
+    headline = [
         {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
         {"type": 14, "divider": True, "spacing": 1},
         {"type": 10, "content": "**오늘의 히요리 클립**\n"
-         "최근 24시간 클립 · 조회수 기준 " + str(len(clips[:10])) + "개"
+         "최근 24시간 클립 · 조회수 기준 " + str(len(selected)) + "개"
          + "\n\n**클립 수집 주기** · 2시간마다 (짝수 시각, KST)"
          + "\n**마지막 수집 완료** · " + format_saved_time(collected_at)
          + "\n**마지막 메시지 갱신** · " + format_saved_time(now)
          + "\n\n" + schedule_label(now)},
     ]
-    # A Discord gallery can display up to ten images in a single message.
-    # CHZZK's public API exposes thumbnails, not reliable direct MP4 files;
-    # preserve clickable source links instead of falsely claiming playback.
-    media = [{"media": {"url": clip.get("video_url") or clip["thumbnail"]},
-              "description": clip["title"][:120]}
-             for clip in clips[:10] if clip.get("thumbnail")]
-    if media:
-        # Platform alerts use one prominent banner, not a ten-tile wall.
-        parts.insert(0, {"type": 12, "items": media[:1]})
-        if len(media) > 1:
-            parts.append({"type": 10, "content": "**다른 클립 미리보기**"})
-            parts.append({"type": 12, "items": media[1:10]})
-    links = []
-    for index, clip in enumerate(clips[:10], 1):
-        title = clip["title"].replace("[", "").replace("]", "").replace("\n", " ")
-        links.append(str(index) + ". [" + title[:75] + "](" + clip["url"] + ")")
-    parts.append({"type": 10, "content": "\n".join(links)[:3500]})
+    containers = [{"type": 17, "accent_color": 0x8391BB,
+                   "components": headline}]
+    for start in range(0, len(selected), 3):
+        group = []
+        batch = selected[start:start + 3]
+        for offset, clip in enumerate(batch):
+            if group:
+                group.append({"type": 14, "divider": True, "spacing": 1})
+            number = start + offset + 1
+            # Clip titles are untrusted API text. Prevent Markdown from
+            # breaking source links or introducing role-like formatting.
+            title = re.sub(r"[\[\]<>*`_\r\n]", " ",
+                           str(clip.get("title") or "제목 없음"))
+            title = re.sub(r"\s+", " ", title).strip()[:85] or "제목 없음"
+            uid = str(clip.get("id") or "")
+            original = "https://chzzk.naver.com/clips/" + uid
+            source = str(clip.get("url") or "")
+            if (source != original and
+                    (not _ID.fullmatch(uid)
+                     or not source.startswith("https://chzzk.naver.com/clips/"))):
+                source = original
+            elif not source:
+                source = original
+            group.append({"type": 10, "content": (
+                "**%02d. %s**\n-# [원본 클립 보기](%s)" % (
+                    number, title, source))})
+            media_url = str(clip.get("video_url") or clip.get("thumbnail") or "")
+            parsed = urlsplit(media_url)
+            if parsed.scheme in ("https", "http") and parsed.hostname and len(media_url) <= 2048:
+                group.append({"type": 12, "items": [{
+                    "media": {"url": media_url}, "description": title[:120]}]})
+            else:
+                group.append({"type": 10, "content": "-# 영상 미리보기 없음 · 원본 링크에서 보기"})
+        containers.append({"type": 17, "components": group})
+
     previous = []
     for day, clip in sorted(history.items(), reverse=True)[:7]:
         if isinstance(clip, dict) and _ID.fullmatch(str(clip.get("id", ""))):
             previous.append("[" + day + "](https://chzzk.naver.com/clips/" + clip["id"] + ")")
     if previous:
-        parts.append({"type": 14, "divider": True, "spacing": 1})
-        parts.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
-    return {"flags": 32768, "components": [{"type": 17, "accent_color": 0x8391BB,
-                             "components": parts}],
+        # The final group has at most eight children; even a full 3-clip
+        # batch plus these two elements stays within the 10-child limit.
+        last = containers[-1]["components"]
+        last.append({"type": 14, "divider": True, "spacing": 1})
+        last.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
+    return {"flags": 32768, "components": containers,
             "allowed_mentions": {"parse": []}}
 
 
