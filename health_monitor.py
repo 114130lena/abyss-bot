@@ -73,6 +73,15 @@ def snapshot():
     fx_path = ROOT / "creator_media" / "fanart_fx_search_state.json"
     fx_state = _read(fx_path, {})
     result["fanart"]["hashtag_search"] = fx_state.get("groups", {})
+    global_state = _read(ROOT / "creator_media" / "fanart_global_sources.json", {})
+    # Source health is separate from artist-only fallback and cannot imply full
+    # hashtag coverage without a new-artist production verification.
+    result["fanart"]["global_sources"] = global_state.get("groups", {})
+    result["fanart"]["global_providers"] = {
+        name: {"status": str(data.get("status") or "unverified")}
+        for name, data in (global_state.get("providers") or {}).items()
+        if name in ("fx_search", "official_x") and isinstance(data, dict)
+    }
     if fx_path.is_file():
         result["fanart"]["search_age_hours"] = round((now - fx_path.stat().st_mtime) / 3600, 1)
     # The clip worker refreshes its offline state every two hours but only
