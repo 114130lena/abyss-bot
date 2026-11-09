@@ -87,8 +87,38 @@ def server_reserved_post_ids(group):
             continue
         if not isinstance(item.get("artist"), str) or not item["artist"].startswith("@"):
             continue
-        if not any(isinstance(path, str) for path in (item.get("cached_files") or [])[:4]):
+        cached = [path for path in (item.get("cached_files") or [])[:4]
+                  if isinstance(path, str)]
+        if not cached:
             continue
+        if group == "sakihane":
+            # Huya guild banners remain WIDE ONLY. Read image headers, not
+            # pixels or SHA256, so square art stays usable for notifications.
+            # Missing/unreadable files are reserved conservatively (they may
+            # later be repaired and become eligible).
+            from PIL import Image
+            from guild_server_banner import kind
+            root = BASE.resolve()
+            possible = False
+            for relative in cached:
+                path = (BASE / relative).resolve()
+                if root not in path.parents:
+                    continue
+                try:
+                    with Image.open(path) as image:
+                        width, height = image.size
+                        orientation = image.getexif().get(274, 1)
+                        if orientation in (5, 6, 7, 8):
+                            width, height = height, width
+                        if (height > 0 and width / height >= 1.25
+                                and kind(width, height) in ("16:9", "16:10", "landscape_fit")):
+                            possible = True
+                            break
+                except (OSError, ValueError):
+                    possible = True
+                    break
+            if not possible:
+                continue
         post_id = canonical_post(item.get("post_url"))
         if post_id:
             result.add(post_id)
