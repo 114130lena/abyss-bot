@@ -79,8 +79,14 @@ def _load():
     try:
         state = json.loads(LEDGER.read_text(encoding="utf-8"))
         return state if isinstance(state, dict) else {}
-    except (OSError, ValueError, TypeError):
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError, TypeError) as exc:
+        # Invalid/unreadable dedup history is NOT evidence nothing was sent.
+        # Never reset to empty: that would blast already-delivered reposts.
+        logging.error("X_REPOST_LEDGER_UNREADABLE reason=%s; delivery blocked",
+                      type(exc).__name__)
+        raise ValueError("X repost delivery ledger unreadable") from exc
 
 
 def _store(state):
