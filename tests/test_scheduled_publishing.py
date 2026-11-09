@@ -84,6 +84,48 @@ class SchedulerCoordinationTests(unittest.TestCase):
         self.assertEqual(result["status"], "outside_schedule")
         change.assert_not_called()
 
+    def test_slow_primary_banner_still_applies_before_ten_minute_cutoff(self):
+        import guild_server_banner as banner
+        selected = ("photo.jpg", {"sha256": "fresh", "artist": "@artist",
+                                    "post_url": "https://x.com/artist/status/12345"})
+        with patch.object(banner, "slot", return_value="2026-11-09 18:00"), \
+             patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(selected, ["fresh"], 201, 193)), \
+             patch.object(banner, "convert_banner", return_value=b"photo"), \
+             patch.object(banner, "change_guild_banner", return_value="hash") as change, \
+             patch.object(banner, "sync_banner_info", return_value={"status":"updated"}), \
+             patch.object(banner, "write_state") as saved, \
+             patch.object(banner, "datetime", wraps=datetime) as clock, \
+             patch.dict("os.environ", {
+                 "SERVER_BANNER_ENABLED": "1",
+                 "DISCORD_BOT_TOKEN": "test",
+                 "DISCORD_GUILD_ID": "123"}, clear=False):
+            clock.now.return_value = at(9, 18, 1)
+            result = banner.rotate_once()
+        self.assertEqual(result["status"], "changed")
+        change.assert_called_once_with(b"photo", "test", "123")
+        self.assertEqual(saved.call_args.args[0]["last_slot"], "2026-11-09 18:00")
+
+    def test_slow_primary_banner_never_applies_after_ten_minute_cutoff(self):
+        import guild_server_banner as banner
+        selected = ("photo.jpg", {"sha256": "fresh", "artist": "@artist"})
+        with patch.object(banner, "slot", return_value="2026-11-09 18:00"), \
+             patch.object(banner, "read_state", return_value={}), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(selected, ["fresh"], 201, 193)), \
+             patch.object(banner, "convert_banner", return_value=b"photo"), \
+             patch.object(banner, "change_guild_banner") as change, \
+             patch.object(banner, "datetime", wraps=datetime) as clock, \
+             patch.dict("os.environ", {
+                 "SERVER_BANNER_ENABLED": "1",
+                 "DISCORD_BOT_TOKEN": "test",
+                 "DISCORD_GUILD_ID": "123"}, clear=False):
+            clock.now.return_value = at(9, 18, 10)
+            result = banner.rotate_once()
+        self.assertEqual(result["status"], "outside_schedule")
+        change.assert_not_called()
+
     def test_health_reads_single_canonical_state_not_legacy_timer(self):
         state = {"last_slot": "2026-11-08 08:00",
                  "guild_banner_hash": "newhash",
