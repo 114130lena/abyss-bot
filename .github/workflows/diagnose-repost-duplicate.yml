@@ -1,0 +1,51 @@
+name: Read-only X repost duplicate incident evidence
+on:
+  pull_request:
+    paths: ['.github/workflows/diagnose-repost-duplicate.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Extract redacted repost ledger, processes and delivery status
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/dup_key
+          chmod 600 ~/.ssh/dup_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          timeout 120s ssh -o ConnectTimeout=12 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i ~/.ssh/dup_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "== X workers service and process counts =="
+          systemctl show chzzk-bot.service -p ActiveState -p MainPID -p NRestarts --no-pager || true
+          ps -eo args | grep -E '[p]ython.*(main.py|twitter_notifier|x_repost)' | sed -E 's#(https?://)[^ ]+#\1[REDACTED]#g' | cut -c 1-180 | sort | uniq -c | head -20 || true
+          echo "== Repost deliveries 19:35..19:58 KST (timestamps + source post ID only) =="
+          journalctl -u chzzk-bot.service --since '2026-11-09 10:35:00 UTC' --until '2026-11-09 10:58:00 UTC' -o short-iso --utc --no-pager 2>/dev/null | grep -E 'X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_FX_REPOST_SCAN|DISCORD_WEBHOOK_DELIVERED|DISCORD_DELIVERY_REVIEW_PENDING|X RSS .*재시도|X RSS.*실패|후야 X RSS.*실패|X_REPOST_MEDIA_RESOLVED' | sed -E 's#(https?://)[^ ]+#\1[REDACTED]#g' | tail -100 || true
+          echo "== persisted seen state counts and relevant modification times =="
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,os
+          from pathlib import Path
+          names=['x_seen_posts.json','x_repost_seen_posts.json','x_huya_seen_posts.json','x_huya_repost_seen_posts.json','x_fx_timeline_hanayohiyori.json','x_fx_timeline_sakihanehuya.json','discord_delivery_uncertain.jsonl']
+          for name in names:
+              p=Path(name)
+              if not p.exists():
+                  print('LEDGER',name,'missing');continue
+              try:
+                  if name.endswith('.jsonl'):
+                      count=sum(1 for line in p.open(encoding='utf-8') if line.strip())
+                  else:
+                      j=json.loads(p.read_text(encoding='utf-8'))
+                      count=len(j) if isinstance(j,(list,dict)) else -1
+                  print('LEDGER',name,'items',count,'size',p.stat().st_size,'modified_epoch',int(p.stat().st_mtime))
+              except (OSError,ValueError) as ex: print('LEDGER',name,type(ex).__name__)
+          PY
+          REMOTE
