@@ -68,13 +68,18 @@ def render(sources, components, now=None):
         "", "**전송 검토**",
         "- 전송 결과 확인 필요: " + _text(components.get("discord_uncertain_deliveries"), "0")
         + "건 (자동 재발송하지 않음)",
+        "- HTTP 전송 시간: 평균 " + _text(components.get("delivery_latency", {}).get("average_seconds")) + "초"
+        + " · 최대 " + _text(components.get("delivery_latency", {}).get("max_seconds")) + "초",
         "- 상태 경고: " + ", ".join(components.get("warning_codes") or ["없음"]),
     ]
     return "\n".join(lines)
 
 
 def snapshot():
-    return {"sources": source_check_summary(), "components": component_check_summary()}
+    from delivery_latency import summary as latency_summary
+    components = component_check_summary()
+    components["delivery_latency"] = latency_summary()
+    return {"sources": source_check_summary(), "components": components}
 
 
 def main():
