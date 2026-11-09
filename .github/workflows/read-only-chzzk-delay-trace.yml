@@ -1,4 +1,5 @@
 name: Read-only CHZZK 227-second live alert trace
+# Production fast-path verification after fix PR #259
 on:
   pull_request:
     paths: ['.github/workflows/read-only-chzzk-delay-trace.yml']
