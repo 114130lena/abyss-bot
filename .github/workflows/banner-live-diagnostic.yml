@@ -26,7 +26,7 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/banner_diag
           chmod 600 ~/.ssh/banner_diag
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          ssh -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=12 -i ~/.ssh/banner_diag -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          timeout 35s ssh -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=12 -i ~/.ssh/banner_diag -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           echo "=== Services ==="
@@ -42,24 +42,20 @@ jobs:
           from pathlib import Path
           from dotenv import load_dotenv
           load_dotenv(Path('/home/ubuntu/chzzk-bot/.env'))
-          from guild_server_banner import read_state, banner_inventory
-          from guild_banner_healthcheck import check
+          import json
           from datetime import datetime
           from zoneinfo import ZoneInfo
-          state=read_state()
-          inventory=banner_inventory(state)
-          print('BANNER_DIAG last_slot=%s candidates=%d unused=%d used=%d enabled=%s' % (
-              state.get('last_slot'),inventory['total'],inventory['unused'],inventory['used'],
-              os.getenv('SERVER_BANNER_ENABLED','0')))
-          print('BANNER_DIAG unused_by_group=%s' % inventory.get('unused_by_group'))
-          print('BANNER_DIAG last_change_time_known=%s last_hash_known=%s' % (
-              bool(state.get('banner_changed_at')),bool(state.get('guild_banner_hash'))))
+          path=Path('creator_media/guild_banner_rotation_state.json')
           try:
-              result=check()
-              print('BANNER_DIAG health=%s expected=%s' % (
-                  result.get('status'),result.get('expected_slot')))
-          except Exception as exc:
-              print('BANNER_DIAG health_error=%s' % type(exc).__name__)
-          print('BANNER_DIAG now_kst=%s' % datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M'))
+              s=json.loads(path.read_text(encoding='utf-8'))
+          except (OSError,ValueError):
+              s={}
+          print('BANNER_STATE last_slot=%s candidate_total=%s remaining_after=%s changed_at=%s enabled=%s' % (
+              s.get('last_slot'),s.get('candidate_total'),s.get('remaining_after'),
+              s.get('banner_changed_at'),os.getenv('SERVER_BANNER_ENABLED','0')))
+          print('BANNER_STATE rotated_used_count=%s used_post_count=%s last_hash_known=%s' % (
+              len(s.get('rotation_used') or []),len(s.get('all_used_post_ids') or []),
+              bool(s.get('guild_banner_hash'))))
+          print('BANNER_STATE now_kst=%s' % datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M'))
           PY
           REMOTE
