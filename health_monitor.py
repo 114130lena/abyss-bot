@@ -125,6 +125,21 @@ def snapshot():
             max(0, now - profile_path.stat().st_mtime) / 3600, 2)
     artist_watch = _read(ROOT / "creator_media" / "fanart_artist_watch_state.json", {})
     result["fanart"]["known_artist_fallback"] = artist_watch.get("groups", {})
+    free_state = _read(ROOT / "creator_media" / "fanart_free_sources_state.json", {})
+    free_groups = free_state.get("groups", {}) if isinstance(free_state, dict) else {}
+    result["fanart"]["free_index_sources"] = {
+        group: {source: {"status": str(stats.get("status") or "unverified"),
+                         "added": int(stats.get("added") or 0),
+                         "duplicates": int(stats.get("duplicates") or 0)}
+                for source, stats in (free_groups.get(group) or {}).items()
+                if source in ("bing_index", "google_news_index")
+                or source.startswith("nitter_")
+                if isinstance(stats, dict)}
+        for group in ("hanayo", "sakihane")
+        if isinstance(free_groups, dict) and isinstance(free_groups.get(group), dict)
+    }
+    result["fanart"]["free_index_last_checked"] = free_state.get("checked_at")
+
     banner_path = ROOT / "creator_media" / "guild_banner_rotation_state.json"
     banner = _read(banner_path, {})
     # The previous systemd timer and the in-process scheduler must never both

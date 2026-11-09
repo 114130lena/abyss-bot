@@ -47,6 +47,17 @@ def check_fanart():
             except (OSError, ValueError, TypeError):
                 logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
 
+    # Free indexes are supplementary and bounded (once / 2 hours). They may
+    # discover new artists, but only verified original X posts with photos
+    # enter the same canonical, group:post_id-deduplicated queue.
+    if os.getenv("FANART_FREE_INDEX_SEARCH_ENABLED", "1") == "1":
+        try:
+            from fanart_free_search import discover as search_free_indexes
+            free_result = search_free_indexes()
+            logging.info("FANART_FREE_INDEX result=%s", free_result)
+        except (OSError, ValueError, TypeError, requests.RequestException):
+            logging.exception("FANART_FREE_INDEX_UNAVAILABLE; existing queue preserved")
+
     # Global X hashtag search may be unavailable while media feeds of artists
     # already recorded in the queue remain accessible. Rotating accounts
     # preserve the original post and attached images; not global coverage.
@@ -57,28 +68,15 @@ def check_fanart():
         except (OSError, ValueError, TypeError, requests.RequestException):
             logging.exception("FANART_DISCOVERY_ARTIST_FALLBACK unavailable; queue preserved")
 
+    # Hard stop on chargeable X-wide fanart search. Existing X notification
+    # workers use their own independent settings; only fanart search is disabled.
     if os.getenv("FANART_USE_X_API", "0") == "1":
-        from fanart_discovery import discover
-        try:
-            result = discover()
-            logging.info("FANART_DISCOVERY_API result=%s", result)
-            from fanart_global_sources import update as update_global
-            update_global("official_x", result)
-        except Exception:
-            logging.exception("FANART_DISCOVERY_API failed; existing queue preserved")
-            try:
-                from fanart_global_sources import update as update_global
-                update_global("official_x", {"status": "unavailable"})
-            except (OSError, ValueError, TypeError):
-                logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
-
-    else:
-        # Explicitly disabled paid/credentialed source is not reported healthy.
-        try:
-            from fanart_global_sources import update as update_global
-            update_global("official_x", {"status": "disabled"})
-        except (OSError, ValueError, TypeError):
-            logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
+        logging.warning("FANART_OFFICIAL_X_SEARCH_DISABLED reason=zero_cost_policy")
+    try:
+        from fanart_global_sources import update as update_global
+        update_global("official_x", {"status": "disabled"})
+    except (OSError, ValueError, TypeError):
+        logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
 
     if os.getenv("FANART_CACHE_CANDIDATES", "0") == "1":
         from fanart_candidate_cache import run as cache_candidates
