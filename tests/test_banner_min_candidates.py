@@ -1,4 +1,4 @@
-"""Avoid replacing a manually selected guild banner from a 1-image pool."""
+"""Scheduled guild banner rotation resumes after a one-time manual edit."""
 import unittest
 from unittest.mock import patch
 import guild_server_banner as banner
@@ -98,12 +98,38 @@ class BannerMinimumTests(unittest.TestCase):
         self.assertEqual(result["status"], "changed")
         change.assert_called_once()
 
-    def test_single_candidate_does_not_replace_guild_on_schedule(self):
-        selected = ("image.jpg", {"sha256": "a", "artist": "@artist"})
-        with patch.object(banner, "slot", return_value="2026-11-08 18:00"), \
-             patch.object(banner, "read_state", return_value={}), \
-             patch.object(banner, "rotation_selection", return_value=(selected, ["a"], 1, 0)), \
+    def test_single_fresh_candidate_rotates_after_external_manual_change(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        selected = ("image.jpg", {"sha256": "new", "artist": "@artist",
+                                  "post_url": "https://x.com/artist/status/5678"})
+        state = {"banner_change_method": "외부 변경 감지",
+                 "guild_banner_hash": "manually_set_hash", "last_sha256": "old"}
+        with patch.object(banner, "read_state", return_value=state), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(selected, ["old", "new"], 1, 0)), \
+             patch.object(banner, "convert_banner", return_value=b"jpeg"), \
+             patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "1",
+                                       "DISCORD_BOT_TOKEN": "token",
+                                       "DISCORD_GUILD_ID": "123"}), \
+             patch.object(banner, "change_guild_banner", return_value="new_hash") as change, \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner, "sync_banner_info"):
+            result = banner.rotate_once(
+                now=datetime(2026, 11, 10, 18, 0,
+                             tzinfo=ZoneInfo("Asia/Seoul")))
+        self.assertEqual(result["status"], "changed")
+        change.assert_called_once()
+        self.assertEqual(save.call_args.args[0]["last_slot"], "2026-11-10 18:00")
+        self.assertEqual(save.call_args.args[0]["banner_change_method"], "봇 자동 교체")
+
+    def test_used_candidate_still_does_not_rotate(self):
+        with patch.object(banner, "slot", return_value="2026-11-10 18:00"), \
+             patch.object(banner, "read_state", return_value={
+                 "banner_change_method": "외부 변경 감지"}), \
+             patch.object(banner, "rotation_selection",
+                          return_value=(None, ["old"], 1, 0)), \
              patch.object(banner, "change_guild_banner") as change:
             result = banner.rotate_once(manual=False)
-        self.assertEqual(result["status"], "insufficient_candidates")
+        self.assertEqual(result["status"], "exhausted_candidates")
         change.assert_not_called()
