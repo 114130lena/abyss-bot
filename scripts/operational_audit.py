@@ -127,12 +127,15 @@ def component_check_summary():
     source_groups = art.get("hashtag_search", {})
     artist_groups = art.get("known_artist_fallback", {})
     profile_groups = art.get("profile_feeds", {})
+    global_groups = art.get("global_sources", {})
     groups = {}
     for name in ("hanayo", "sakihane"):
         item = art.get(name, {})
         src = source_groups.get(name, {}) if isinstance(source_groups, dict) else {}
         artist = artist_groups.get(name, {}) if isinstance(artist_groups, dict) else {}
         profile = profile_groups.get(name, {}) if isinstance(profile_groups, dict) else {}
+        global_status = global_groups.get(name, {}) if isinstance(global_groups, dict) else {}
+        global_status = global_status if isinstance(global_status, dict) else {}
         artist = artist if isinstance(artist, dict) else {}
         profile = profile if isinstance(profile, dict) else {}
         groups[name] = {
@@ -145,6 +148,8 @@ def component_check_summary():
             "artist_fallback_checked": int(artist.get("checked") or 0),
             "artist_fallback_successful": int(artist.get("successful") or 0),
             "creator_profile_status": str(profile.get("status") or "unverified"),
+            "global_search_status": str(global_status.get("status") or "unverified"),
+            "global_search_coverage_verified": bool(global_status.get("coverage_verified", False)),
         }
     return {
         "fanart": {
