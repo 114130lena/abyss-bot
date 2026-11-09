@@ -342,7 +342,7 @@ def send_webhook(url, payload, attempts=3):
                     record_transport(time.monotonic() - delivery_started,
                                      len(x_photos) + len(x_videos)
                                      + (2 if chosen else 0) + (1 if local_fanart else 0))
-                except (OSError, ValueError, TypeError) as exc:
+                except (ImportError, OSError, ValueError, TypeError) as exc:
                     logging.warning("DISCORD_LATENCY_METRICS_UNAVAILABLE reason=%s",
                                     type(exc).__name__)
                 return
