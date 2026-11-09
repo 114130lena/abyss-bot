@@ -1,5 +1,6 @@
 """Persistent scheduled guild banner attempts without real Discord calls."""
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime
@@ -28,7 +29,8 @@ class PendingBannerTests(unittest.TestCase):
 
     def test_persists_failure_then_retries_after_restart(self):
         old = {"last_slot": "2026-11-09 08:00", "guild_banner_hash": "oldhash"}
-        with patch.object(banner, "read_state", return_value=old), \
+        with patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "test", "DISCORD_GUILD_ID": "123"}), \
+             patch.object(banner, "read_state", return_value=old), \
              patch.object(banner, "rotate_once", side_effect=[
                  {"status": "retryable_error"}, {"status": "changed"}]) as rotate, \
              patch.object(banner, "_current_guild_banner", return_value="oldhash"):
