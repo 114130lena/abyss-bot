@@ -92,4 +92,16 @@ jobs:
               a,b=(bodies[msgid] for msgid in ids)
               print("WEBHOOK_COMPARE",json.dumps({"same":a==b,"similarity":round(difflib.SequenceMatcher(None,a,b).ratio(),3),"before_excerpt":a[:450],"after_excerpt":b[:450]},ensure_ascii=False))
           PY
+          echo "== Deployed original-repost dedup revision check =="
+          if [ -f .deployed_revision ]; then printf 'DEPLOYED_REVISION='; cat .deployed_revision; fi
+          test -f x_repost_delivery_ledger.py
+          "$PY" -B - <<'PY'
+          from x_repost_delivery_ledger import fingerprint
+          a={"id":"2119742014694769083","text":"RT @mttpape: 스텔라이브 소속 하나요 히요리 님의 데뷔 커버곡 유령이 되고 싶어 (ゆうれいになりたい) 일러스트를 담당했습니다.\\n\\n데뷔 축하드려요~!👻","url":"https://x.com/HanayoHiyori/status/2119742014694769083"}
+          b={"id":"2111459758842789889","text":"스텔라이브 소속 하나요 히요리 님의 데뷔 커버곡 유령이 되고 싶어 (ゆうれいになりたい) 일러스트를 담당했습니다.\\n\\n데뷔 축하드려요~!👻\\nThis post is unavailable","url":"https://x.com/mttpape/status/2111459758842789889"}
+          result=(fingerprint("hanayo",a) == fingerprint("hanayo",b))
+          print("LIVE_DEDUP_MODULE_PRESENT=True")
+          print("LIVE_PAIR_MATCHES=",result)
+          assert result
+          PY
           REMOTE
