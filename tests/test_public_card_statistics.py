@@ -138,10 +138,10 @@ class PublicCardSyncTests(unittest.TestCase):
         payload = clips._render([clip], {}, now=NOW, collected_at=collected)
         text = " ".join(str(x.get("content", ""))
                         for x in payload["components"][0]["components"])
-        self.assertIn("클립 수집 주기** · 2시간마다", text)
-        self.assertIn("마지막 수집 완료", text)
+        self.assertIn("수집 주기 · 2시간마다", text)
+        self.assertIn("마지막 수집 ·", text)
         self.assertIn(format_saved_time(collected), text)
-        self.assertIn("마지막 메시지 갱신", text)
+        self.assertIn("메시지 갱신 ·", text)
         self.assertIn(format_saved_time(NOW), text)
         self.assertIn("매일 08:00 / 18:00 KST", text)
 
