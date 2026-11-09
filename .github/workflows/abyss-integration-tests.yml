@@ -40,8 +40,9 @@ jobs:
       - name: Check restored banner, weekly prune and exclusion ledger
         run: python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v
       - name: Check free multi-index fanart discovery and dedup (mocked)
-        run: python -m unittest discover -s tests -p 'test_fanart_free_search.py' -v
-        python -m unittest discover -s tests -p 'test_free_fanart_refresh.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_fanart_free_search.py' -v
+          python -m unittest discover -s tests -p 'test_free_fanart_refresh.py' -v
       - name: Check global hashtag search sources and brand-new artist discovery (mocked)
         run: python -m unittest discover -s tests -p 'test_fanart_global_sources.py' -v
       - name: Check visual character classification (mocked API)
