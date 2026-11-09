@@ -39,6 +39,13 @@ jobs:
           url="https://discord.com/api/v10"
           # Exact user-provided guild/channel URL; no broad channel enumeration.
           channels=[("1566509366591627344","user_provided_channel")]
+          print("TARGET_GUILD_MATCHES_CONFIG",guild=="919216649880633465")
+          for route in ("/users/@me","/guilds/919216649880633465","/channels/1566509366591627344"):
+              try:
+                  probe=sess.get(url+route,timeout=9)
+                  print("TARGET_ACCESS",route,probe.status_code)
+              except requests.RequestException as exc:
+                  print("TARGET_ACCESS",route,type(exc).__name__)
           found={}
           print("DISCOVERY_CHANNEL_COUNT",len(channels))
           # Message IDs are deterministic; never write, send or delete Discord messages.
@@ -47,6 +54,7 @@ jobs:
                   if msg_id in found: continue
                   try:
                       r=sess.get(f"{url}/channels/{channel_id}/messages/{msg_id}",timeout=(3,7))
+                      print("TARGET_MESSAGE_HTTP",msg_id,r.status_code)
                       if r.status_code!=200: continue
                       obj=r.json()
                       found[msg_id]=(channel_id,source,obj)
