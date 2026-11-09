@@ -110,8 +110,8 @@ jobs:
               if str(x).isdigit()))
           if request_id not in requests:
               requests.append(request_id)
-          after["grid_layout_request_ids"] = requests[-20:]
-          save_json(STATE_FILE, after)
+          # The marker is committed only after the live message passes
+          # independent read-back verification.
           # Independently GET the original message; verify ONE media gallery
           # with numbered alt descriptions plus a compact clickable title list.
           import re
@@ -140,14 +140,19 @@ jobs:
               raise SystemExit("Clip grid title legend missing")
           expected = min(int(result.get("count") or 0), 10)
           for index in range(1, expected + 1):
-              if not re.search(r"\\*\\*%02d\\*\\* \\[" % index, titles[0]):
+              if ("**%02d** [" % index) not in titles[0]:
                   raise SystemExit("Missing ordered clip-title link")
           media = galleries[0]["items"]
-          if media and not all(re.match(r"^\\d\\d\\. ",
-                                    str(item.get("description") or "")) for item in media):
+          if media and not all(
+              len(str(item.get("description") or "")) >= 4 and
+              str(item.get("description") or "")[:2].isdigit() and
+              str(item.get("description") or "")[2:4] == ". "
+              for item in media):
               raise SystemExit("Grid alt text lacks original clip numbers")
           if len(children) > 10 or len(media) > expected:
               raise SystemExit("Discord clip grid exceeds component limits")
+          after["grid_layout_request_ids"] = requests[-20:]
+          save_json(STATE_FILE, after)
           print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({
               "status": "updated", "clip_count": expected,
               "media_count": len(media), "original_message": True,
