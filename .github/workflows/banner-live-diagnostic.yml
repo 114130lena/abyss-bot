@@ -23,7 +23,7 @@ jobs:
           test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\\n' "$SSH_KEY" > ~/.ssh/banner_diag
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/banner_diag
           chmod 600 ~/.ssh/banner_diag
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           ssh -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=12 -i ~/.ssh/banner_diag -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
@@ -34,7 +34,7 @@ jobs:
           systemctl is-active abyss-guild-banner.timer || true
           systemctl is-active abyss-guild-banner.service || true
           echo "=== Recent banner journal (sanitized status only) ==="
-          journalctl -u chzzk-bot.service --since '2026-11-09 17:55:00' --until '2026-11-09 18:30:00' --no-pager -o cat 2>/dev/null | grep -E 'SERVER_BANNER_ROTATION_(EXHAUSTED|SKIPPED)|SERVER_BANNER_PIPELINE|server-banner result:|SERVER_BANNER_OUTSIDE_WRITE_WINDOW|서버 배너 자동 변경 실패' | sed -E 's/(artist|source|post_url)=[^ ,}]+/\\1=[REDACTED]/g' | tail -35 || true
+          journalctl -u chzzk-bot.service --since '2026-11-09 17:55:00' --until '2026-11-09 18:30:00' --no-pager -o cat 2>/dev/null | grep -E 'SERVER_BANNER_ROTATION_(EXHAUSTED|SKIPPED)|SERVER_BANNER_PIPELINE|server-banner result:|SERVER_BANNER_OUTSIDE_WRITE_WINDOW|서버 배너 자동 변경 실패' | sed -E 's/(artist|source|post_url)=[^ ,}]+/\1=[REDACTED]/g' | tail -35 || true
           echo "=== Candidate inventory and canonical slot ==="
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           "$PY" - <<'PY'
