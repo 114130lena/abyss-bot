@@ -1,0 +1,101 @@
+name: Apply paired title-video clip layout once
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: abyss-clip-layout-manual
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-clip] apply-paired-layout-once' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Connect to production host
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Edit the existing clip message once without changing its scheduled slot
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          REFRESH_REQUEST: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "REFRESH_REQUEST=$REFRESH_REQUEST bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          test -f .env
+          grep -q CLIP_TITLE_MEDIA_PAIR_V2 chzzk_clip_digest.py
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 90 creator_media/clip_paired_layout.lock "$PY" - <<'PY'
+          import json
+          import os
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from resilience import load_json, save_json
+          from chzzk_clip_digest import STATE_FILE, publish_once
+
+          request_id = os.environ.get("REFRESH_REQUEST", "")
+          if not request_id.isdigit():
+              raise SystemExit("Invalid layout request")
+          before = load_json(STATE_FILE, {})
+          if not isinstance(before, dict):
+              before = {}
+          if request_id in (before.get("paired_layout_request_ids") or []):
+              print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({"status": "already_updated"}))
+              raise SystemExit(0)
+
+          # User requested an immediate one-off layout change to the existing
+          # message; scheduled 08:00/18:00 posts and representative history
+          # must not be re-timed or rewritten.
+          result = publish_once()
+          status = str(result.get("status") or "unknown")
+          if status != "updated":
+              print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({"status": status}))
+              raise SystemExit(1)
+
+          after = load_json(STATE_FILE, {})
+          if not isinstance(after, dict):
+              raise SystemExit("Invalid state after Discord update")
+          if "last_published_slot" in before:
+              after["last_published_slot"] = before["last_published_slot"]
+          else:
+              after.pop("last_published_slot", None)
+          if "history" in before:
+              after["history"] = before["history"]
+          else:
+              after.pop("history", None)
+          if "latest_id" in before:
+              after["latest_id"] = before["latest_id"]
+          else:
+              after.pop("latest_id", None)
+          requests = list(dict.fromkeys(
+              str(x) for x in (after.get("paired_layout_request_ids") or [])
+              if str(x).isdigit()))
+          if request_id not in requests:
+              requests.append(request_id)
+          after["paired_layout_request_ids"] = requests[-20:]
+          save_json(STATE_FILE, after)
+          print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({
+              "status": "updated", "clip_count": result.get("count"),
+              "schedule_preserved": True, "history_preserved": True,
+          }))
+          PY
+          REMOTE
