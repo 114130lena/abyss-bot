@@ -31,7 +31,9 @@ class DeliverySmokeTests(unittest.TestCase):
         original = "https://pbs.twimg.com/media/original.jpg"
         with patch("x_post_media.resolve_media", return_value=([original], "", False, True)) as resolve, \
              patch.object(x_repost_notifier, "send_webhook") as sent, \
-             patch.object(x_repost_notifier, "get_banner", return_value=""):
+             patch.object(x_repost_notifier, "get_banner", return_value=""), \
+             patch("x_repost_delivery_ledger.reserve", return_value=True), \
+             patch("x_repost_delivery_ledger.mark_sent"):
             x_repost_notifier.notify("hanayo", post, WEBHOOK)
         self.assertEqual(resolve.call_args.args[1], "original")
         self.assertEqual(resolve.call_args.args[0]["id"], "456")
