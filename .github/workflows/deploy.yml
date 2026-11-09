@@ -53,6 +53,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_banner_min_candidates.py' -v
           python -m unittest discover -s tests -p 'test_huya_guild_banner.py' -v
           python -m unittest discover -s tests -p 'test_scheduled_publishing.py' -v
+          python -m unittest discover -s tests -p 'test_banner_persistent_retry.py' -v
           python -m unittest discover -s tests -p 'test_schedule_display.py' -v
           python -m unittest discover -s tests -p 'test_public_card_statistics.py' -v
           python -m unittest discover -s tests -p 'test_nonrepeating_media_and_banner_ui.py' -v
