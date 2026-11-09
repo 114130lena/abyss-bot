@@ -188,7 +188,11 @@ def check_huya_x():
         except (OSError,ValueError,TypeError):
             repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
             repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
+        from x_post_classification import classify
         for post in posts:
+            if classify(post, USERNAME) == "reply":
+                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
+                continue
             if is_repost_post(post, USERNAME):
                 if post["id"] not in repost_seen:
                     logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s",post["id"],post.get("source","?"))
