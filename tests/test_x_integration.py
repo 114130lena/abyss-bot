@@ -42,7 +42,10 @@ class RepostRoutingTests(unittest.TestCase):
                 "source_link": "https://nitter.mie.foundation/GoodArtist/status/123",
                 "images": ["https://pbs.twimg.com/media/example.jpg"],
                 "rss_title": "repost"}
-        with patch("x_post_media.resolve_media", return_value=(post["images"], "", False, True)), patch.object(repost, "send_webhook") as sent:
+        with patch("x_post_media.resolve_media", return_value=(post["images"], "", False, True)), \
+             patch("x_repost_delivery_ledger.reserve", return_value=True), \
+             patch("x_repost_delivery_ledger.mark_sent"), \
+             patch.object(repost, "send_webhook") as sent:
             repost.notify("hanayo", post, "https://discord.com/api/webhooks/111/token")
         url, payload = sent.call_args.args
         self.assertIn("thread_id=1566509366591627344", url)
