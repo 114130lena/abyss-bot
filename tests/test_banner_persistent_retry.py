@@ -30,10 +30,10 @@ class PendingBannerTests(unittest.TestCase):
         old = {"last_slot": "2026-11-09 08:00", "guild_banner_hash": "oldhash"}
         with patch.object(banner, "read_state", return_value=old), \
              patch.object(banner, "rotate_once", side_effect=[
-                 {"status": "outside_schedule"}, {"status": "changed"}]) as rotate, \
+                 {"status": "retryable_error"}, {"status": "changed"}]) as rotate, \
              patch.object(banner, "_current_guild_banner", return_value="oldhash"):
             first = banner.retry_scheduled_banner_once(when(18, 0))
-            self.assertEqual(first["status"], "outside_schedule")
+            self.assertEqual(first["status"], "retryable_error")
             self.assertTrue(self.pending.exists())
             self.assertEqual(banner.retry_scheduled_banner_once(when(18, 1))["status"],
                              "retry_waiting")
