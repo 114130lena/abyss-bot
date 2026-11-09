@@ -142,11 +142,11 @@ class ClipTests(unittest.TestCase):
         self.assertEqual(len(parts[1]["items"]), 10)
         self.assertEqual(len(payload["components"]), 1)
         legend = parts[2]["content"]
-        self.assertEqual(legend.count("\\n"), 11)
+        self.assertEqual(legend.count("\n"), 11)
         self.assertNotIn("  ·  ", legend)
-        self.assertIn("**05** [제목 5]", legend.split("\\n\\n")[0])
-        self.assertTrue(legend.split("\\n\\n")[1].startswith("**06** [제목 6]"))
-        self.assertIn("**10** [제목 10]", legend.split("\\n\\n")[1])
+        self.assertIn("**05** [제목 5]", legend.split("\n\n")[0])
+        self.assertTrue(legend.split("\n\n")[1].startswith("**06** [제목 6]"))
+        self.assertIn("**10** [제목 10]", legend.split("\n\n")[1])
         for index, item in enumerate(items, 1):
             self.assertIn("**%02d** [제목 %s]" % (index, index), legend)
             self.assertIn(item["url"], legend)
