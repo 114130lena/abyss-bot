@@ -1,0 +1,102 @@
+name: Diagnose two Discord message IDs read-only
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diagnose-two-messages.yml'
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read Discord message metadata from production credentials
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/diag_key
+          chmod 600 ~/.ssh/diag_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          timeout 130s ssh -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=12 -i ~/.ssh/diag_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import os, re, json, hashlib, requests
+          from pathlib import Path
+          from dotenv import load_dotenv
+          load_dotenv(Path(".env"))
+          token=os.getenv("DISCORD_BOT_TOKEN", "")
+          guild=os.getenv("DISCORD_GUILD_ID", "")
+          ids=["1569303241404059829","1569300884662521889"]
+          if not token or not guild.isdigit(): raise SystemExit("DISCORD_CREDENTIALS_MISSING")
+          sess=requests.Session()
+          sess.headers.update({"Authorization":"Bot "+token})
+          url="https://discord.com/api/v10"
+          channels=[]
+          for key,value in os.environ.items():
+              if ("CHANNEL_ID" in key or "THREAD_ID" in key) and isinstance(value,str) and value.isdigit():
+                  channels.append((value,key))
+          try:
+              r=sess.get(f"{url}/guilds/{guild}/channels",timeout=12)
+              if r.ok:
+                  for ch in r.json():
+                      if ch.get("type") in (0,5,11,12):
+                          channels.append((str(ch["id"]),"guild_channel"))
+          except requests.RequestException: pass
+          channels=list(dict.fromkeys(channels))
+          found={}
+          print("DISCOVERY_CHANNEL_COUNT",len(channels))
+          # Message IDs are deterministic; never write, send or delete Discord messages.
+          for channel_id,source in channels[:110]:
+              for msg_id in ids:
+                  if msg_id in found: continue
+                  try:
+                      r=sess.get(f"{url}/channels/{channel_id}/messages/{msg_id}",timeout=(3,7))
+                      if r.status_code!=200: continue
+                      obj=r.json()
+                      found[msg_id]=(channel_id,source,obj)
+                  except (ValueError,requests.RequestException): continue
+              if len(found)==2: break
+          for msg_id in ids:
+              if msg_id not in found:
+                  print("MESSAGE",msg_id,"NOT_FOUND_IN_ACCESSIBLE_CHANNELS")
+                  continue
+              channel,origin,m=found[msg_id]
+              def flatten(parts):
+                  out=[]
+                  for p in parts or []:
+                      if isinstance(p,dict):
+                          if p.get("type") == 10: out.append(p.get("content") or "")
+                          out.extend(flatten(p.get("components")))
+                  return out
+              texts=[m.get("content") or ""]+flatten(m.get("components"))
+              texts+= [str(e.get("title") or "")+" "+str(e.get("description") or "") for e in m.get("embeds",[])]
+              contents="\n".join(texts)
+              headings=[x.strip()[:160] for x in contents.splitlines() if x.strip()][:12]
+              metadata={"id":msg_id,"channel":channel,"channel_source":origin,
+                  "created_at":m.get("timestamp"),"edited_at":m.get("edited_timestamp"),
+                  "author_id":str((m.get("author") or {}).get("id")),
+                  "author_bot":bool((m.get("author") or {}).get("bot")),
+                  "webhook":bool(m.get("webhook_id")),"flags":m.get("flags"),
+                  "attachments":len(m.get("attachments") or []),
+                  "embeds":len(m.get("embeds") or []),
+                  "components":len(m.get("components") or []),
+                  "first_lines":headings,"body_sha256":hashlib.sha256(contents.encode()).hexdigest()[:12]}
+              print("MESSAGE_METADATA",json.dumps(metadata,ensure_ascii=False))
+          if len(found)==2:
+              a=found[ids[0]][2];b=found[ids[1]][2]
+              def normalize(msg):
+                  return "\n".join([msg.get("content") or ""]+flatten(msg.get("components"))).strip()
+              aa,bb=normalize(a),normalize(b)
+              print("COMPARISON",json.dumps({"same_channel":found[ids[0]][0]==found[ids[1]][0],
+                  "same_author":(a.get("author") or {}).get("id")== (b.get("author") or {}).get("id"),
+                  "same_text":aa==bb,"text_similarity":round(__import__("difflib").SequenceMatcher(None,aa,bb).ratio(),3),
+                  "first_extra_lines":[line[:100] for line in aa.splitlines() if line not in bb.splitlines()][:8],
+                  "second_extra_lines":[line[:100] for line in bb.splitlines() if line not in aa.splitlines()][:8]},ensure_ascii=False))
+          PY
+          REMOTE
