@@ -101,6 +101,11 @@ def send_discord_notification(live):
         category=live.get("category", ""), date=live.get("open_date", ""),
         handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group),
         chzzk_channel_id=live["channel_id"])
+    session_id = str(live.get("live_id") or live.get("open_date") or "").strip()
+    if session_id:
+        import hashlib
+        stable = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
+        payload["_abyss_event_key"] = "chzzk-live:" + str(live["channel_id"]) + ":" + stable
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 
