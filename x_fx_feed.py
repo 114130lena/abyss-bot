@@ -80,15 +80,27 @@ def fetch_creator_originals(username, common, max_age_seconds=10800):
     current_reposts={k for k,v in entries.items() if v["repost"]}
     state_file=_state_path(username)
     known=_read_state(state_file)
-    if known is None:
+    try:
+        seconds_since_baseline = now.timestamp() - state_file.stat().st_mtime
+    except OSError:
+        seconds_since_baseline = float("inf")
+    if known is None or seconds_since_baseline > 6 * 3600:
+        # An old Fx baseline is NOT a reliable repost-event timestamp.
+        # Re-seed after a long feed outage/restart rather than broadcasting
+        # days-old original X posts as if they were freshly reposted.
         _write_state(state_file,current_reposts)
         new_reposts=set()
-        logging.info("X_FX_REPOST_SEEDED username=%s existing=%d",username,len(current_reposts))
+        logging.warning("X_FX_REPOST_REBASELINE username=%s visible=%d baseline_age_hours=%s",
+                        username,len(current_reposts),
+                        round(seconds_since_baseline / 3600, 1) if seconds_since_baseline != float("inf") else "missing")
     else:
         new_reposts=current_reposts-known
-        # Keep the initial baseline unchanged. The notifier records delivery only
-        # after Discord succeeds, so failed sends are eligible for retries.
-        logging.info("X_FX_REPOST_SCAN username=%s visible=%d outside_baseline=%d",username,len(current_reposts),len(new_reposts))
+        # Refresh the feed snapshot timestamp on EVERY successful scan.
+        # Do NOT mark new items as seen here: the Discord notifier is the
+        # only layer allowed to mark a repost delivered after send succeeds.
+        _write_state(state_file,current_reposts & known)
+        logging.info("X_FX_REPOST_SCAN username=%s visible=%d outside_baseline=%d",
+                     username,len(current_reposts),len(new_reposts))
     results=[v for k,v in entries.items() if not v["repost"] or k in new_reposts]
     logging.info("X_FX_FEED username=%s originals=%d reposts=%d",username,
                  sum(not p["repost"] for p in results),sum(p["repost"] for p in results))
