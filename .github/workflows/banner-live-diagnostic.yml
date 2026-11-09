@@ -35,6 +35,13 @@ jobs:
           systemctl is-active abyss-guild-banner.service || true
           echo "=== Recent banner journal (sanitized status only) ==="
           journalctl -u chzzk-bot.service --since '2026-11-09 17:55:00' --until '2026-11-09 18:30:00' --no-pager -o cat 2>/dev/null | grep -E 'SERVER_BANNER_ROTATION_(EXHAUSTED|SKIPPED)|SERVER_BANNER_PIPELINE|server-banner result:|SERVER_BANNER_OUTSIDE_WRITE_WINDOW|서버 배너 자동 변경 실패' | sed -E 's/(artist|source|post_url)=[^ ,}]+/\1=[REDACTED]/g' | tail -35 || true
+          echo "=== Banner service failure details ==="
+          systemctl show abyss-guild-banner.service -p Result -p ExecMainStatus -p ActiveState -p SubState -p UnitFileState --no-pager || true
+          systemctl show abyss-guild-banner.timer -p UnitFileState -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime --no-pager || true
+          echo "=== Banner service journal (KST 18:00 = UTC 09:00) ==="
+          journalctl -u abyss-guild-banner.service --since '2026-11-09 08:50:00 UTC' --until '2026-11-09 09:30:00 UTC' -o cat --no-pager 2>/dev/null | grep -Ei 'BANNER|error|failed|Traceback|timeout|candidate|exhaust|rotation|lock' | sed -E 's/(artist|source|post_url)=[^ ,}]+/\\1=[REDACTED]/g' | tail -30 || true
+          echo "=== Main bot banner journal around 18:00 KST ==="
+          journalctl -u chzzk-bot.service --since '2026-11-09 08:50:00 UTC' --until '2026-11-09 09:20:00 UTC' -o cat --no-pager 2>/dev/null | grep -Ei 'SERVER_BANNER|server-banner result|server-banner info|서버 배너' | sed -E 's/(artist|source|post_url)=[^ ,}]+/\\1=[REDACTED]/g' | tail -30 || true
           echo "=== Candidate inventory and canonical slot ==="
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           "$PY" - <<'PY'
