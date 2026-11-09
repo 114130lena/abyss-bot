@@ -79,7 +79,7 @@ class HuyaGuildBannerTests(unittest.TestCase):
             {"text": "후야 #huyart", "server_banner_excluded": True}))
 
     def test_huya_and_hiyori_share_banner_use_history(self):
-        with patch.object(banner, "approved_hanayo_art", return_value=[]), \\
+        with patch.object(banner, "approved_hanayo_art", return_value=[]), \
              patch.object(banner, "collected_hanayo_art", return_value=[]):
             pool = banner.banner_inventory(state={})
             self.assertEqual(pool["total_by_group"]["sakihane"], 2)
