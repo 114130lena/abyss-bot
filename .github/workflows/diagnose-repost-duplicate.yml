@@ -104,4 +104,31 @@ jobs:
           print("LIVE_PAIR_MATCHES=",result)
           assert result
           PY
+          echo "== Cross-platform event guard deployed state (read only) =="
+          if [ -f discord_event_dedup.py ] && [ -f x_post_classification.py ]; then
+            echo "GLOBAL_GUARD_FILES_PRESENT=True"
+            "$PY" -B - <<'PY'
+          from x_post_classification import classify
+          from discord_event_dedup import LEDGER
+          import json
+          wrapper={"url":"https://x.com/HanayoHiyori/status/2119742014694769083","rss_title":"RT @mttpape: art"}
+          original={"url":"https://x.com/HanayoHiyori/status/200","rss_title":"새 공지"}
+          reply={"url":"https://x.com/HanayoHiyori/status/201","rss_title":"R to @member: reply"}
+          print("X_CLASSIFICATION",classify(wrapper,"HanayoHiyori"),classify(original,"HanayoHiyori"),classify(reply,"HanayoHiyori"))
+          if LEDGER.exists():
+              try:
+                  rows=json.loads(LEDGER.read_text(encoding="utf-8"))
+                  statuses={}
+                  for v in rows.values():
+                      status=v.get("status") if isinstance(v,dict) else "invalid"
+                      statuses[status]=statuses.get(status,0)+1
+                  print("GLOBAL_LEDGER_COUNTS",statuses)
+              except (OSError,ValueError,TypeError) as e:
+                  print("GLOBAL_LEDGER_UNREADABLE",type(e).__name__)
+          else:
+              print("GLOBAL_LEDGER_PENDING_FIRST_SEND")
+          PY
+          else
+            echo "GLOBAL_GUARD_FILES_PRESENT=False"
+          fi
           REMOTE
