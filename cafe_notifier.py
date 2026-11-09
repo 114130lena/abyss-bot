@@ -192,7 +192,12 @@ def notify(article, role_id, menu_id, group):
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
         date=article.get("date", ""), images=images,
         handle=creator_handle(group), avatar=creator_avatar(group))
-    payload["_abyss_event_key"] = "cafe:" + str(menu_id) + ":" + str(article["id"])
+    article_id = str(article.get("id") or "").strip()
+    if article_id.isdigit():
+        payload["_abyss_event_key"] = "cafe:" + str(menu_id) + ":" + article_id
+    else:
+        logging.warning("CAFE_DELIVERY_ID_MISSING menu=%s; transport event dedup unavailable",
+                        menu_id)
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
