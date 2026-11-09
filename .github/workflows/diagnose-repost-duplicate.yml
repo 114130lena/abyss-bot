@@ -48,4 +48,42 @@ jobs:
                   print('LEDGER',name,'items',count,'size',p.stat().st_size,'modified_epoch',int(p.stat().st_mtime))
               except (OSError,ValueError) as ex: print('LEDGER',name,type(ex).__name__)
           PY
+          echo "== Exact webhook messages using their original webhook ownership =="
+          "$PY" - <<'PY'
+          import os, json, hashlib, re, requests
+          from urllib.parse import urlsplit
+          from dotenv import load_dotenv
+          load_dotenv(".env")
+          target_webhook="1563895508819382352"
+          ids=["1569300884662521889","1569303241404059829"]
+          candidates=["DISCORD_WEBHOOK_URL","X_REPOST_WEBHOOK_URL","HANAYO_WEBHOOK_URL"]
+          matching=[]
+          for name in candidates:
+              raw=os.getenv(name,"")
+              p=urlsplit(raw)
+              parts=p.path.strip("/").split("/")
+              if p.hostname in ("discord.com","discordapp.com") and len(parts)>=4 and parts[-2]==target_webhook:
+                  matching.append((name,"https://discord.com/api/v10/webhooks/"+parts[-2]+"/"+parts[-1]))
+          print("WEBHOOK_KEYS_MATCHING", [x[0] for x in matching])
+          if not matching:
+              raise SystemExit(0)
+          hook=matching[0][1]
+          def extract(parts):
+              result=[]
+              for item in parts or []:
+                  if not isinstance(item,dict): continue
+                  if item.get("type")==10: result.append(str(item.get("content") or ""))
+                  result.extend(extract(item.get("components") or []))
+              return result
+          for msgid in ids:
+              try:
+                  r=requests.get(hook+"/messages/"+msgid,params={"thread_id":"1566509366591627344","with_components":"true"},timeout=12)
+                  print("WEBHOOK_MESSAGE_HTTP",msgid,r.status_code)
+                  if r.status_code!=200:continue
+                  m=r.json()
+                  full="\n".join(extract(m.get("components")) + [m.get("content") or ""])
+                  xlinks=re.findall(r'https?://(?:x\\.com|twitter\\.com|fxtwitter\\.com)/[A-Za-z0-9_]+/status/[0-9]+',full)
+                  print("WEBHOOK_MESSAGE",json.dumps({"id":msgid,"components":len(m.get("components") or []),"hash":hashlib.sha256(full.encode()).hexdigest()[:16],"extracted_status_urls":xlinks[:6],"text_length":len(full),"attachments":len(m.get("attachments") or []),"edited":m.get("edited_timestamp")},ensure_ascii=False))
+              except (requests.RequestException,ValueError,TypeError) as ex:print("WEBHOOK_MESSAGE_ERROR",msgid,type(ex).__name__)
+          PY
           REMOTE
