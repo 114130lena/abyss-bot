@@ -336,6 +336,15 @@ def send_webhook(url, payload, attempts=3):
                 if time.monotonic() - delivery_started > 15:
                     logging.warning("DISCORD_DELIVERY_SLOW elapsed_seconds=%.2f x_photos=%d x_videos=%d",
                                     time.monotonic() - delivery_started, len(x_photos), len(x_videos))
+                # Best-effort, privacy-safe timing; telemetry must never block alerts.
+                try:
+                    from delivery_latency import record_transport
+                    record_transport(time.monotonic() - delivery_started,
+                                     len(x_photos) + len(x_videos)
+                                     + (2 if chosen else 0) + (1 if local_fanart else 0))
+                except (OSError, ValueError, TypeError) as exc:
+                    logging.warning("DISCORD_LATENCY_METRICS_UNAVAILABLE reason=%s",
+                                    type(exc).__name__)
                 return
             if attempt == attempts - 1:
                 response.raise_for_status()
