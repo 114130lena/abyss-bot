@@ -33,7 +33,8 @@ def snapshot():
     queue_exists = QUEUE.is_file()
     queue = read(QUEUE)
     result = {"available": queue_exists, "groups": {}, "checked_at": "",
-              "last_new_post_at": "", "server_banner_images": None, "server_banner_total": None, "server_banner_used": None}
+              "last_new_post_at": "", "server_banner_images": None, "server_banner_total": None,
+              "server_banner_used": None, "server_banner_by_group": {}}
     for group in ("hanayo", "sakihane"):
         items = [item for item in queue.values()
                  if isinstance(item, dict) and item.get("group") == group]
@@ -68,6 +69,7 @@ def snapshot():
     result["server_banner_images"] = guild_pool["unused"]
     result["server_banner_total"] = guild_pool["total"]
     result["server_banner_used"] = guild_pool["used"]
+    result["server_banner_by_group"] = guild_pool.get("unused_by_group", {})
     profile = read(BASE / "fanart_profile_state.json")
     search = read(BASE / "fanart_fx_search_state.json")
     artists = read(BASE / "fanart_artist_watch_state.json")
@@ -104,10 +106,18 @@ def card_sections(report):
         f"**수집 게시글**　히요리 {_value(h.get('posts'), '건')} · 후야 {_value(f.get('posts'), '건')}\n"
         f"**저장된 이미지**　히요리 {_value(h.get('cached_images'), '장')} · 후야 {_value(f.get('cached_images'), '장')}"
     )
+    counts = report.get("server_banner_by_group", {})
+    if "hanayo" in counts and "sakihane" in counts:
+        banner_line = (
+            f"**서버 배너용 후보**　히요리 {_value(counts['hanayo'], '장')}"
+            f" · 후야 {_value(counts['sakihane'], '장')}"
+            f" / 전체 {_value(report.get('server_banner_total'), '장')}")
+    else:
+        banner_line = (f"**서버 배너용 후보**　히요리 {_value(report.get('server_banner_images'), '장')}"
+                       f" / 전체 {_value(report.get('server_banner_total'), '장')}")
     available = (
         "**📌 사용 가능한 후보**\n"
-        f"**서버 배너용 후보**　히요리 {_value(report.get('server_banner_images'), '장')}"
-        f" / 전체 {_value(report.get('server_banner_total'), '장')}\n"
+        f"{banner_line}\n"
         f"**알림 배너·팬아트 후보**　히요리 {_value(h.get('notification_posts'), '건')}"
         f" · 후야 {_value(f.get('notification_posts'), '건')}\n"
         "-# 서버 배너는 사용 후 제외 · 알림 팬아트는 소진 시에만 재사용"

@@ -15,6 +15,10 @@ _BACKGROUND_ONLY = re.compile(
     r"(?:풍경|배경\s*(?:그림|사진|이미지)?|캐릭터\s*(?:없음|없는)|"
     r"background\s*(?:only|art|image)?|scenery\b|landscape\b)", re.I)
 _REPOST = re.compile(r"^\s*(?:RT by |RT @|repost by )", re.I)
+_HUYA = re.compile(
+    r"(?<![\w#])(?:사키하네\s*후야|후야|さきはね\s*ふや|ふや|フヤ|"
+    r"sakihane\s*huya|sakihanehuya|huya)(?![\w])", re.I)
+_OTHER_HUYA_TAGS = {"#hiyoriart_", "#toart_", "#rangart_", "#maryart_"}
 
 
 def eligible_hanayo_banner(item):
@@ -36,5 +40,24 @@ def eligible_hanayo_banner(item):
     # it provides an independent character-in-image check.
     caption = _TAGS.sub(" ", text)
     if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not _HIYORI.search(caption):
+        return False
+    return True
+
+
+def eligible_huya_banner(item):
+    """Only unambiguous original #huyart posts; image must also be wide.
+
+    The Huya rule never relies on the Hiyori-only vision reference image.
+    """
+    if not isinstance(item, dict) or item.get("server_banner_excluded") is True:
+        return False
+    text = str(item.get("text") or "")
+    if _REPOST.search(text):
+        return False
+    tags = {x.lower() for x in _TAGS.findall(text)}
+    if "#huyart" not in tags or tags & _OTHER_HUYA_TAGS:
+        return False
+    caption = _TAGS.sub(" ", text)
+    if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not _HUYA.search(caption):
         return False
     return True

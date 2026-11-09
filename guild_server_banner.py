@@ -166,7 +166,7 @@ def approved_hanayo_art():
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             continue
         seen.add(entry["sha256"])
-        result.append((path, {**entry, "banner_format": framing}))
+        result.append((path, {**entry, "group": "hanayo", "banner_format": framing}))
     return result
 
 
@@ -236,6 +236,7 @@ def collected_hanayo_art():
             from fanart_usage import preferred_server_banner
             aspect_group = "wide" if preferred_server_banner(*dimensions) else "fit"
             result.append((path, {"sha256": digest, "artist": artist,
+                                  "group": "hanayo",
                                   "post_url": source, "source": "cached_hanayo_fanart",
                                   "server_aspect": aspect_group,
                                   "banner_format": framing,
@@ -246,6 +247,71 @@ def collected_hanayo_art():
     # both have already been used.
     return result
 
+
+
+def collected_huya_art():
+    """Eligible cached #huyart originals; only native or fitted *wide* art.
+
+    Unlike Hiyori, square/portrait Huya photos do not enter the guild pool.
+    The Hiyori-specific vision scorer must not be used to judge Huya images.
+    """
+    if os.getenv("SERVER_BANNER_USE_COLLECTED", "1") != "1":
+        return []
+    from fanart_discovery import QUEUE, read, classify
+    from fanart_relevance import eligible_huya_banner
+    from fanart_usage import canonical_post
+    base = media_base().resolve()
+    root = (base / "fanart_candidates" / "sakihane").resolve()
+    if not root.is_dir():
+        return []
+    result = []
+    seen = set()
+    for item in read(QUEUE).values():
+        if not isinstance(item, dict) or item.get("group") != "sakihane":
+            continue
+        if str(item.get("hashtag", "")).casefold() != "#huyart":
+            continue
+        if (not eligible_huya_banner(item)
+                or item.get("decision") == "blocked"
+                or item.get("review_status") == "blocked"
+                or classify(item.get("text", "")) == "blocked"):
+            continue
+        source = item.get("post_url", "")
+        artist = item.get("artist", "")
+        if not canonical_post(source) or not isinstance(artist, str) or not artist.startswith("@"):
+            continue
+        for rel in item.get("cached_files", [])[:4]:
+            if not isinstance(rel, str):
+                continue
+            path = (base / rel).resolve()
+            if root not in path.parents or path.suffix.lower() not in EXTS or not path.is_file():
+                continue
+            if not 0 < path.stat().st_size <= 12 * 1024 * 1024:
+                continue
+            try:
+                with Image.open(path) as img:
+                    if getattr(img, "is_animated", False):
+                        continue
+                    width, height = ImageOps.exif_transpose(img).size
+                    framing = kind(width, height)
+                    # Explicitly require long horizontal Huya images.
+                    if framing not in ("16:9", "16:10", "landscape_fit"):
+                        continue
+                    if width / height < 1.25:
+                        continue
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+                continue
+            if digest in seen:
+                continue
+            seen.add(digest)
+            result.append((path, {"sha256": digest, "artist": artist,
+                                  "group": "sakihane", "post_url": source,
+                                  "source": "cached_huya_fanart",
+                                  "server_aspect": "wide",
+                                  "banner_format": framing,
+                                  "vision_score": None}))
+    return result
 
 def convert_banner(path):
     """16:9: downsize; 16:10: keep full art and blur-fill the sides."""
@@ -277,7 +343,7 @@ def banner_inventory(state=None):
     from fanart_usage import canonical_post
     state = state if isinstance(state, dict) else read_state()
     unique = {}
-    for path, info in approved_hanayo_art() + collected_hanayo_art():
+    for path, info in approved_hanayo_art() + collected_hanayo_art() + collected_huya_art():
         digest = info.get("sha256")
         if isinstance(digest, str) and digest:
             unique.setdefault(digest, (path, info))
@@ -299,8 +365,14 @@ def banner_inventory(state=None):
         if sha not in used
         and canonical_post(value[1].get("post_url")) not in used_posts
     }
+    def counts(values):
+        return {name: sum(1 for _sha, (_path, meta) in values.items()
+                          if meta.get("group", "hanayo") == name)
+                for name in ("hanayo", "sakihane")}
     return {"total": len(unique), "unused": len(remaining),
-            "used": len(unique) - len(remaining), "available": remaining}
+            "used": len(unique) - len(remaining), "available": remaining,
+            "total_by_group": counts(unique),
+            "unused_by_group": counts(remaining)}
 
 
 def rotation_selection(previous=None, used=None, state=None):
@@ -415,6 +487,7 @@ def _resolve_banner_attribution(banner_hash, previous):
     if not _valid_banner_source(artist, source):
         return None
     return {"artist": artist, "post_url": source,
+            "group": record.get("group", "hanayo"),
             "banner_source_recorded_at": str(record.get("changed_at") or "").strip(),
             "banner_change_method": "이전 자동 배너 재사용 감지"}
 
@@ -496,7 +569,7 @@ def _recover_cached_image_source(guild_id, actual, get=None):
     Keep the threshold strict to avoid attributing unrelated images.
     """
     from PIL import ImageChops, ImageStat
-    candidates = approved_hanayo_art() + collected_hanayo_art()
+    candidates = approved_hanayo_art() + collected_hanayo_art() + collected_huya_art()
     if not candidates:
         return {"status": "no_candidates"}
     extension = "gif" if actual.startswith("a_") else "png"
@@ -532,6 +605,7 @@ def _recover_cached_image_source(guild_id, actual, get=None):
         return {"status": "ambiguous"}
     result = scores[0][1]
     return {"status": "matched", "artist": result["artist"],
+            "group": result.get("group", "hanayo"),
             "post_url": result["post_url"]}
 
 
@@ -573,8 +647,13 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
 
     # One image, then short grouped labels. Avoid nested duplicated headings,
     # raw source URLs and a single overwhelming paragraph of metadata.
+    subtitle = ("SAKIHANE HUYA · STELLIVE · EVERYS"
+                if state.get("group") == "sakihane"
+                else "HANAYO HIYORI · STELLIVE · ABYSS"
+                if state.get("group", "hanayo") == "hanayo"
+                else "STELLIVE · FAN ART")
     parts = [{"type": 10, "content":
-              "## 서버 배너 정보\n-# HANAYO HIYORI · STELLIVE · ABYSS"}]
+              "## 서버 배너 정보\n-# " + subtitle}]
     if banner_hash:
         ext = "gif" if banner_hash.startswith("a_") else "png"
         media_url = f"https://cdn.discordapp.com/banners/{guild_id}/{banner_hash}.{ext}?size=1024"
@@ -674,6 +753,7 @@ def sync_banner_info(force=False):
         else:
             state["artist"] = ""
             state["post_url"] = ""
+            state["group"] = ""
             state["banner_change_method"] = "외부 변경 감지"
         state["banner_info_updated_hash"] = ""
     if uninitialized:
@@ -716,6 +796,7 @@ def sync_banner_info(force=False):
         if match["status"] == "matched":
             state["artist"] = match["artist"]
             state["post_url"] = match["post_url"]
+            state["group"] = match.get("group", "hanayo")
             state["banner_source_verified_via"] = "cached_image_match"
         state["banner_info_updated_hash"] = ""
         logging.info("BANNER_METADATA_IMAGE_MATCH status=%s", match["status"])
@@ -795,6 +876,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(image)
     info = {"sha256": metadata["sha256"], "artist": metadata.get("artist"),
+            "group": metadata.get("group", "hanayo"),
             "post_url": metadata.get("post_url"), "size": list(SIZE),
             "rotation_used": rotation_used, "candidate_total": candidate_total,
             "remaining_after": remaining}
@@ -829,6 +911,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
     recorded = {**previous, "last_slot": (previous.get("last_slot") if manual else current_slot),
                 "last_sha256": metadata["sha256"],
                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
+                "group": metadata.get("group", "hanayo"),
                 "rotation_used": rotation_used,
                 "all_used_sha256": list(dict.fromkeys(
                     [*(previous.get("all_used_sha256") or []), metadata["sha256"]])),
@@ -850,6 +933,7 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
         history = _banner_history(previous)
         history[new_hash] = {
             "artist": recorded["artist"], "post_url": recorded["post_url"],
+            "group": recorded.get("group", "hanayo"),
             "changed_at": changed_at, "method": recorded["banner_change_method"],
             "sha256": metadata["sha256"],
         }
@@ -862,7 +946,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
         sync_banner_info()
     except (requests.RequestException, ValueError, OSError):
         logging.exception("배너 변경 성공, 정보 메시지 갱신은 재시도 예정")
-    logging.info("히요리 서버 배너 교체 완료: %s / %s", metadata.get("artist"), current_slot)
+    logging.info("서버 배너 교체 완료: group=%s artist=%s slot=%s",
+                 metadata.get("group", "hanayo"), metadata.get("artist"), current_slot)
     return {"status": "changed", **info}
 
 

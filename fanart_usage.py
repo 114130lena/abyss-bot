@@ -35,11 +35,14 @@ def server_reserved_post_ids(group):
     Previously only widescreen posts were reserved when one wide existed,
     even though the guild picker could select a fitted image of another post.
     """
-    if group != "hanayo":
+    if group not in ("hanayo", "sakihane"):
         return set()
-    from guild_server_banner import approved_hanayo_art, collected_hanayo_art
+    from guild_server_banner import (approved_hanayo_art, collected_hanayo_art,
+                                     collected_huya_art)
+    candidates = ((approved_hanayo_art() + collected_hanayo_art())
+                  if group == "hanayo" else collected_huya_art())
     result = set()
-    for _path, meta in approved_hanayo_art() + collected_hanayo_art():
+    for _path, meta in candidates:
         post_id = canonical_post(meta.get("post_url"))
         if post_id:
             result.add(post_id)
@@ -54,7 +57,8 @@ def excluded_notification_art(group):
     """
     index = read(BASE / "fanart_index.json")
     entries = index.get(group, []) if isinstance(index, dict) else []
-    state = read(BASE / "guild_banner_rotation_state.json") if group == "hanayo" else {}
+    state = (read(BASE / "guild_banner_rotation_state.json")
+             if group in ("hanayo", "sakihane") else {})
     used = set()
     if isinstance(state, dict):
         used = {s for s in state.get("rotation_used", []) if isinstance(s, str)}
@@ -68,7 +72,7 @@ def excluded_notification_art(group):
     reserved_posts.update(server_reserved_post_ids(group))
     # Cached guild-banner artwork lives in the discovery queue, not necessarily
     # the curated index. Exclude any post whose cached artwork was selected.
-    if group == "hanayo" and used:
+    if group in ("hanayo", "sakihane") and used:
         queue = read(BASE / "fanart_discovery.json")
         for item in queue.values():
             if not isinstance(item, dict) or item.get("group") != group:

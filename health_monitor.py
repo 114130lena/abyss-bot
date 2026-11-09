@@ -138,22 +138,29 @@ def snapshot():
                         "source_match_status": banner.get("banner_source_match_status", "not_checked")}
     # Explain why a populated art queue may still yield only one valid
     # server-banner candidate when visual recognition is not configured.
-    from fanart_relevance import eligible_hanayo_banner
+    from fanart_relevance import eligible_hanayo_banner, eligible_huya_banner
     hanayo_posts = [item for item in queue.values()
                     if isinstance(item, dict) and item.get("group") == "hanayo"]
     text_eligible = [item for item in hanayo_posts if eligible_hanayo_banner(item)]
     result["banner"]["text_eligible_posts"] = len(text_eligible)
     result["banner"]["text_eligible_cached_images"] = sum(
         len(item.get("cached_files") or []) for item in text_eligible)
+    huya_posts = [item for item in queue.values()
+                  if isinstance(item, dict) and item.get("group") == "sakihane"]
+    result["banner"]["huya_text_eligible_posts"] = sum(
+        bool(eligible_huya_banner(item)) for item in huya_posts)
     from delivery_review import count_pending
     result["discord_uncertain_deliveries"] = count_pending()
     try:
-        from guild_server_banner import collected_hanayo_art, approved_hanayo_art, banner_inventory
-        result["banner"]["collected_candidates"] = len(collected_hanayo_art())
+        from guild_server_banner import (collected_hanayo_art, collected_huya_art,
+                                         approved_hanayo_art, banner_inventory)
+        result["banner"]["collected_candidates"] = (
+            len(collected_hanayo_art()) + len(collected_huya_art()))
         result["banner"]["approved_candidates"] = len(approved_hanayo_art())
         available = banner_inventory(banner)
         result["banner"]["unused_candidates"] = available["unused"]
         result["banner"]["total_eligible_candidates"] = available["total"]
+        result["banner"]["unused_by_group"] = available.get("unused_by_group", {})
     except (OSError, ValueError, ImportError) as exc:
         logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
     from fanart_vision import enabled as vision_enabled, ready as vision_ready
