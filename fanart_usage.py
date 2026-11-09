@@ -4,6 +4,7 @@ The guild banner scheduler records used sha256 values. Notification selection
 resolves those hashes to original X posts and excludes their entire galleries.
 Explicit server-banner-only entries are excluded even before the first rotation.
 """
+import os
 from urllib.parse import urlsplit
 from fanart_discovery import BASE, read
 
@@ -29,25 +30,69 @@ def preferred_server_banner(width, height):
 
 
 def server_reserved_post_ids(group):
-    """Reserve EVERY eligible guild-banner source post from notification reuse.
+    """Conservatively reserve server-banner posts WITHOUT decoding all images.
 
-    Use the real guild-banner selectors, including the wide+fit fallback.
-    Previously only widescreen posts were reserved when one wide existed,
-    even though the guild picker could select a fitted image of another post.
+    This function runs on the time-critical CHZZK/X/Cafe delivery path. The
+    real guild rotation performs PIL validation and SHA256 for every image,
+    which took >200 seconds when invoked from each notification. Instead,
+    use its existing hashtag/eligibility/blocklist metadata and reserve any
+    candidate *potentially* selectable by the guild scheduler. Conservatively
+    reserving an invalid/uncached image is safe; exposing a guild-banner image
+    in a notification is not.
     """
     if group not in ("hanayo", "sakihane"):
         return set()
-    from guild_server_banner import (approved_hanayo_art, collected_hanayo_art,
-                                     collected_huya_art)
-    candidates = ((approved_hanayo_art() + collected_hanayo_art())
-                  if group == "hanayo" else collected_huya_art())
+    from fanart_discovery import QUEUE, classify
+    from fanart_relevance import eligible_hanayo_banner, eligible_huya_banner
+    from fanart_vision import enabled as vision_enabled
+
     result = set()
-    for _path, meta in candidates:
-        post_id = canonical_post(meta.get("post_url"))
+    if group == "hanayo":
+        library = read(BASE / "fanart_index.json")
+        entries = library.get("hanayo", []) if isinstance(library, dict) else []
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            if not (entry.get("approved") is True and entry.get("permission_confirmed") is True
+                    and str(entry.get("hashtag", "")).casefold() == "#hiyoriart_"):
+                continue
+            if not isinstance(entry.get("original_path"), str) or not entry.get("sha256"):
+                continue
+            post_id = canonical_post(entry.get("post_url"))
+            if post_id:
+                result.add(post_id)
+
+    if os.getenv("SERVER_BANNER_USE_COLLECTED", "1") != "1":
+        return result
+
+    queue = read(QUEUE)
+    if not isinstance(queue, dict):
+        return result
+    for item in queue.values():
+        if not isinstance(item, dict) or item.get("group") != group:
+            continue
+        tag = "#hiyoriart_" if group == "hanayo" else "#huyart"
+        if str(item.get("hashtag", "")).casefold() != tag:
+            continue
+        if (item.get("decision") == "blocked"
+                or item.get("review_status") == "blocked"
+                or classify(item.get("text", "")) == "blocked"):
+            continue
+        if group == "hanayo" and item.get("server_banner_excluded") is True:
+            continue
+        if group == "hanayo":
+            if not vision_enabled() and not eligible_hanayo_banner(item):
+                continue
+        elif not eligible_huya_banner(item):
+            continue
+        if not isinstance(item.get("artist"), str) or not item["artist"].startswith("@"):
+            continue
+        if not any(isinstance(path, str) for path in (item.get("cached_files") or [])[:4]):
+            continue
+        post_id = canonical_post(item.get("post_url"))
         if post_id:
             result.add(post_id)
     return result
-
 
 def excluded_notification_art(group):
     """Return (reserved sha256s, original post IDs).
