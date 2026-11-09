@@ -47,6 +47,17 @@ def check_fanart():
             except (OSError, ValueError, TypeError):
                 logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
 
+    # Free indexes are supplementary and bounded (once / 2 hours). They may
+    # discover new artists, but only verified original X posts with photos
+    # enter the same canonical, group:post_id-deduplicated queue.
+    if os.getenv("FANART_FREE_INDEX_SEARCH_ENABLED", "1") == "1":
+        try:
+            from fanart_free_search import discover as search_free_indexes
+            free_result = search_free_indexes()
+            logging.info("FANART_FREE_INDEX result=%s", free_result)
+        except (OSError, ValueError, TypeError, requests.RequestException):
+            logging.exception("FANART_FREE_INDEX_UNAVAILABLE; existing queue preserved")
+
     # Global X hashtag search may be unavailable while media feeds of artists
     # already recorded in the queue remain accessible. Rotating accounts
     # preserve the original post and attached images; not global coverage.
