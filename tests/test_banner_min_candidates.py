@@ -4,7 +4,7 @@ from unittest.mock import patch
 import guild_server_banner as banner
 
 class BannerMinimumTests(unittest.TestCase):
-    def test_square_fit_candidate_is_not_a_guild_banner_even_if_legacy_fit_enabled(self):
+    def test_square_art_can_fill_banner_without_crop_as_fallback(self):
         import json
         import tempfile
         from pathlib import Path
@@ -34,10 +34,16 @@ class BannerMinimumTests(unittest.TestCase):
                  patch.object(banner, "media_base", return_value=base), \
                  patch("fanart_discovery.QUEUE", base / "fanart_discovery.json"):
                 pool = banner.collected_hanayo_art()
-                self.assertEqual(len(pool), 1)
-                self.assertEqual({p[1]["server_aspect"] for p in pool}, {"wide"})
-                _, _, total, _ = banner.rotation_selection()
-                self.assertEqual(total, 1)
+                self.assertEqual(len(pool), 2)
+                self.assertEqual({p[1]["banner_format"] for p in pool},
+                                 {"16:9", "square_fit"})
+                selected, _, total, _ = banner.rotation_selection()
+                self.assertEqual(total, 2)
+                self.assertEqual(selected[1]["banner_format"], "16:9")
+                image = banner.convert_banner(folder / "square.jpg")
+                from io import BytesIO
+                with Image.open(BytesIO(image)) as converted:
+                    self.assertEqual(converted.size, (960, 540))
 
     def test_single_candidate_does_not_replace_guild_on_schedule(self):
         selected = ("image.jpg", {"sha256": "a", "artist": "@artist"})

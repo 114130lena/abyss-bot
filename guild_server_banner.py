@@ -110,7 +110,19 @@ def kind(width, height):
         return "16:9"
     if width >= 960 and height >= 540 and abs(aspect - 16 / 10) <= 0.03:
         return "16:10"
-    if os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1" and width >= 600 and height >= 600 and 0.5 <= aspect <= 2.5:
+    # Preserve the full artwork on a blurred widescreen background instead
+    # of requiring a source image to match 16:9 exactly. Prioritize naturally
+    # wide landscapes; permit square and moderate portrait art only as
+    # last-resort alternatives. Never auto-pick narrow/tall portraits.
+    if width >= 800 and height >= 600 and 0.74 <= aspect <= 2.2:
+        if aspect >= 1.18:
+            return "landscape_fit"
+        if aspect >= 0.9:
+            return "square_fit"
+        return "portrait_fit"
+    # Legacy preview helper for very tall art; excluded from auto-selection.
+    if (os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1"
+            and width >= 600 and height >= 600 and 0.5 <= aspect <= 2.5):
         return "fit"
     return None
 
@@ -150,7 +162,8 @@ def approved_hanayo_art():
                 if getattr(img, "is_animated", False):
                     continue
                 framing = kind(*ImageOps.exif_transpose(img).size)
-                if framing not in ("16:9", "16:10"):
+                if framing not in ("16:9", "16:10", "landscape_fit",
+                                   "square_fit", "portrait_fit"):
                     continue
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             continue
@@ -207,9 +220,10 @@ def collected_hanayo_art():
                         continue
                     dimensions = ImageOps.exif_transpose(img).size
                     framing = kind(*dimensions)
-                    # Square, portrait and extreme-crop fits are never
-                    # appropriate for an automatic Discord guild banner.
-                    if framing not in ("16:9", "16:10"):
+                    # Fit wider-ranging artwork without cutting out the
+                    # character. Exclude only highly vertical legacy fits.
+                    if framing not in ("16:9", "16:10", "landscape_fit",
+                                       "square_fit", "portrait_fit"):
                         continue
                 if vision_enabled():
                     visual = vision_classification(path)
@@ -228,13 +242,11 @@ def collected_hanayo_art():
                                   "server_aspect": aspect_group,
                                   "banner_format": framing,
                                   "vision_score": visual.get("score") if vision_enabled() else None}))
-    # The guild owns widescreen artworks first; other ratios remain for
-    # notification cards. Fit-only artwork is a fallback when none are wide.
-    widescreen = [entry for entry in result if entry[1].get("server_aspect") == "wide"]
-    # One wide image alone must not hide valid 16:10/fit artworks: otherwise
-    # minimum-two rotation is starved even with a populated trusted art cache.
-    # Prefer all-wide rotation when at least two distinct widescreen images exist.
-    return widescreen if len(widescreen) >= 2 else result
+    # All composition-safe frames remain in the pool. Selection prioritizes
+    # actual widescreen art, then landscape, then square, then mild portrait.
+    # Do not hide valid fallback candidates when two wide images exist but
+    # both have already been used.
+    return result
 
 
 def convert_banner(path):
@@ -314,10 +326,11 @@ def rotation_selection(previous=None, used=None, state=None):
         best = max(int(meta.get("vision_score") or 0) for _path, meta in unseen.values())
         unseen = {sha: value for sha, value in unseen.items()
                   if int(value[1].get("vision_score") or 0) >= best - 15}
-    # Prefer native 16:9 art that fills the Discord banner without cropping;
-    # use blur-filled 16:10 only if no fresh 16:9 art remains. Unknown format
-    # occurs only in older curated/test metadata and stays as fallback.
-    grade = {"16:9": 2, "16:10": 1}
+    # Always try wide compositions first, but allow other non-extreme source
+    # ratios when the unused-wide pool runs out. All fit cases retain the
+    # entire image over a blurred fill, so subjects are not cropped out.
+    grade = {"16:9": 5, "16:10": 4, "landscape_fit": 3,
+             "square_fit": 2, "portrait_fit": 1}
     best_frame = max(grade.get(meta.get("banner_format"), 0) for _path, meta in unseen.values())
     unseen = {sha: value for sha, value in unseen.items()
               if grade.get(value[1].get("banner_format"), 0) == best_frame}
@@ -815,7 +828,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
     # The guild PATCH succeeded. Record its new banner hash when available;
     # never guess a CDN hash from the local JPEG.
     changed_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
-    recorded = {**previous, "last_slot": current_slot, "last_sha256": metadata["sha256"],
+    recorded = {**previous, "last_slot": (previous.get("last_slot") if manual else current_slot),
+                "last_sha256": metadata["sha256"],
                 "artist": metadata.get("artist"), "post_url": metadata.get("post_url"),
                 "rotation_used": rotation_used,
                 "all_used_sha256": list(dict.fromkeys(

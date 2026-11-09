@@ -62,7 +62,33 @@ class BannerTests(unittest.TestCase):
     def test_ratio(self):
         self.assertEqual(mod.kind(1920, 1080), "16:9")
         self.assertEqual(mod.kind(1920, 1200), "16:10")
-        self.assertIsNone(mod.kind(1080, 1080))
+        self.assertEqual(mod.kind(1080, 1080), "square_fit")
+        self.assertEqual(mod.kind(1200, 900), "landscape_fit")
+        self.assertEqual(mod.kind(900, 1200), "portrait_fit")
+        self.assertIsNone(mod.kind(1080, 1920))
+
+    def test_fallback_selected_only_after_all_wide_art_used(self):
+        from pathlib import Path
+        pool = [
+            (Path("/tmp/wide.jpg"), {"sha256": "wide",
+                "banner_format": "16:9", "post_url": "https://x.com/a/status/1122"}),
+            (Path("/tmp/square.jpg"), {"sha256": "square",
+                "banner_format": "square_fit", "post_url": "https://x.com/b/status/3344"}),
+            (Path("/tmp/landscape.jpg"), {"sha256": "landscape",
+                "banner_format": "landscape_fit", "post_url": "https://x.com/c/status/5566"}),
+        ]
+        with patch.object(mod, "approved_hanayo_art", return_value=pool), \
+             patch.object(mod, "collected_hanayo_art", return_value=[]):
+            selected, *_ = mod.rotation_selection(state={})
+            self.assertEqual(selected[1]["sha256"], "wide")
+            state = {"all_used_sha256": ["wide"]}
+            selected, _, total, remaining = mod.rotation_selection(state=state)
+            self.assertEqual(selected[1]["sha256"], "landscape")
+            self.assertEqual(total, 3)
+            self.assertEqual(remaining, 1)
+            state["all_used_sha256"].append("landscape")
+            selected, *_ = mod.rotation_selection(state=state)
+            self.assertEqual(selected[1]["sha256"], "square")
 
     def test_index_filters_other_groups_and_unapproved(self):
         with tempfile.TemporaryDirectory() as tmp:
