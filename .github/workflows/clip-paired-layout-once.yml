@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Connect to production host
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
@@ -38,19 +41,36 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_HOST" && test -n "$SSH_USER"
+          test "$REFRESH_REQUEST" -ge 1
+          # Publish the reviewed main-branch renderer directly from checkout;
+          # the normal deployment queue may still be processing older commits.
+          # This stage is temporary and does not overwrite the running bot.
+          grep -q CLIP_TITLE_MEDIA_PAIR_V2 chzzk_clip_digest.py
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes chzzk_clip_digest.py "$SSH_USER@$SSH_HOST:/tmp/abyss_clip_layout_once_$REFRESH_REQUEST.py"
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "REFRESH_REQUEST=$REFRESH_REQUEST bash -se" <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           test -f .env
-          grep -q CLIP_TITLE_MEDIA_PAIR_V2 chzzk_clip_digest.py
+          test -f "/tmp/abyss_clip_layout_once_${REFRESH_REQUEST}.py"
+          grep -q CLIP_TITLE_MEDIA_PAIR_V2 "/tmp/abyss_clip_layout_once_${REFRESH_REQUEST}.py"
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
           /usr/bin/flock -w 90 creator_media/clip_paired_layout.lock "$PY" - <<'PY'
           import json
           import os
           from dotenv import load_dotenv
           load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          import importlib.util
+          from pathlib import Path
           from resilience import load_json, save_json
-          from chzzk_clip_digest import STATE_FILE, publish_once
+          # Import exactly the paired renderer staged from the latest main.
+          source = Path("/tmp/abyss_clip_layout_once_" +
+                        os.environ["REFRESH_REQUEST"] + ".py")
+          spec = importlib.util.spec_from_file_location("paired_clip_digest", source)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Clip renderer not found")
+          paired = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(paired)
+          STATE_FILE, publish_once = paired.STATE_FILE, paired.publish_once
 
           request_id = os.environ.get("REFRESH_REQUEST", "")
           if not request_id.isdigit():
@@ -93,8 +113,44 @@ jobs:
               requests.append(request_id)
           after["paired_layout_request_ids"] = requests[-20:]
           save_json(STATE_FILE, after)
+          # Independently verify the displayed Discord message has a title
+          # immediately followed by its associated media or safe fallback.
+          import re
+          import requests
+          channel = os.getenv("CHZZK_CLIP_CHANNEL_ID", "")
+          message = os.getenv("CHZZK_CLIP_MESSAGE_ID", "")
+          token = os.getenv("DISCORD_BOT_TOKEN", "")
+          response = requests.get(
+              f"https://discord.com/api/v10/channels/{channel}/messages/{message}",
+              headers={"Authorization": "Bot " + token}, timeout=12)
+          response.raise_for_status()
+          posted = response.json()
+          if str(posted.get("id")) != message or not (int(posted.get("flags") or 0) & 32768):
+              raise SystemExit("Existing Discord clip message not verified")
+          containers = posted.get("components") or []
+          if not containers or len(containers) > 10:
+              raise SystemExit("Invalid clip message container count")
+          paired_count = 0
+          media_count = 0
+          for c in containers:
+              if c.get("type") != 17:
+                  raise SystemExit("Unexpected top-level clip component")
+              children = c.get("components") or []
+              if len(children) > 10:
+                  raise SystemExit("Clip container exceeds component limit")
+              for i, p in enumerate(children):
+                  if p.get("type") == 12:
+                      media_count += len(p.get("items") or [])
+                  if p.get("type") == 10 and re.match(
+                      r"\*\*[0-9]{2}\. ", str(p.get("content") or "")):
+                      if i + 1 >= len(children) or children[i + 1].get("type") not in (10, 12):
+                          raise SystemExit("Clip title/media pairing missing")
+                      paired_count += 1
+          if paired_count != min(int(result.get("count") or 0), 10) or media_count > 10:
+              raise SystemExit("Clip title/media pairing count mismatch")
           print("CLIP_PAIR_LAYOUT_ONCE " + json.dumps({
-              "status": "updated", "clip_count": result.get("count"),
+              "status": "updated", "clip_count": paired_count,
+              "media_count": media_count, "original_message": True,
               "schedule_preserved": True, "history_preserved": True,
           }))
           PY
