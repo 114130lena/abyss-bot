@@ -87,6 +87,16 @@ jobs:
                   "components":len(m.get("components") or []),
                   "first_lines":headings,"body_sha256":hashlib.sha256(contents.encode()).hexdigest()[:12]}
               print("MESSAGE_METADATA",json.dumps(metadata,ensure_ascii=False))
+              print("MESSAGE_STRUCTURE",json.dumps({"id":msg_id,
+                  "keys":sorted(m.keys()),"type":m.get("type"),
+                  "webhook_id":m.get("webhook_id"),
+                  "application_id":m.get("application_id"),
+                  "component_count":len(m.get("components") or []),
+                  "snapshot_count":len(m.get("message_snapshots") or []),
+                  "body_size":len(json.dumps(m)),
+                  "author_username":(m.get("author") or {}).get("username"),
+                  "thread_id":(m.get("thread") or {}).get("id")
+              },ensure_ascii=False))
           if len(found)==2:
               a=found[ids[0]][2];b=found[ids[1]][2]
               def normalize(msg):
