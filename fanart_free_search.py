@@ -9,7 +9,7 @@ import html
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
@@ -153,8 +153,18 @@ def _nitter_feeds():
     return [v for v in hosts if v in NITTER_HOSTS][:2]
 
 
-def discover(session=None):
-    """One slow, bounded pass with global post-ID dedup across all sources."""
+def discover(session=None, now=None):
+    """At most one bounded network pass per two hours, even if bot polls hourly."""
+    now = now or datetime.now(timezone.utc)
+    state = read(STATE)
+    recent = state.get("checked_at")
+    if isinstance(recent, str):
+        try:
+            last = datetime.fromisoformat(recent)
+            if last.tzinfo and timedelta(0) <= now - last <= timedelta(hours=2):
+                return {"status": "rate_limited", "checked_at": recent, "added": 0}
+        except (TypeError, ValueError, OverflowError):
+            pass
     session = session or requests.Session()
     queue = read(QUEUE)
     results = {}
@@ -179,7 +189,7 @@ def discover(session=None):
                                           "error": type(exc).__name__}
     # Monitoring never claims completeness; web-index snippets can omit
     # newest posts and a successful RSS fetch may have zero usable X links.
-    status = {"checked_at": datetime.now(timezone.utc).isoformat(),
+    status = {"checked_at": now.isoformat(),
               "groups": results, "coverage_verified": False,
               "status": "partial_index_only",
               "post_lookups": allowance[0]}
