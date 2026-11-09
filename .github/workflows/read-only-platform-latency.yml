@@ -1,0 +1,129 @@
+name: Read-only all-platform latency audit
+on:
+  pull_request:
+    paths: ['.github/workflows/read-only-platform-latency.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect live service and recent event timings without posting
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/latency_key
+          chmod 600 ~/.ssh/latency_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          timeout 140s ssh -o ConnectTimeout=12 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i ~/.ssh/latency_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python3; fi
+          "$PY" - <<'PY'
+          import os, re, json, subprocess, statistics
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from collections import defaultdict
+          from dotenv import load_dotenv
+          load_dotenv(Path('.env'))
+          now=datetime.now(timezone.utc)
+          print("AUDIT_UTC",now.isoformat())
+          try: print("DEPLOYED_REVISION",(Path('.deployed_revision').read_text().strip())[:12])
+          except OSError: print("DEPLOYED_REVISION","missing")
+          for service in ('chzzk-bot.service','abyss-guild-banner.service','abyss-guild-banner.timer'):
+              p=subprocess.run(['systemctl','show',service,'-p','ActiveState','-p','SubState','-p','MainPID'],capture_output=True,text=True,timeout=7)
+              print('SERVICE',service,' '.join(p.stdout.strip().splitlines()))
+          names=['POLL_INTERVAL','X_POLL_INTERVAL','CAFE_POLL_INTERVAL','YOUTUBE_POLL_INTERVAL',
+             'CHZZK_REPLAY_POLL_INTERVAL','X_SPACES_POLL_INTERVAL','ABYSS_HEALTH_INTERVAL_SECONDS',
+             'FANART_DISCOVERY_INTERVAL','SERVER_BANNER_ENABLED','SERVER_BANNER_INFO_POLL_SECONDS']
+          for name in names:
+              value=os.getenv(name)
+              print('POLL_CONFIG',name,value if value and value.isdigit() else ('enabled' if value=='1' else ('disabled' if value=='0' else 'default')))
+          try:
+              from delivery_latency import summary
+              print('DISCORD_TRANSPORT',json.dumps(summary(),ensure_ascii=False))
+          except Exception as exc: print('DISCORD_TRANSPORT_ERROR',type(exc).__name__)
+          from pathlib import Path
+          files={'chzzk_live':'live_state.json','replay':'chzzk_replay_seen.json',
+               'x_hanayo':'x_seen_posts.json','x_huya':'x_huya_seen_posts.json',
+               'x_hanayo_rt':'x_repost_seen_posts.json','x_huya_rt':'x_huya_repost_seen_posts.json',
+               'cafe_431':'cafe_seen_articles.json','cafe_382':'cafe_seen_articles_382.json',
+               'youtube':'youtube_seen_videos.json','websub':'youtube_websub_state.json',
+               'clip':'daily_clip_state.json','banner':'creator_media/guild_banner_rotation_state.json'}
+          for label,path in files.items():
+              p=Path(path)
+              age=round((now.timestamp()-p.stat().st_mtime)/60,1) if p.exists() else None
+              print('STATE_AGE_MINUTES',label,age)
+          # Read only the current service journal; never emit post text, URLs,
+          # credentials or Discord payloads.
+          job=subprocess.run(['journalctl','-u','chzzk-bot.service','--since','4 hours ago',
+              '--no-pager','-o','short-iso','--utc'],capture_output=True,text=True,timeout=25)
+          lines=job.stdout.splitlines()
+          rules={
+              'chzzk_live_sent':r'디스코드 알림 전송 성공',
+              'x_hanayo_sent':r'X 새 게시글 알림 성공',
+              'x_huya_sent':r'후야 X 새 글 알림',
+              'x_rt_sent':r'X_REPOST_DELIVERED',
+              'x_rt_suppressed':r'X_REPOST_DUPLICATE_SUPPRESSED',
+              'x_rss_fetch':r'X_RSS_FETCH',
+              'x_rss_failure':r'X RSS 서버 조회 실패|후야 X RSS 소스 실패|X_SOURCE_BACKOFF',
+              'x_original_delay':r'작성 후 지연=',
+              'cafe_sent':r'카페 게시판 .* 새 글 알림 전송',
+              'cafe_empty':r'카페 게시판 .* 새 게시글 없음',
+              'youtube_sent':r'YouTube notification sent|YouTube WebSub notification sent',
+              'youtube_failure':r'YOUTUBE_RSS_BACKOFF',
+              'webhook_sent':r'DISCORD_WEBHOOK_DELIVERED',
+              'discord_uncertain':r'DISCORD_DELIVERY_REVIEW_PENDING|DISCORD_EVENT_UNCERTAIN',
+              'replay_sent':r'CHZZK replay posted',
+              'clip_collect':r'CHZZK_CLIP_COLLECT_RESULT',
+              'clip_publish':r'CHZZK_CLIP_RESULT|CHZZK_CLIP_UPDATED',
+              'banner_result':r'server-banner result:|SERVER_BANNER_.*(FAILED|EXHAUSTED|SKIPPED)',
+              'health':r'ABYSS_HEALTH_SNAPSHOT',
+              'dedup':r'DISCORD_EVENT_DUPLICATE_SUPPRESSED',
+          }
+          for label,pattern in rules.items():
+              matched=[line for line in lines if re.search(pattern,line,re.I)]
+              last=matched[-1][:33] if matched else 'none'
+              print('EVENT',label,'count',len(matched),'last_utc',last)
+          extract={
+              'x_poll_fetch':(r'X_RSS_FETCH host=([\w.\-]+) seconds=([0-9.]+)',2),
+              'webhook_transport':(r'DISCORD_WEBHOOK_DELIVERED attempt=\d+ elapsed_seconds=([0-9.]+)',1),
+              'x_rt_total':(r'X_REPOST_TOTAL creator=[\w-]+ id=\d+ elapsed_seconds=([0-9.]+)',1),
+              'x_rt_delivery':(r'X_REPOST_DELIVERED creator=[\w-]+ id=\d+ source=\S+ delivery_seconds=([0-9.]+)',1),
+              'x_hanayo_post_age':(r'작성 후 지연=([0-9.]+)초',1),
+          }
+          for label,(pattern,n) in extract.items():
+              rows=[]
+              by_host=defaultdict(list)
+              for line in lines:
+                  match=re.search(pattern,line)
+                  if not match: continue
+                  try: secs=float(match.group(n))
+                  except ValueError: continue
+                  rows.append(secs)
+                  if label=='x_poll_fetch':by_host[match.group(1)].append(secs)
+              if rows:
+                  ordered=sorted(rows)
+                  print('LATENCY',label,'n',len(rows),'avg',round(statistics.mean(rows),2),
+                        'p50',round(statistics.median(rows),2),
+                        'p95',ordered[min(len(ordered)-1,int(.95*(len(ordered)-1)))],
+                        'max',max(rows),'seconds')
+                  if by_host:
+                      for host,values in sorted(by_host.items()):
+                          print('LATENCY_X_HOST',host,'count',len(values),'average',round(statistics.mean(values),2),'max',max(values))
+              else: print('LATENCY',label,'no_observations')
+          failures=[]
+          for line in lines:
+              if re.search('YOUTUBE_RSS_BACKOFF|X_SOURCE_BACKOFF|서버 배너 자동 변경 실패|DISCORD_EVENT_UNCERTAIN|YouTube WebSub',line,re.I):
+                  failures.append(line)
+          for line in failures[-25:]:
+              stamp=line[:33]
+              code=re.search(r'(?:cooldown_s|seconds|status|failures|error)=([A-Za-z0-9_.-]+)',line)
+              print('HEALTH_EVENT',stamp,'category',('youtube' if 'YOUTUBE' in line else 'x' if 'X_SOURCE' in line else 'banner' if '배너' in line else 'websub'),'detail',code.group(0) if code else 'event_only')
+          PY
+          REMOTE
