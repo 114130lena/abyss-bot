@@ -19,6 +19,46 @@ class BannerTests(unittest.TestCase):
         self.assertEqual(mod.slot(datetime(2026, 11, 4, 18, 0, tzinfo=zone)), "2026-11-04 18:00")
         self.assertIsNone(mod.slot(datetime(2026, 11, 4, 17, 0, tzinfo=zone)))
 
+    def test_widescreen_priority_and_rejected_sha(self):
+        from pathlib import Path
+        pool = [(Path("/tmp/fit.jpg"), {"sha256": "fit", "banner_format": "16:10",
+                                       "post_url": "https://x.com/artist/status/222"}),
+                (Path("/tmp/wide.jpg"), {"sha256": "wide", "banner_format": "16:9",
+                                        "post_url": "https://x.com/artist/status/333"})]
+        with patch.object(mod, "approved_hanayo_art", return_value=pool), \
+             patch.object(mod, "collected_hanayo_art", return_value=[]):
+            chosen, _, total, _ = mod.rotation_selection(state={})
+            self.assertEqual(chosen[1]["sha256"], "wide")
+            chosen, _, total, _ = mod.rotation_selection(state={
+                "server_banner_excluded_sha256": ["wide"]})
+            self.assertEqual(chosen[1]["sha256"], "fit")
+            self.assertEqual(total, 1)
+
+    def test_one_time_manual_replacement_preserves_schedule_and_excludes_current(self):
+        old = {"last_sha256": "current-sha", "guild_banner_hash": "current-discord-hash",
+               "last_slot": "2026-11-09 08:00", "all_used_sha256": ["current-sha"]}
+        recorded = []
+        def record(s):
+            recorded.append(dict(s))
+        def change(*, manual=False):
+            self.assertTrue(manual)
+            self.assertIn("current-sha", recorded[0]["server_banner_excluded_sha256"])
+            return {"status": "changed"}
+        with patch.object(mod, "read_state", side_effect=lambda: (
+                recorded[-1] if recorded else old)), \
+             patch.object(mod, "write_state", side_effect=record), \
+             patch.object(mod, "_current_guild_banner", return_value="current-discord-hash"), \
+             patch.object(mod, "rotate_once", side_effect=change) as rotation, \
+             patch.dict("os.environ", {"SERVER_BANNER_ENABLED": "1",
+                                      "DISCORD_BOT_TOKEN": "fake",
+                                      "DISCORD_GUILD_ID": "123"}):
+            result = mod.replace_current_once("234")
+            again = mod.replace_current_once("234")
+        self.assertEqual(result["status"], "changed")
+        self.assertEqual(again["status"], "already_replaced")
+        self.assertEqual(rotation.call_count, 1)
+        self.assertEqual(recorded[-1]["last_slot"], old["last_slot"])
+
     def test_ratio(self):
         self.assertEqual(mod.kind(1920, 1080), "16:9")
         self.assertEqual(mod.kind(1920, 1200), "16:10")

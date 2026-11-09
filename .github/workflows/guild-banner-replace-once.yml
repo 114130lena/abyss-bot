@@ -1,0 +1,60 @@
+name: Replace one unsuitable Hanayo server banner
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: abyss-guild-banner-update
+  cancel-in-progress: false
+
+jobs:
+  replace:
+    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-banner] replace-current-once' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Connect to production host
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Exclude current, choose best widescreen unused art and replace once
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          REPLACE_REQUEST: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER"
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "REPLACE_REQUEST=$REPLACE_REQUEST bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          test -f .env
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 120 creator_media/guild_banner_rotation.lock "$PY" - <<'PY'
+          import json, os, sys
+          from dotenv import load_dotenv
+          load_dotenv(".env")
+          from guild_server_banner import replace_current_once
+          result = replace_current_once(os.getenv("REPLACE_REQUEST", ""))
+          # No private tokens, guild IDs, image URLs or artwork are printed.
+          print("GUILD_BANNER_ONE_TIME " + json.dumps({
+              "status": result.get("status"),
+              "candidate_total": result.get("candidate_total"),
+              "remaining_after": result.get("remaining_after"),
+          }, ensure_ascii=False))
+          if result.get("status") not in ("changed", "already_replaced"):
+              sys.exit(1)
+          PY
+          REMOTE

@@ -149,12 +149,13 @@ def approved_hanayo_art():
             with Image.open(path) as img:
                 if getattr(img, "is_animated", False):
                     continue
-                if not kind(*ImageOps.exif_transpose(img).size):
+                framing = kind(*ImageOps.exif_transpose(img).size)
+                if framing not in ("16:9", "16:10"):
                     continue
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             continue
         seen.add(entry["sha256"])
-        result.append((path, entry))
+        result.append((path, {**entry, "banner_format": framing}))
     return result
 
 
@@ -205,7 +206,10 @@ def collected_hanayo_art():
                     if getattr(img, "is_animated", False):
                         continue
                     dimensions = ImageOps.exif_transpose(img).size
-                    if not kind(*dimensions):
+                    framing = kind(*dimensions)
+                    # Square, portrait and extreme-crop fits are never
+                    # appropriate for an automatic Discord guild banner.
+                    if framing not in ("16:9", "16:10"):
                         continue
                 if vision_enabled():
                     visual = vision_classification(path)
@@ -222,6 +226,7 @@ def collected_hanayo_art():
             result.append((path, {"sha256": digest, "artist": artist,
                                   "post_url": source, "source": "cached_hanayo_fanart",
                                   "server_aspect": aspect_group,
+                                  "banner_format": framing,
                                   "vision_score": visual.get("score") if vision_enabled() else None}))
     # The guild owns widescreen artworks first; other ratios remain for
     # notification cards. Fit-only artwork is a fallback when none are wide.
@@ -276,6 +281,9 @@ def banner_inventory(state=None):
             used.add(record["sha256"])
     used_posts = set(x for x in (state.get("all_used_post_ids") or [])
                      if isinstance(x, str) and x.isdigit())
+    disallowed = set(x for x in (state.get("server_banner_excluded_sha256") or [])
+                     if isinstance(x, str) and x)
+    unique = {sha: value for sha, value in unique.items() if sha not in disallowed}
     remaining = {
         sha: value for sha, value in unique.items()
         if sha not in used
@@ -306,6 +314,13 @@ def rotation_selection(previous=None, used=None, state=None):
         best = max(int(meta.get("vision_score") or 0) for _path, meta in unseen.values())
         unseen = {sha: value for sha, value in unseen.items()
                   if int(value[1].get("vision_score") or 0) >= best - 15}
+    # Prefer native 16:9 art that fills the Discord banner without cropping;
+    # use blur-filled 16:10 only if no fresh 16:9 art remains. Unknown format
+    # occurs only in older curated/test metadata and stays as fallback.
+    grade = {"16:9": 2, "16:10": 1}
+    best_frame = max(grade.get(meta.get("banner_format"), 0) for _path, meta in unseen.values())
+    unseen = {sha: value for sha, value in unseen.items()
+              if grade.get(value[1].get("banner_format"), 0) == best_frame}
     picked = random.choice(list(unseen))
     return (unseen[picked], history + [picked], available["total"],
             available["unused"] - 1)
@@ -837,6 +852,49 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
         logging.exception("배너 변경 성공, 정보 메시지 갱신은 재시도 예정")
     logging.info("히요리 서버 배너 교체 완료: %s / %s", metadata.get("artist"), current_slot)
     return {"status": "changed", **info}
+
+
+
+def replace_current_once(request_id):
+    """One explicit owner-requested replacement, independent of the 08/18 scheduler.
+
+    Verify attribution against Discord before permanently excluding the current
+    image. Never mutate the last scheduled slot or recycle previously used art.
+    """
+    request_id = str(request_id or "")
+    if not request_id.isdigit():
+        return {"status": "invalid_request_id"}
+    if os.getenv("SERVER_BANNER_ENABLED", "0") != "1":
+        return {"status": "disabled"}
+    state = read_state()
+    if request_id in (state.get("banner_replacement_request_ids") or []):
+        return {"status": "already_replaced"}
+    sha = state.get("last_sha256")
+    recorded_hash = state.get("guild_banner_hash")
+    if not isinstance(sha, str) or not sha or not isinstance(recorded_hash, str) or not recorded_hash:
+        return {"status": "current_banner_unverified"}
+    token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+    guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+    if not token or not guild_id.isdigit():
+        return {"status": "missing_discord_credentials"}
+    actual_hash = _current_guild_banner(token, guild_id)
+    if actual_hash != recorded_hash:
+        return {"status": "current_banner_changed_externally"}
+    excluded = [x for x in (state.get("server_banner_excluded_sha256") or [])
+                if isinstance(x, str) and x]
+    if sha not in excluded:
+        excluded.append(sha)
+    # Save the user's rejection even if a replacement image is unavailable.
+    write_state({**state, "server_banner_excluded_sha256": excluded})
+    result = rotate_once(manual=True)
+    if result.get("status") == "changed":
+        updated = read_state()
+        ids = [x for x in (updated.get("banner_replacement_request_ids") or [])
+               if isinstance(x, str) and x.isdigit()]
+        if request_id not in ids:
+            ids.append(request_id)
+            write_state({**updated, "banner_replacement_request_ids": ids})
+    return result
 
 
 def run_server_banner_scheduler():

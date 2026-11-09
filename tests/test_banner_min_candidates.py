@@ -4,7 +4,7 @@ from unittest.mock import patch
 import guild_server_banner as banner
 
 class BannerMinimumTests(unittest.TestCase):
-    def test_wide_and_fit_candidates_are_both_available_when_only_one_is_wide(self):
+    def test_square_fit_candidate_is_not_a_guild_banner_even_if_legacy_fit_enabled(self):
         import json
         import tempfile
         from pathlib import Path
@@ -34,10 +34,10 @@ class BannerMinimumTests(unittest.TestCase):
                  patch.object(banner, "media_base", return_value=base), \
                  patch("fanart_discovery.QUEUE", base / "fanart_discovery.json"):
                 pool = banner.collected_hanayo_art()
-                self.assertEqual(len(pool), 2)
-                self.assertEqual({p[1]["server_aspect"] for p in pool}, {"wide", "fit"})
+                self.assertEqual(len(pool), 1)
+                self.assertEqual({p[1]["server_aspect"] for p in pool}, {"wide"})
                 _, _, total, _ = banner.rotation_selection()
-                self.assertGreaterEqual(total, 2)
+                self.assertEqual(total, 1)
 
     def test_single_candidate_does_not_replace_guild_on_schedule(self):
         selected = ("image.jpg", {"sha256": "a", "artist": "@artist"})
