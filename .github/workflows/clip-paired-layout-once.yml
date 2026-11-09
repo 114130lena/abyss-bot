@@ -105,11 +105,11 @@ jobs:
               after["latest_id"] = before["latest_id"]
           else:
               after.pop("latest_id", None)
-          requests = list(dict.fromkeys(
+          request_ids = list(dict.fromkeys(
               str(x) for x in (after.get("grid_layout_request_ids") or [])
               if str(x).isdigit()))
-          if request_id not in requests:
-              requests.append(request_id)
+          if request_id not in request_ids:
+              request_ids.append(request_id)
           # The marker is committed only after the live message passes
           # independent read-back verification.
           # Independently GET the original message; verify ONE media gallery
@@ -151,7 +151,7 @@ jobs:
               raise SystemExit("Grid alt text lacks original clip numbers")
           if len(children) > 10 or len(media) > expected:
               raise SystemExit("Discord clip grid exceeds component limits")
-          after["grid_layout_request_ids"] = requests[-20:]
+          after["grid_layout_request_ids"] = request_ids[-20:]
           save_json(STATE_FILE, after)
           print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({
               "status": "updated", "clip_count": expected,
