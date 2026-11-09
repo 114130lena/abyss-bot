@@ -1,4 +1,4 @@
-name: Apply compact clip grid layout once
+name: Apply neatly spaced clip-grid titles once
 
 on:
   issues:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   apply:
-    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-clip] apply-grid-layout-once' && github.event.issue.user.login == github.repository_owner }}
+    if: ${{ github.repository == '114130lena/abyss-bot' && github.event.issue.title == '[abyss-clip] apply-clean-grid-titles-once' && github.event.issue.user.login == github.repository_owner }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -45,16 +45,16 @@ jobs:
           # Publish the reviewed main-branch renderer directly from checkout;
           # the normal deployment queue may still be processing older commits.
           # This stage is temporary and does not overwrite the running bot.
-          grep -q CLIP_GRID_TITLES_V2 chzzk_clip_digest.py
-          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes chzzk_clip_digest.py "$SSH_USER@$SSH_HOST:/tmp/abyss_clip_grid_once_$REFRESH_REQUEST.py"
+          grep -q CLIP_GRID_CLEAN_TITLES_V3 chzzk_clip_digest.py
+          scp -i ~/.ssh/oracle_key -o IdentitiesOnly=yes chzzk_clip_digest.py "$SSH_USER@$SSH_HOST:/tmp/abyss_clean_grid_once_$REFRESH_REQUEST.py"
           ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" "REFRESH_REQUEST=$REFRESH_REQUEST bash -se" <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           test -f .env
-          test -f "/tmp/abyss_clip_grid_once_${REFRESH_REQUEST}.py"
-          grep -q CLIP_GRID_TITLES_V2 "/tmp/abyss_clip_grid_once_${REFRESH_REQUEST}.py"
+          test -f "/tmp/abyss_clean_grid_once_${REFRESH_REQUEST}.py"
+          grep -q CLIP_GRID_CLEAN_TITLES_V3 "/tmp/abyss_clean_grid_once_${REFRESH_REQUEST}.py"
           if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
-          /usr/bin/flock -w 90 creator_media/clip_grid_layout.lock "$PY" - <<'PY'
+          /usr/bin/flock -w 90 creator_media/clip_clean_grid.lock "$PY" - <<'PY'
           import json
           import os
           from dotenv import load_dotenv
@@ -63,7 +63,7 @@ jobs:
           from pathlib import Path
           from resilience import load_json, save_json
           # Import exactly the paired renderer staged from the latest main.
-          source = Path("/tmp/abyss_clip_grid_once_" +
+          source = Path("/tmp/abyss_clean_grid_once_" +
                         os.environ["REFRESH_REQUEST"] + ".py")
           spec = importlib.util.spec_from_file_location("grid_clip_digest", source)
           if spec is None or spec.loader is None:
@@ -78,8 +78,8 @@ jobs:
           before = load_json(STATE_FILE, {})
           if not isinstance(before, dict):
               before = {}
-          if request_id in (before.get("grid_layout_request_ids") or []):
-              print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({"status": "already_updated"}))
+          if request_id in (before.get("clean_grid_request_ids") or []):
+              print("CLIP_CLEAN_GRID_ONCE " + json.dumps({"status": "already_updated"}))
               raise SystemExit(0)
 
           # User requested one compact grid layout on the existing message.
@@ -87,7 +87,7 @@ jobs:
           result = publish_once()
           status = str(result.get("status") or "unknown")
           if status != "updated":
-              print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({"status": status}))
+              print("CLIP_CLEAN_GRID_ONCE " + json.dumps({"status": status}))
               raise SystemExit(1)
 
           after = load_json(STATE_FILE, {})
@@ -106,7 +106,7 @@ jobs:
           else:
               after.pop("latest_id", None)
           request_ids = list(dict.fromkeys(
-              str(x) for x in (after.get("grid_layout_request_ids") or [])
+              str(x) for x in (after.get("clean_grid_request_ids") or [])
               if str(x).isdigit()))
           if request_id not in request_ids:
               request_ids.append(request_id)
@@ -138,6 +138,10 @@ jobs:
                        str(p.get("content") or "")]
           if len(titles) != 1:
               raise SystemExit("Clip grid title legend missing")
+          if "  ·  " in titles[0]:
+              raise SystemExit("Old two-titles-per-row format remains")
+          if len(titles[0].split("\n\n")) != 2:
+              raise SystemExit("Title list must have two five-link groups")
           expected = min(int(result.get("count") or 0), 10)
           for index in range(1, expected + 1):
               if ("**%02d** [" % index) not in titles[0]:
@@ -151,9 +155,9 @@ jobs:
               raise SystemExit("Grid alt text lacks original clip numbers")
           if len(children) > 10 or len(media) > expected:
               raise SystemExit("Discord clip grid exceeds component limits")
-          after["grid_layout_request_ids"] = request_ids[-20:]
+          after["clean_grid_request_ids"] = request_ids[-20:]
           save_json(STATE_FILE, after)
-          print("CLIP_GRID_LAYOUT_ONCE " + json.dumps({
+          print("CLIP_CLEAN_GRID_ONCE " + json.dumps({
               "status": "updated", "clip_count": expected,
               "media_count": len(media), "original_message": True,
               "single_grid": True, "title_links": expected,

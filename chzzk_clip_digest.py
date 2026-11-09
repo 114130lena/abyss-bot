@@ -198,12 +198,12 @@ def clip_video_url(clip, get=None):
 
 
 def _render(clips, history, now=None, collected_at=None):
-    """Compact clip grid with a numbered, two-column title/link legend.
+    """Compact ten-video grid with one clean, numbered title per line.
 
     Discord Media Gallery descriptions are ALT text (not visible captions).
-    The grid displays up to ten playable videos/thumbs; the adjacent short
-    numbered text list provides visible, clickable, matching titles without
-    expanding ten full-width single-video rows. CLIP_GRID_TITLES_V2.
+    Titles remain visible as clickable links directly below the grid, split
+    into groups of five without squeezing two long titles onto one row.
+    CLIP_GRID_CLEAN_TITLES_V3.
     """
     if not clips:
         return None
@@ -211,9 +211,12 @@ def _render(clips, history, now=None, collected_at=None):
     parts = [
         {"type": 10, "content": (
             "**HANAYO HIYORI** · STELLIVE · ABYSS\n"
-            "**오늘의 히요리 클립** · 최근 24시간 인기 " + str(len(selected)) + "개\n"
-            "-# 클립 수집 2시간마다 · 최근 수집 " + format_saved_time(collected_at)
-            + " · 메시지 " + format_saved_time(now) + "\n"
+            "## 오늘의 히요리 클립\n"
+            "-# 최근 24시간 인기 클립 " + str(len(selected)) + "개\n\n"
+            "**수집·갱신 현황**\n"
+            "-# 수집 주기 · 2시간마다\n"
+            "-# 마지막 수집 · " + format_saved_time(collected_at) + "\n"
+            "-# 메시지 갱신 · " + format_saved_time(now) + "\n\n"
             + schedule_label(now))},
     ]
     items = []
@@ -225,7 +228,7 @@ def _render(clips, history, now=None, collected_at=None):
             continue
         title = re.sub(r"[\\[\\]<>*`_\\r\\n]", " ", str(clip.get("title") or "제목 없음"))
         title = re.sub(r"\\s+", " ", title).strip() or "제목 없음"
-        short_title = title[:26] + ("…" if len(title) > 26 else "")
+        short_title = title[:48] + ("…" if len(title) > 48 else "")
         original = "https://chzzk.naver.com/clips/" + uid
         numbered_titles.append("**%02d** [%s](%s)" % (index, short_title, original))
         media = str(clip.get("video_url") or clip.get("thumbnail") or "")
@@ -238,13 +241,13 @@ def _render(clips, history, now=None, collected_at=None):
         # media players. Each item remains associated with its title by
         # original index and accessible ALT description.
         parts.append({"type": 12, "items": items})
-    # Keep the entire title list small (up to five paired rows). Discord
-    # clients may wrap it into one column on narrow screens; the media grid
-    # still stays compact and the links remain independently clickable.
-    rows = ["  ·  ".join(numbered_titles[i:i+2])
-            for i in range(0, len(numbered_titles), 2)]
+    # One clip per line prevents the very long paired rows from wrapping
+    # awkwardly on mobile. Only two groups of five text links are displayed;
+    # the ten videos remain a single compact media gallery above.
+    rows = ["\n".join(numbered_titles[i:i+5])
+            for i in range(0, len(numbered_titles), 5)]
     parts.append({"type": 10, "content": "**클립 제목 · 갤러리 순서**\n"
-                  + "\n".join(rows)})
+                  + "\n\n".join(rows)})
     previous = []
     for day, clip in sorted(history.items(), reverse=True)[:7]:
         if isinstance(clip, dict) and _ID.fullmatch(str(clip.get("id", ""))):

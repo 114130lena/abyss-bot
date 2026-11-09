@@ -136,10 +136,17 @@ class ClipTests(unittest.TestCase):
         payload = clips._render(items, {"2026-11-08": {"id": "clipold123"}})
         parts = payload["components"][0]["components"]
         self.assertEqual([p["type"] for p in parts], [10, 12, 10, 14, 10])
+        self.assertIn("## 오늘의 히요리 클립", parts[0]["content"])
+        self.assertIn("**수집·갱신 현황**", parts[0]["content"])
+        self.assertIn("**정기 업데이트**", parts[0]["content"])
         self.assertEqual(len(parts[1]["items"]), 10)
         self.assertEqual(len(payload["components"]), 1)
         legend = parts[2]["content"]
-        self.assertEqual(legend.count("\\n"), 5)
+        self.assertEqual(legend.count("\\n"), 11)
+        self.assertNotIn("  ·  ", legend)
+        self.assertIn("**05** [제목 5]", legend.split("\\n\\n")[0])
+        self.assertTrue(legend.split("\\n\\n")[1].startswith("**06** [제목 6]"))
+        self.assertIn("**10** [제목 10]", legend.split("\\n\\n")[1])
         for index, item in enumerate(items, 1):
             self.assertIn("**%02d** [제목 %s]" % (index, index), legend)
             self.assertIn(item["url"], legend)
