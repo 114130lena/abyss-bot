@@ -1,4 +1,5 @@
 name: Read-only all-platform latency audit
+# Comprehensive re-audit requested at 23:22 KST, 2026-11-09
 on:
   pull_request:
     paths: ['.github/workflows/read-only-platform-latency.yml']
@@ -172,5 +173,62 @@ jobs:
                       if flag=='server-banner result:':
                           clean=re.sub(r"('(?:artist|post_url|source|filename|file)'\\s*:\\s*')[^']+(')",r'\\1[REDACTED]\\2',clean)
                       print('PLATFORM_RECENT_ENTRY',clean[:650])
+          print("=== CURRENT HEALTH AND DATA PATH AUDIT ===")
+          import subprocess
+          j=subprocess.run(['journalctl','-u','chzzk-bot.service','--since','2 hours ago','--no-pager','-o','short-iso','--utc'],capture_output=True,text=True,timeout=20)
+          logs=j.stdout.splitlines()
+          keys=[
+            'X_REPOST_DUPLICATE_SUPPRESSED','DISCORD_EVENT_DUPLICATE_SUPPRESSED',
+            'DISCORD_EVENT_UNCERTAIN_LEDGER_UPDATE_FAILED','DISCORD_WEBHOOK_DELIVERED',
+            'DISCORD_DELIVERY_SLOW','X_REPOST_DELIVERED','X_REPOST_REBASELINE',
+            'CHZZK_CLIP_RESULT','CHZZK_CLIP_COLLECT_RESULT','SERVER_BANNER_PENDING_ATTEMPT_FAILED',
+            'SERVER_BANNER_OUTSIDE_WRITE_WINDOW','server-banner result:',
+            'YOUTUBE_RSS_BACKOFF','X_SOURCE_BACKOFF',
+            'DISCORD_DELIVERY_REVIEW_PENDING','fanart selection','FANART_PICK',
+            'X_ORIGINAL_EVENT_ID_MISSING','CAFE_DELIVERY_ID_MISSING']
+          for k in keys:
+              xs=[line for line in logs if k in line]
+              print('RECENT_COUNT',k,len(xs),'last_utc',xs[-1][:25] if xs else '-')
+          from pathlib import Path
+          paths=['discord_event_delivery_ledger.json','x_repost_delivery_ledger.json',
+                 'creator_media/guild_banner_pending_slot.json',
+                 'creator_media/guild_banner_rotation_state.json',
+                 'creator_media/fanart_url_used.json','creator_media/fanart_discovery.json']
+          for path in paths:
+              p=Path(path)
+              if not p.exists():
+                  print('STATE',path,'MISSING')
+                  continue
+              try:
+                  data=json.loads(p.read_text(encoding='utf-8'))
+                  if path.endswith('guild_banner_pending_slot.json'):
+                      print('STATE',path,'pending_slot',data.get('slot'),'attempts',data.get('attempts'),'next_attempt_at',data.get('next_attempt_at'))
+                  elif path.endswith('guild_banner_rotation_state.json'):
+                      print('STATE',path,'last_slot',data.get('last_slot'),'used_count',len(data.get('rotation_used') or []))
+                  elif path.endswith('discord_event_delivery_ledger.json'):
+                      counts={}
+                      for record in data.values():
+                          status=record.get('status') if isinstance(record,dict) else 'invalid'
+                          counts[status]=counts.get(status,0)+1
+                      print('STATE',path,'total',len(data),'status_counts',counts)
+                  else:
+                      print('STATE',path,'entries',len(data) if isinstance(data,(dict,list)) else '-')
+              except (ValueError,OSError,TypeError) as e:
+                  print('STATE',path,'ERROR',type(e).__name__)
+          # CHZZK polling gaps: distinguish 10-second normal polling from blocked worker.
+          stamps=[]
+          for line in logs:
+              if '하나요 히요리 | 상태:' not in line:continue
+              try: stamps.append(datetime.fromisoformat(line[:25]))
+              except ValueError:continue
+          gaps=[(b-a).total_seconds() for a,b in zip(stamps,stamps[1:]) if 0<=(b-a).total_seconds()<3600]
+          if gaps:
+              srt=sorted(gaps)
+              print('CHZZK_POLL_GAPS','n',len(gaps),'median_seconds',round(statistics.median(gaps),2),
+                    'p95_seconds',round(srt[int(.95*(len(srt)-1))],2),'max_seconds',round(max(gaps),2),
+                    'over_20s',sum(x>20 for x in gaps))
+          else:
+              print('CHZZK_POLL_GAPS no_observations')
+          print('AUDIT_PROBE_COMPLETE')
           PY
           REMOTE
