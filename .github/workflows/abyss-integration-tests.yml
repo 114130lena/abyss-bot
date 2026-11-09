@@ -49,6 +49,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
       - name: Check guild banner, schedule and dry-run
         run: python -m unittest -v test_guild_server_banner.py
+      - name: Check persisted banner retries and superseded slots
+        run: python -m unittest discover -s tests -p 'test_banner_persistent_retry.py' -v
       - name: Existing baseline tests
         run: python -m unittest -v test_bot.py
 
