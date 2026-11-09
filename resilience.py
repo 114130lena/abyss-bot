@@ -196,6 +196,32 @@ def _audit_role_mention(response, payload):
 
 
 def send_webhook(url, payload, attempts=3):
+    """Send once per explicit source event across restarts and concurrent workers.
+
+    The identity is internal-only. In an ambiguous failure the claim is left
+    pending for review, never blindly re-sent with duplicate role mentions.
+    """
+    key = payload.get("_abyss_event_key")
+    if key is None:
+        return _send_webhook_transport(url, payload, attempts)
+    from discord_event_dedup import claim, update
+    if not claim(key):
+        return None
+    cleaned = {k: v for k, v in payload.items() if k != "_abyss_event_key"}
+    try:
+        outcome = _send_webhook_transport(url, cleaned, attempts)
+        update(key, "sent")
+        return outcome
+    except Exception:
+        # Could have been accepted by Discord before failure or process death.
+        try:
+            update(key, "uncertain")
+        except (OSError, ValueError, TypeError):
+            logging.exception("DISCORD_EVENT_UNCERTAIN_LEDGER_UPDATE_FAILED key=%s", key)
+        raise
+
+
+def _send_webhook_transport(url, payload, attempts=3):
     """Retry transient HTTP/network failures, respecting Discord retry_after."""
     if not url.startswith("https://"):
         raise ValueError("Invalid Discord webhook URL")

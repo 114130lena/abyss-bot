@@ -219,6 +219,7 @@ def _notify(video):
         media_url="https://i.ytimg.com/vi/" + video["id"] + "/hqdefault.jpg",
         date=video.get("published", ""),
         handle=creator_handle(group), avatar=creator_avatar(group))
+    payload["_abyss_event_key"] = "youtube:" + str(video["channel_id"]) + ":" + str(video["id"])
     send_webhook(youtube_thread_webhook_url(), payload)
 
 

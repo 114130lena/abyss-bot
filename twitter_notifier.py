@@ -205,6 +205,14 @@ def _notify(post):
     logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
                  USERNAME,post.get("id"),len(photo_urls),has_video,media_known,
                  bool(payload.get("_abyss_verified_text_only")))
+    post_id = str(post.get("id") or "").strip()
+    if not post_id.isdigit():
+        match = re.search(r"/status/([0-9]+)", str(post.get("url") or ""))
+        post_id = match.group(1) if match else ""
+    if post_id:
+        payload["_abyss_event_key"] = "x-original:" + USERNAME.lower() + ":" + post_id
+    else:
+        logging.warning("X_ORIGINAL_EVENT_ID_MISSING creator=%s", USERNAME)
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
@@ -315,7 +323,11 @@ def check_twitter():
         except (OSError,ValueError,TypeError):
             repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
             repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
+        from x_post_classification import classify
         for post in posts:
+            if classify(post, USERNAME) == "reply":
+                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
+                continue
             if is_repost_post(post, USERNAME):
                 if post["id"] not in repost_seen:
                     logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))

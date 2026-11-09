@@ -47,16 +47,15 @@ def original_status_from_feed(url):
 
 
 def is_repost_post(post, username):
-    """Classify before routing, including off-author FxTwitter status links."""
-    if post.get("repost") is True:
+    """One source of truth for repost routing across Nitter and Fx RSS."""
+    from x_post_classification import classify
+    kind = classify(post, username)
+    if kind == "repost":
         return True
-    if is_repost(post.get("rss_title", ""), post.get("rss_description", "")):
-        return True
-    for key in ("url", "source_link"):
-        status = original_status_from_feed(post.get(key))
-        if status and status[0].casefold() != username.lstrip("@").casefold():
-            return True
-    return False
+    # Preserve explicit mirror labels when the URL is malformed/omitted.
+    return kind == "unknown" and is_repost(
+        post.get("rss_title", ""), post.get("rss_description", ""))
+
 
 
 def thread_url(webhook):
