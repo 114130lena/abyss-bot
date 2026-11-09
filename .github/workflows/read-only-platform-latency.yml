@@ -127,7 +127,7 @@ jobs:
               print('HEALTH_EVENT',stamp,'category',('youtube' if 'YOUTUBE' in line else 'x' if 'X_SOURCE' in line else 'banner' if '배너' in line else 'websub'),'detail',code.group(0) if code else 'event_only')
           print('=== INDIVIDUAL SUCCESSFUL DELIVERY TIMES ===')
           for idx,line in enumerate(lines):
-              match=re.search(r'DISCORD_WEBHOOK_DELIVERED attempt=(\\d+) elapsed_seconds=([0-9.]+) files=(\\d+)',line)
+              match=re.search(r'DISCORD_WEBHOOK_DELIVERED attempt=([0-9]+) elapsed_seconds=([0-9.]+) files=([0-9]+)',line)
               if not match: continue
               elapsed=float(match.group(2))
               try:
