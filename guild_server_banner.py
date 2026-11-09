@@ -890,9 +890,12 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
         return {"status": "missing_discord_credentials"}
     if not manual:
         if now is None:
-            # Live scheduler must still be in the exact scheduled minute before
-            # making the API request, even if preparation ran unusually long.
-            allowed = slot() == current_slot
+            # Starting on the canonical 08:00/18:00 minute is required above.
+            # Fanart validation can take over a minute on the live server.
+            # Preserve that captured slot and permit completion only before
+            # its existing 10-minute backup deadline, never later.
+            started_slot = datetime.strptime(current_slot, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+            allowed = datetime.now(KST) < started_slot + timedelta(minutes=10)
         elif apply_deadline is not None:
             # GitHub backup uses the canonical slot for idempotency, but can
             # write only before the real-time cutoff, never hours afterward.
