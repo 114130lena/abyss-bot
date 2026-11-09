@@ -62,10 +62,24 @@ class BannerTests(unittest.TestCase):
     def test_ratio(self):
         self.assertEqual(mod.kind(1920, 1080), "16:9")
         self.assertEqual(mod.kind(1920, 1200), "16:10")
+        self.assertEqual(mod.kind(700, 400), "16:9")
+        self.assertEqual(mod.kind(900, 500), "16:9")
+        self.assertEqual(mod.kind(1200, 450), "landscape_fit")
+        self.assertEqual(mod.kind(2000, 400), "landscape_fit")
+        self.assertIsNone(mod.kind(320, 200))
         self.assertEqual(mod.kind(1080, 1080), "square_fit")
         self.assertEqual(mod.kind(1200, 900), "landscape_fit")
         self.assertEqual(mod.kind(900, 1200), "portrait_fit")
         self.assertIsNone(mod.kind(1080, 1920))
+
+    def test_panoramic_art_is_full_frame_with_blurred_fill(self):
+        from io import BytesIO
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "long.jpg"
+            Image.new("RGB", (1800, 500), "purple").save(path)
+            result = mod.convert_banner(path)
+            with Image.open(BytesIO(result)) as img:
+                self.assertEqual(img.size, (960, 540))
 
     def test_fallback_selected_only_after_all_wide_art_used(self):
         from pathlib import Path

@@ -45,6 +45,36 @@ class BannerMinimumTests(unittest.TestCase):
                 with Image.open(BytesIO(image)) as converted:
                     self.assertEqual(converted.size, (960, 540))
 
+    def test_wider_horizontal_resolution_is_included_without_loosening_nonreuse(self):
+        from pathlib import Path
+        import json
+        import tempfile
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "creator_media"
+            folder = base / "fanart_candidates" / "hanayo"
+            folder.mkdir(parents=True)
+            Image.new("RGB", (1200, 430), "blue").save(folder / "long.jpg")
+            state = {"hanayo:54321": {
+                "group": "hanayo", "hashtag": "#hiyoriart_",
+                "artist": "@artist", "post_url": "https://x.com/artist/status/54321",
+                "text": "#hiyoriart_",
+                "cached_files": ["fanart_candidates/hanayo/long.jpg"],
+            }}
+            (base / "fanart_discovery.json").write_text(json.dumps(state))
+            with patch.object(banner, "media_base", return_value=base), \
+                 patch("fanart_discovery.QUEUE", base / "fanart_discovery.json"), \
+                 patch.dict("os.environ", {"SERVER_BANNER_USE_COLLECTED": "1",
+                                           "SERVER_BANNER_VISION_ENABLED": "0"}):
+                pool = banner.collected_hanayo_art()
+                self.assertEqual(len(pool), 1)
+                self.assertEqual(pool[0][1]["banner_format"], "landscape_fit")
+                available = banner.banner_inventory()
+                self.assertEqual(available["unused"], 1)
+                used = banner.banner_inventory(state={
+                    "all_used_post_ids": ["54321"]})
+                self.assertEqual(used["unused"], 0)
+
     def test_single_candidate_does_not_replace_guild_on_schedule(self):
         selected = ("image.jpg", {"sha256": "a", "artist": "@artist"})
         with patch.object(banner, "slot", return_value="2026-11-08 18:00"), \

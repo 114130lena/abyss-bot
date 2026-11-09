@@ -106,20 +106,18 @@ def kind(width, height):
     if width <= 0 or height <= 0:
         return None
     aspect = width / height
-    if width >= 960 and height >= 540 and abs(aspect - 16 / 9) <= 0.035:
+    # Photos need not have the exact Discord aspect ratio. Accept any
+    # sufficiently large horizontal image, including panoramic artwork; use
+    # a blurred fill when necessary instead of stretching or cropping it.
+    if width >= 640 and height >= 360 and abs(aspect - 16 / 9) <= 0.035:
         return "16:9"
-    if width >= 960 and height >= 540 and abs(aspect - 16 / 10) <= 0.03:
+    if width >= 640 and height >= 360 and abs(aspect - 16 / 10) <= 0.03:
         return "16:10"
-    # Preserve the full artwork on a blurred widescreen background instead
-    # of requiring a source image to match 16:9 exactly. Prioritize naturally
-    # wide landscapes; permit square and moderate portrait art only as
-    # last-resort alternatives. Never auto-pick narrow/tall portraits.
-    if width >= 800 and height >= 600 and 0.74 <= aspect <= 2.2:
-        if aspect >= 1.18:
-            return "landscape_fit"
-        if aspect >= 0.9:
-            return "square_fit"
-        return "portrait_fit"
+    if width >= 640 and height >= 300 and aspect >= 1.12:
+        return "landscape_fit"
+    # Square art and moderate portraits remain lower-priority alternatives.
+    if width >= 640 and height >= 600 and 0.74 <= aspect < 1.12:
+        return "square_fit" if aspect >= 0.9 else "portrait_fit"
     # Legacy preview helper for very tall art; excluded from auto-selection.
     if (os.getenv("SERVER_BANNER_ALLOW_FIT", "0") == "1"
             and width >= 600 and height >= 600 and 0.5 <= aspect <= 2.5):

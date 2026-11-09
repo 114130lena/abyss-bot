@@ -105,9 +105,22 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.assertFalse(fanart_relevance.eligible_hanayo_banner(
             {"text": "#hiyoriart_ 배경 그림"}))
         self.assertTrue(fanart_relevance.eligible_hanayo_banner(
+            {"text": "#hiyoriart_"}))
+        self.assertTrue(fanart_relevance.eligible_hanayo_banner(
+            {"text": "오늘의 낙서 #hiyoriart_"}))
+        self.assertFalse(fanart_relevance.eligible_hanayo_banner(
+            {"text": "히요리 팬아트 #huyart"}))
+        self.assertTrue(fanart_relevance.eligible_hanayo_banner(
             {"text": "히요리 팬아트 #hiyoriart_"}))
         self.assertFalse(fanart_relevance.eligible_hanayo_banner(
             {"text": "히요리 팬아트 #hiyoriart_", "server_banner_excluded": True}))
+
+    def test_tag_only_horizontal_cached_post_enters_guild_pool(self):
+        self.queue["hanayo:12345"]["text"] = "#hiyoriart_"
+        self.save_queue()
+        with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1",
+                                     "SERVER_BANNER_VISION_ENABLED": "0"}):
+            self.assertEqual(len(guild_server_banner.collected_hanayo_art()), 1)
 
     def test_non_hiyori_caption_remains_notification_candidate_not_reserved(self):
         self.queue["hanayo:12345"]["text"] = "풍경 일러스트 #hiyoriart_"
