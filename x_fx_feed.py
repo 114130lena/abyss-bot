@@ -58,9 +58,14 @@ def fetch_creator_originals(username, common, max_age_seconds=10800):
         if parsed.hostname not in ("x.com","twitter.com") or not m:
             continue
         author,post_id=m.groups()
-        is_repost=author.casefold()!=username.casefold()
         title=item.findtext("title") or ""
         desc=item.findtext("description") or ""
+        from x_post_classification import classify
+        kind = classify({"rss_title": title,
+                         "rss_description": desc, "url": link}, username)
+        is_repost = kind == "repost"
+        if kind == "reply":
+            continue
         if not is_repost and not common._original_post(item):
             continue
         published=item.findtext("pubDate") or ""
