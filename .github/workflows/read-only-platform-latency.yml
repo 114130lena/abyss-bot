@@ -125,5 +125,52 @@ jobs:
               stamp=line[:33]
               code=re.search(r'(?:cooldown_s|seconds|status|failures|error)=([A-Za-z0-9_.-]+)',line)
               print('HEALTH_EVENT',stamp,'category',('youtube' if 'YOUTUBE' in line else 'x' if 'X_SOURCE' in line else 'banner' if '배너' in line else 'websub'),'detail',code.group(0) if code else 'event_only')
+          print('=== INDIVIDUAL SUCCESSFUL DELIVERY TIMES ===')
+          for idx,line in enumerate(lines):
+              match=re.search(r'DISCORD_WEBHOOK_DELIVERED attempt=(\\d+) elapsed_seconds=([0-9.]+) files=(\\d+)',line)
+              if not match: continue
+              elapsed=float(match.group(2))
+              try:
+                  stamp=datetime.fromisoformat(line[:25])
+              except ValueError:
+                  stamp=None
+              before=[]
+              for context in lines[max(0,idx-90):idx]:
+                  if not re.search('X_REPOST_DISCOVERED|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|FANART_SELECTED|카페 게시판|YouTube|CHZZK|치지직|DISCORD_DELIVERY_SLOW|디스코드 알림 전송 성공',context,re.I):continue
+                  if stamp:
+                      try:
+                          other=datetime.fromisoformat(context[:25])
+                          if (stamp-other).total_seconds()>300: continue
+                      except ValueError:continue
+                  kind=('x_rt' if 'X_REPOST_' in context else
+                        'x_original' if 'X_SEND_MEDIA_GUARD' in context else
+                        'cafe' if '카페 게시판' in context else
+                        'youtube' if 'YouTube' in context else
+                        'chzzk' if 'CHZZK' in context or '치지직' in context else
+                        'fanart')
+                  before.append((context[:25],kind))
+              print('DELIVERY_ITEM',line[:25],'secs',elapsed,'files',match.group(3),
+                    'recent_prior_events',before[-5:])
+          print('=== PLATFORM OUTAGE/RECENT PUBLISH ===')
+          for flag in ['CHZZK_CLIP_COLLECT_RESULT','CHZZK_CLIP_RESULT','server-banner result:',
+                       'YOUTUBE_RSS_BACKOFF','YouTube WebSub','DISCORD_DELIVERY_SLOW',
+                       'ABYSS_HEALTH_SNAPSHOT']:
+              captured=[x for x in lines if flag in x]
+              print('PLATFORM_RECENT',flag,'count',len(captured))
+              for line in captured[-2:]:
+                  if 'ABYSS_HEALTH_SNAPSHOT' in line:
+                      try:
+                          obj=json.loads(line.split('ABYSS_HEALTH_SNAPSHOT ',1)[1])
+                          print('HEALTH_DETAILS',json.dumps({
+                              'clip':obj.get('clip'), 'banner':obj.get('banner'),
+                              'spaces':obj.get('spaces'),'states':obj.get('states'),
+                              'discord_latency':obj.get('discord_latency'),
+                              'discord_uncertain_deliveries':obj.get('discord_uncertain_deliveries')},ensure_ascii=False)[:2500])
+                      except (ValueError,IndexError):pass
+                  else:
+                      clean=re.sub(r'https?://[^ ]+','[URL]',line)
+                      if flag=='server-banner result:':
+                          clean=re.sub(r"('(?:artist|post_url|source|filename|file)'\\s*:\\s*')[^']+(')",r'\\1[REDACTED]\\2',clean)
+                      print('PLATFORM_RECENT_ENTRY',clean[:650])
           PY
           REMOTE
