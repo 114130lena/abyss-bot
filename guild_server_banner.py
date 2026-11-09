@@ -997,31 +997,141 @@ def replace_current_once(request_id):
     return result
 
 
+def _pending_banner_path():
+    return media_base() / "guild_banner_pending_slot.json"
+
+
+def _pending_banner_read():
+    try:
+        state = json.loads(_pending_banner_path().read_text("utf-8"))
+        return state if isinstance(state, dict) else {}
+    except (ValueError, OSError):
+        return {}
+
+
+def _pending_banner_save(state):
+    """Independent atomic journal; never resets the banner usage ledger."""
+    path = _pending_banner_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _next_banner_slot(start):
+    """A missed slot is superseded by the NEXT scheduled slot, not replayed days later."""
+    if start.hour == 8:
+        return start.replace(hour=18)
+    return (start + timedelta(days=1)).replace(hour=8)
+
+
+def retry_scheduled_banner_once(now=None):
+    """Persist and retry one 08/18 slot without a tight Discord API loop.
+
+    Full candidate selection can take minutes. A failed slot remains pending
+    across restarts, while newer slots and manual banner edits take priority.
+    """
+    now = (now or datetime.now(KST)).astimezone(KST)
+    current = slot(now)
+    pending = _pending_banner_read()
+    state = read_state()
+    if current and state.get("last_slot") == current:
+        if pending:
+            _pending_banner_save({})
+        return {"status": "already_rotated"}
+    if current and pending.get("slot") != current:
+        pending = {"slot": current, "baseline_hash": state.get("guild_banner_hash"),
+                   "created_at": now.isoformat(), "attempts": 0}
+        _pending_banner_save(pending)
+    if not pending:
+        return {"status": "no_pending_slot"}
+    try:
+        target = datetime.strptime(pending["slot"], "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+    except (KeyError, TypeError, ValueError):
+        _pending_banner_save({})
+        return {"status": "invalid_pending_slot"}
+    if now < target or now >= _next_banner_slot(target):
+        _pending_banner_save({})
+        return {"status": "superseded_slot"}
+    if state.get("last_slot") == pending["slot"]:
+        _pending_banner_save({})
+        return {"status": "already_rotated"}
+    # The owner or another bot may have deliberately replaced the banner.
+    # Never undo such an external choice during a delayed retry.
+    baseline = pending.get("baseline_hash")
+    recorded = state.get("guild_banner_hash")
+    if baseline and recorded and recorded != baseline:
+        _pending_banner_save({})
+        return {"status": "external_change_recorded"}
+    # Only check live guild hash on an actual retry; do not make extra
+    # Discord requests during every scheduler tick.
+    due = pending.get("next_attempt_at")
+    if isinstance(due, str):
+        try:
+            next_attempt = datetime.fromisoformat(due)
+            if next_attempt.tzinfo and now < next_attempt:
+                return {"status": "retry_waiting"}
+        except (TypeError, ValueError):
+            pass
+    if pending.get("attempts", 0) and baseline:
+        token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+        guild = os.getenv("DISCORD_GUILD_ID", "").strip()
+        if not token or not guild.isdigit():
+            return {"status": "missing_discord_credentials"}
+        try:
+            current_hash = _current_guild_banner(token, guild)
+        except (requests.RequestException, ValueError):
+            pending["next_attempt_at"] = (datetime.now(KST) + timedelta(minutes=3)).isoformat()
+            _pending_banner_save(pending)
+            return {"status": "guild_hash_unavailable"}
+        if current_hash != baseline:
+            _pending_banner_save({})
+            return {"status": "external_change_detected"}
+    # An in-progress canonical slot is allowed until the next scheduled slot,
+    # never beyond it. The existing rotate_once write-time guard still applies.
+    pending["attempts"] = int(pending.get("attempts", 0)) + 1
+    pending["next_attempt_at"] = (now + timedelta(minutes=3)).isoformat()
+    _pending_banner_save(pending)
+    try:
+        result = rotate_once(now=target, apply_deadline=_next_banner_slot(target))
+    except (requests.RequestException, OSError, ValueError, TypeError):
+        logging.exception("SERVER_BANNER_PENDING_ATTEMPT_FAILED slot=%s", pending["slot"])
+        return {"status": "retryable_error"}
+    status = result.get("status", "unknown")
+    if status in ("changed", "already_rotated"):
+        _pending_banner_save({})
+    elif status in ("exhausted_candidates", "no_approved_hanayo_art",
+                    "insufficient_candidates"):
+        # Collect new eligible fanart in the meantime, without recycling used art.
+        pending["next_attempt_at"] = (now + timedelta(minutes=20)).isoformat()
+        _pending_banner_save(pending)
+    elif status in ("outside_schedule", "disabled"):
+        # Disabled/config errors cannot be corrected by repeated Discord calls.
+        pending["next_attempt_at"] = (now + timedelta(minutes=20)).isoformat()
+        _pending_banner_save(pending)
+    return {"status": status, "pending_slot": pending["slot"]}
+
+
 def run_server_banner_scheduler():
-    """Must be explicitly enabled; existing alert workers remain independent."""
+    """Persistent 08/18 slot retry, independent from notification delivery."""
     if os.getenv("SERVER_BANNER_ENABLED", "0") != "1":
         return
-    attempted = None
     last_info_check = 0.0
     last_info_slot = None
     while True:
         try:
             now_slot = slot()
-            if now_slot and attempted != now_slot:
-                result = rotate_once()
+            result = retry_scheduled_banner_once()
+            if result.get("status") not in ("no_pending_slot", "retry_waiting"):
                 logging.info("server-banner result: %s", result)
-                # Retry transient failures within the scheduled minute instead of
-                # permanently consuming the slot before a successful change.
-                if result.get("status") in ("changed", "already_rotated", "exhausted_candidates", "insufficient_candidates", "no_approved_hanayo_art", "disabled"):
-                    attempted = now_slot
             now = time.monotonic()
             due_info = bool(now_slot and last_info_slot != now_slot)
             if due_info or now - last_info_check >= max(30, int(os.getenv("SERVER_BANNER_INFO_POLL_SECONDS", "60"))):
                 last_info_check = now
                 try:
-                    result = sync_banner_info(force=due_info)
-                    logging.info("server-banner info: %s", result)
-                    if due_info and result.get("status") in ("updated", "up_to_date"):
+                    info_result = sync_banner_info(force=due_info)
+                    logging.info("server-banner info: %s", info_result)
+                    if due_info and info_result.get("status") in ("updated", "up_to_date"):
                         last_info_slot = now_slot
                 except (requests.RequestException, ValueError, OSError):
                     logging.exception("서버 배너 정보 동기화 실패; 다음 주기 재시도")
