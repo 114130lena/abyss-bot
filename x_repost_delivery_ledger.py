@@ -78,7 +78,9 @@ def _keys(group, post):
 def _load():
     try:
         state = json.loads(LEDGER.read_text(encoding="utf-8"))
-        return state if isinstance(state, dict) else {}
+        if not isinstance(state, dict):
+            raise ValueError("Invalid delivery ledger shape")
+        return state
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, TypeError) as exc:
