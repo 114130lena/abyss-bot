@@ -859,19 +859,9 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
                     "remaining": 0}
         logging.warning("SERVER_BANNER_PIPELINE candidates=0 source=approved_and_cached")
         return {"status": "no_approved_hanayo_art"}
-    # Do not overwrite an intentionally chosen manual banner with the only
-    # available candidate at the next scheduled slot. Info sync keeps running.
-    # Preserve a manually selected banner when only one candidate exists.
-    # Once this bot has already rotated the banner automatically, one NEW,
-    # never-used candidate is enough for the next scheduled rotation.
-    minimum = max(2, int(os.getenv("SERVER_BANNER_MIN_CANDIDATES", "2")))
-    if previous.get("banner_change_method") == "봇 자동 교체":
-        minimum = 1
-    if not manual and candidate_total < minimum:
-        logging.warning("SERVER_BANNER_ROTATION_SKIPPED candidates=%d minimum=%d",
-                        candidate_total, minimum)
-        return {"status": "insufficient_candidates",
-                "candidate_total": candidate_total, "minimum": minimum}
+    # A manual guild edit is a one-time override, not an opt-out from the
+    # next 08:00/18:00 rotation. Any fresh eligible, never-used art may be
+    # selected even when it is the sole candidate.
     source, metadata = selected
     logging.info("SERVER_BANNER_PICK candidates=%d remaining=%d artist=%s source=%s",
                  candidate_total, remaining, metadata.get("artist", ""), metadata.get("post_url", ""))
