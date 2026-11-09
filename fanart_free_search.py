@@ -61,15 +61,20 @@ def _links(item):
     return values
 
 
-def _x_post_url(value):
+def _x_post_url(value, nitter_host=None):
     if not isinstance(value, str):
         return None
     value = html.unescape(value)
     p = urlsplit(value)
     # Search RSS aggregators sometimes wrap the original link as an URL
     # query; never follow redirectors or untrusted intermediate hosts.
-    if p.scheme != "https" or p.hostname not in (
-            "x.com", "www.x.com", "twitter.com", "www.twitter.com"):
+    if p.scheme != "https":
+        return None
+    if p.hostname == nitter_host and nitter_host in NITTER_HOSTS:
+        # RSS search can link to the instance's local status permalink.
+        value = "https://x.com" + p.path
+        p = urlsplit(value)
+    if p.hostname not in ("x.com", "www.x.com", "twitter.com", "www.twitter.com"):
         return None
     match = POST.fullmatch(p.scheme + "://" + p.netloc + p.path)
     return (match.group(1), match.group(2)) if match else None
@@ -112,7 +117,7 @@ def _discover_index(name, endpoint, group, tag, session, queue, seen_ids, allowa
         if allowance[0] >= MAX_FETCHES:
             break
         for candidate in _links(item):
-            post = _x_post_url(candidate)
+            post = _x_post_url(candidate, urlsplit(endpoint).hostname if name.startswith("nitter_") else None)
             if not post:
                 continue
             handle, post_id = post
@@ -143,7 +148,7 @@ def _discover_index(name, endpoint, group, tag, session, queue, seen_ids, allowa
 
 
 def _nitter_feeds():
-    values = os.getenv("FANART_NITTER_SEARCH_HOSTS", "").split(",")
+    values = os.getenv("FANART_NITTER_SEARCH_HOSTS", "nitter.mie.foundation").split(",")
     hosts = [v.strip().lower() for v in values if v.strip()]
     return [v for v in hosts if v in NITTER_HOSTS][:2]
 
