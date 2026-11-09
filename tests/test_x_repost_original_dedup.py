@@ -55,6 +55,14 @@ class CrossFeedDedupTests(unittest.TestCase):
         self.assertTrue(ledger.reserve("hanayo", a))
         self.assertTrue(ledger.reserve("hanayo", b))
 
+    def test_corrupted_ledger_blocks_repost_instead_of_resending(self):
+        ledger.LEDGER.write_text("{broken")
+        with self.assertRaises(ValueError):
+            ledger.reserve("hanayo", ORIGINAL)
+        ledger.LEDGER.write_text("[]")
+        with self.assertRaises(ValueError):
+            ledger.reserve("hanayo", ORIGINAL)
+
     def test_uncertain_send_remains_blocked_for_manual_review(self):
         self.assertTrue(ledger.reserve("hanayo", WRAPPER))
         ledger.mark_uncertain("hanayo", WRAPPER, "ReadTimeout")
