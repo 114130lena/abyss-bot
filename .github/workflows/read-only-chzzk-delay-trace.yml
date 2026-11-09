@@ -25,10 +25,13 @@ jobs:
           cd /home/ubuntu/chzzk-bot
           echo "=== CHZZK exact alert trace 2026-11-09 21:28 - 21:36 KST ==="
           journalctl -u chzzk-bot.service --since '2026-11-09 12:28:00 UTC' --until '2026-11-09 12:36:00 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD_|X_MEDIA_DOWNLOAD|FANART_|랜덤|profile|banner|서버 배너|status|OPEN|attachment|upload' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-320 | tail -95 || true
+          echo "=== Send-start to fanart selection, 21:30:30 - 21:34:50 KST ==="
+          journalctl -u chzzk-bot.service --since '2026-11-09 12:30:30 UTC' --until '2026-11-09 12:34:50 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD|FANART|X_MEDIA|media|이미지|랜덤|ERROR|WARNING|bot.service' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-340 | tail -85 || true
           echo "=== CHZZK previous alert trace 2026-11-09 18:00 - 18:35 KST ==="
           journalctl -u chzzk-bot.service --since '2026-11-09 09:30:00 UTC' --until '2026-11-09 09:34:00 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD_|X_MEDIA_DOWNLOAD|FANART_|랜덤|profile|banner' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-320 | tail -55 || true
           echo "=== Config feature flags and media pool sizes ==="
-          python3 - <<'PY'
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python3; fi
+          "$PY" - <<'PY'
           import os,json
           from pathlib import Path
           from dotenv import load_dotenv
