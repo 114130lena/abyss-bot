@@ -1,5 +1,6 @@
 """Banner information synchronization regression tests (no Discord network calls)."""
 import unittest
+from datetime import datetime
 from unittest.mock import patch, Mock
 import guild_server_banner as banner
 
@@ -56,7 +57,7 @@ class BannerInfoTests(unittest.TestCase):
              patch.object(banner, "_current_guild_banner") as stale_get, \
              patch.object(banner, "write_state") as saved, \
              patch.object(banner, "sync_banner_info"):
-            result = banner.rotate_once(manual=False)
+            result = banner.rotate_once(manual=False, now=datetime(2026, 11, 8, 18, 0, tzinfo=banner.KST))
         self.assertEqual(result["status"], "changed")
         stale_get.assert_not_called()
         self.assertEqual(saved.call_args.args[0]["guild_banner_hash"], "new_banner_hash")
@@ -197,7 +198,7 @@ class BannerInfoTests(unittest.TestCase):
              patch.object(banner, "change_guild_banner", return_value="new_banner_hash"), \
              patch.object(banner, "write_state") as save, \
              patch.object(banner, "sync_banner_info"):
-            result = banner.rotate_once(manual=False)
+            result = banner.rotate_once(manual=False, now=datetime(2026, 11, 8, 18, 0, tzinfo=banner.KST))
         self.assertEqual(result["status"], "changed")
         saved = save.call_args.args[0]
         self.assertEqual(saved["banner_change_method"], "봇 자동 교체")
