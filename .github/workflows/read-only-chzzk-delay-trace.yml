@@ -24,6 +24,9 @@ jobs:
           timeout 105s ssh -o ConnectTimeout=12 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
+          echo "=== Confirm deployed revision and live process ==="
+          if [ -f .deployed_revision ]; then printf 'DEPLOYED_REVISION='; cat .deployed_revision; fi
+          systemctl show chzzk-bot.service -p ActiveState -p MainPID --no-pager || true
           echo "=== CHZZK exact alert trace 2026-11-09 21:28 - 21:36 KST ==="
           journalctl -u chzzk-bot.service --since '2026-11-09 12:28:00 UTC' --until '2026-11-09 12:36:00 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD_|X_MEDIA_DOWNLOAD|FANART_|랜덤|profile|banner|서버 배너|status|OPEN|attachment|upload' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-320 | tail -95 || true
           echo "=== Send-start to fanart selection, 21:30:30 - 21:34:50 KST ==="
