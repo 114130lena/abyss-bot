@@ -152,13 +152,14 @@ class ClipTests(unittest.TestCase):
             self.assertIn("clip" + str(index).zfill(4), text)
             self.assertEqual(media, "https://example.com/" + str(index + 1) + ".jpg")
         self.assertIn("지난 대표 클립", str(payload["components"][-1]))
-        # Container elements, children, and gallery entries all count toward
-        # Discord's total budget; leave headroom for future additions.
-        total = sum(1 + len(c["components"]) +
-                    sum(len(p.get("items") or []) for p in c["components"]
-                        if p["type"] == 12)
-                    for c in payload["components"])
+        # Count V2 components (not gallery media entries, which are not
+        # components). The media itself is independently capped at ten.
+        total = sum(1 + len(c["components"]) for c in payload["components"])
+        gallery_items = sum(len(p.get("items") or [])
+                            for c in payload["components"]
+                            for p in c["components"] if p["type"] == 12)
         self.assertLessEqual(total, 40)
+        self.assertEqual(gallery_items, 10)
 
     def test_clip_without_thumbnail_still_shows_its_source_in_order(self):
         clip = {"id": "clip1234", "title": "미리보기가 없는 클립",
