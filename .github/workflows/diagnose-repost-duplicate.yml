@@ -75,6 +75,7 @@ jobs:
                   if item.get("type")==10: result.append(str(item.get("content") or ""))
                   result.extend(extract(item.get("components") or []))
               return result
+          bodies={}
           for msgid in ids:
               try:
                   r=requests.get(hook+"/messages/"+msgid,params={"thread_id":"1566509366591627344","with_components":"true"},timeout=12)
@@ -82,8 +83,13 @@ jobs:
                   if r.status_code!=200:continue
                   m=r.json()
                   full="\n".join(extract(m.get("components")) + [m.get("content") or ""])
+                  bodies[msgid]=full
                   xlinks=re.findall(r'https?://(?:x\\.com|twitter\\.com|fxtwitter\\.com)/[A-Za-z0-9_]+/status/[0-9]+',full)
                   print("WEBHOOK_MESSAGE",json.dumps({"id":msgid,"components":len(m.get("components") or []),"hash":hashlib.sha256(full.encode()).hexdigest()[:16],"extracted_status_urls":xlinks[:6],"text_length":len(full),"attachments":len(m.get("attachments") or []),"edited":m.get("edited_timestamp")},ensure_ascii=False))
               except (requests.RequestException,ValueError,TypeError) as ex:print("WEBHOOK_MESSAGE_ERROR",msgid,type(ex).__name__)
+          if len(bodies)==2:
+              import difflib
+              a,b=(bodies[msgid] for msgid in ids)
+              print("WEBHOOK_COMPARE",json.dumps({"same":a==b,"similarity":round(difflib.SequenceMatcher(None,a,b).ratio(),3),"before_excerpt":a[:450],"after_excerpt":b[:450]},ensure_ascii=False))
           PY
           REMOTE
