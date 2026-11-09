@@ -35,10 +35,17 @@ def check_fanart():
             from fanart_fx_search import discover as search_hashtag
             result = search_hashtag()
             logging.info("FANART_DISCOVERY_HASHTAG result=%s", result)
+            from fanart_global_sources import update as update_global
+            update_global("fx_search", result)
             global_search_failed = result.get("status") != "ok"
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, requests.RequestException):
             logging.exception("FANART_DISCOVERY_HASHTAG failed; existing queue preserved")
             global_search_failed = True
+            try:
+                from fanart_global_sources import update as update_global
+                update_global("fx_search", {"status": "unavailable"})
+            except (OSError, ValueError, TypeError):
+                logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
 
     # Global X hashtag search may be unavailable while media feeds of artists
     # already recorded in the queue remain accessible. Rotating accounts
@@ -55,8 +62,23 @@ def check_fanart():
         try:
             result = discover()
             logging.info("FANART_DISCOVERY_API result=%s", result)
+            from fanart_global_sources import update as update_global
+            update_global("official_x", result)
         except Exception:
             logging.exception("FANART_DISCOVERY_API failed; existing queue preserved")
+            try:
+                from fanart_global_sources import update as update_global
+                update_global("official_x", {"status": "unavailable"})
+            except (OSError, ValueError, TypeError):
+                logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
+
+    else:
+        # Explicitly disabled paid/credentialed source is not reported healthy.
+        try:
+            from fanart_global_sources import update as update_global
+            update_global("official_x", {"status": "disabled"})
+        except (OSError, ValueError, TypeError):
+            logging.warning("FANART_GLOBAL_HEALTH_WRITE_FAILED")
 
     if os.getenv("FANART_CACHE_CANDIDATES", "0") == "1":
         from fanart_candidate_cache import run as cache_candidates
