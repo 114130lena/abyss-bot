@@ -100,8 +100,7 @@ class ClipTests(unittest.TestCase):
                   "url": "https://chzzk.naver.com/clips/clip" + str(i).zfill(4),
                   "thumbnail": "", "views": 10000, "date": NOW.isoformat()} for i in range(12)]
         payload = clips._render(items, {})
-        parts = [p for container in payload["components"]
-                 for p in container["components"]]
+        parts = payload["components"][0]["components"]
         text = "\\n".join(p.get("content", "") for p in parts)
         self.assertEqual(text.count("chzzk.naver.com/clips/"), 10)
         self.assertIn("오늘의 히요리 클립", text)
@@ -115,70 +114,62 @@ class ClipTests(unittest.TestCase):
                   "thumbnail": "https://example.com/" + str(i) + ".jpg",
                   "views": 100 - i, "date": NOW.isoformat()} for i in range(10)]
         payload = clips._render(items, {})
-        gallery = [p for container in payload["components"]
-                   for p in container["components"] if p["type"] == 12]
-        self.assertEqual(len(gallery), 10)
-        self.assertTrue(all(len(p["items"]) == 1 for p in gallery))
-        self.assertEqual([p["items"][0]["media"]["url"] for p in gallery],
+        gallery = [p for p in payload["components"][0]["components"]
+                   if p["type"] == 12]
+        self.assertEqual(len(payload["components"]), 1)
+        self.assertEqual(len(gallery), 1)
+        self.assertEqual(len(gallery[0]["items"]), 10)
+        self.assertEqual([p["media"]["url"] for p in gallery[0]["items"]],
                          ["https://example.com/" + str(i) + ".jpg" for i in range(10)])
-        self.assertLessEqual(len(payload["components"]), 10)
-        self.assertTrue(all(len(x["components"]) <= 10 for x in payload["components"]))
-        self.assertLessEqual(sum(1 + len(x["components"]) for x in payload["components"]), 40)
+        self.assertEqual([p["description"].split(".")[0]
+                          for p in gallery[0]["items"]],
+                         [str(i).zfill(2) for i in range(1, 11)])
+        self.assertLessEqual(len(payload["components"][0]["components"]), 10)
 
-    def test_each_title_immediately_precedes_its_own_video(self):
+    def test_grid_title_labels_match_media_by_number_without_long_rows(self):
         items = [{"id": "clip" + str(i).zfill(4),
                   "title": "제목 " + str(i + 1),
                   "url": "https://chzzk.naver.com/clips/clip" + str(i).zfill(4),
                   "thumbnail": "https://example.com/" + str(i + 1) + ".jpg",
                   "views": 100 - i, "date": NOW.isoformat()}
                  for i in range(10)]
-        history = {"2026-11-07": {"id": "oldclip123"}}
-        payload = clips._render(items, history)
-        self.assertEqual(len(payload["components"]), 5)
-        self.assertEqual(payload["flags"], 32768)
+        payload = clips._render(items, {"2026-11-08": {"id": "clipold123"}})
+        parts = payload["components"][0]["components"]
+        self.assertEqual([p["type"] for p in parts], [10, 12, 10, 14, 10])
+        self.assertEqual(len(parts[1]["items"]), 10)
+        self.assertEqual(len(payload["components"]), 1)
+        legend = parts[2]["content"]
+        self.assertEqual(legend.count("\\n"), 5)
+        for index, item in enumerate(items, 1):
+            self.assertIn("**%02d** [제목 %s]" % (index, index), legend)
+            self.assertIn(item["url"], legend)
+            self.assertIn("제목 %s" % index, parts[1]["items"][index - 1]["description"])
+        self.assertIn("지난 대표 클립", parts[-1]["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": []})
-        pairs = []
-        for container in payload["components"][1:]:
-            parts = container["components"]
-            self.assertLessEqual(len(parts), 10)
-            for ix, part in enumerate(parts):
-                if part["type"] == 12:
-                    self.assertEqual(parts[ix - 1]["type"], 10)
-                    pairs.append((parts[ix - 1]["content"],
-                                  part["items"][0]["media"]["url"]))
-        self.assertEqual(len(pairs), 10)
-        for index, (text, media) in enumerate(pairs):
-            self.assertIn("%02d. 제목 %s" % (index + 1, index + 1), text)
-            self.assertIn("clip" + str(index).zfill(4), text)
-            self.assertEqual(media, "https://example.com/" + str(index + 1) + ".jpg")
-        self.assertIn("지난 대표 클립", str(payload["components"][-1]))
-        # Count V2 components (not gallery media entries, which are not
-        # components). The media itself is independently capped at ten.
-        total = sum(1 + len(c["components"]) for c in payload["components"])
-        gallery_items = sum(len(p.get("items") or [])
-                            for c in payload["components"]
-                            for p in c["components"] if p["type"] == 12)
-        self.assertLessEqual(total, 40)
-        self.assertEqual(gallery_items, 10)
 
-    def test_clip_without_thumbnail_still_shows_its_source_in_order(self):
-        clip = {"id": "clip1234", "title": "미리보기가 없는 클립",
-                "url": "https://chzzk.naver.com/clips/clip1234",
-                "thumbnail": "", "views": 1, "date": NOW.isoformat()}
-        payload = clips._render([clip], {})
-        part = payload["components"][1]["components"]
-        self.assertEqual(part[0]["type"], 10)
-        self.assertIn("미리보기가 없는 클립", part[0]["content"])
-        self.assertIn("원본 클립 보기", part[0]["content"])
-        self.assertEqual(part[1]["type"], 10)
-        self.assertIn("미리보기 없음", part[1]["content"])
+    def test_missing_thumbnail_retains_clickable_title_without_blank_grid_tile(self):
+        items = [
+            {"id": "clip1234", "title": "미리보기 없음",
+             "url": "https://chzzk.naver.com/clips/clip1234", "thumbnail": ""},
+            {"id": "clip5678", "title": "정상 영상",
+             "url": "https://chzzk.naver.com/clips/clip5678",
+             "thumbnail": "https://example.com/clip5678.jpg"},
+        ]
+        payload = clips._render(items, {})
+        parts = payload["components"][0]["components"]
+        self.assertEqual(len(parts[1]["items"]), 1)
+        self.assertTrue(parts[1]["items"][0]["description"].startswith("02."))
+        self.assertIn("**01** [미리보기 없음]", parts[2]["content"])
+        self.assertIn("**02** [정상 영상]", parts[2]["content"])
 
     def test_inline_video_media_url_overrides_thumbnail(self):
-        clip = {"id": "clip1234", "title": "영상", "url": "https://chzzk.naver.com/clips/clip1234",
+        clip = {"id": "clip1234", "title": "영상",
+                "url": "https://chzzk.naver.com/clips/clip1234",
                 "thumbnail": "https://example.com/image.jpg",
-                "video_url": "https://example.com/clip.mp4", "views": 1, "date": NOW.isoformat()}
+                "video_url": "https://example.com/clip.mp4",
+                "views": 1, "date": NOW.isoformat()}
         payload = clips._render([clip], {})
-        gallery = next(p for c in payload["components"] for p in c["components"]
+        gallery = next(p for p in payload["components"][0]["components"]
                        if p["type"] == 12)
         self.assertEqual(gallery["items"][0]["media"]["url"], "https://example.com/clip.mp4")
 

@@ -198,71 +198,63 @@ def clip_video_url(clip, get=None):
 
 
 def _render(clips, history, now=None, collected_at=None):
-    """Pair every clip title, source link and media in ordered V2 blocks.
+    """Compact clip grid with a numbered, two-column title/link legend.
 
-    Discord has a 10-child limit per container and a 40-component message
-    budget. CLIP_TITLE_MEDIA_PAIR_V2 groups up to three clips per container:
-    title/link -> single media gallery -> optional separator -> next clip.
+    Discord Media Gallery descriptions are ALT text (not visible captions).
+    The grid displays up to ten playable videos/thumbs; the adjacent short
+    numbered text list provides visible, clickable, matching titles without
+    expanding ten full-width single-video rows. CLIP_GRID_TITLES_V2.
     """
     if not clips:
         return None
     selected = clips[:10]
-    headline = [
-        {"type": 10, "content": "**HANAYO HIYORI** · STELLIVE · ABYSS"},
-        {"type": 14, "divider": True, "spacing": 1},
-        {"type": 10, "content": "**오늘의 히요리 클립**\n"
-         "최근 24시간 클립 · 조회수 기준 " + str(len(selected)) + "개"
-         + "\n\n**클립 수집 주기** · 2시간마다 (짝수 시각, KST)"
-         + "\n**마지막 수집 완료** · " + format_saved_time(collected_at)
-         + "\n**마지막 메시지 갱신** · " + format_saved_time(now)
-         + "\n\n" + schedule_label(now)},
+    parts = [
+        {"type": 10, "content": (
+            "**HANAYO HIYORI** · STELLIVE · ABYSS\n"
+            "**오늘의 히요리 클립** · 최근 24시간 인기 " + str(len(selected)) + "개\n"
+            "-# 클립 수집 2시간마다 · 최근 수집 " + format_saved_time(collected_at)
+            + " · 메시지 " + format_saved_time(now) + "\n"
+            + schedule_label(now))},
     ]
-    containers = [{"type": 17, "accent_color": 0x8391BB,
-                   "components": headline}]
-    for start in range(0, len(selected), 3):
-        group = []
-        batch = selected[start:start + 3]
-        for offset, clip in enumerate(batch):
-            if group:
-                group.append({"type": 14, "divider": True, "spacing": 1})
-            number = start + offset + 1
-            # Clip titles are untrusted API text. Prevent Markdown from
-            # breaking source links or introducing role-like formatting.
-            title = re.sub(r"[\[\]<>*`_\r\n]", " ",
-                           str(clip.get("title") or "제목 없음"))
-            title = re.sub(r"\s+", " ", title).strip()[:85] or "제목 없음"
-            uid = str(clip.get("id") or "")
-            original = "https://chzzk.naver.com/clips/" + uid
-            source = str(clip.get("url") or "")
-            if (source != original and
-                    (not _ID.fullmatch(uid)
-                     or not source.startswith("https://chzzk.naver.com/clips/"))):
-                source = original
-            elif not source:
-                source = original
-            group.append({"type": 10, "content": (
-                "**%02d. %s**\n-# [원본 클립 보기](%s)" % (
-                    number, title, source))})
-            media_url = str(clip.get("video_url") or clip.get("thumbnail") or "")
-            parsed = urlsplit(media_url)
-            if parsed.scheme in ("https", "http") and parsed.hostname and len(media_url) <= 2048:
-                group.append({"type": 12, "items": [{
-                    "media": {"url": media_url}, "description": title[:120]}]})
-            else:
-                group.append({"type": 10, "content": "-# 영상 미리보기 없음 · 원본 링크에서 보기"})
-        containers.append({"type": 17, "components": group})
-
+    items = []
+    numbered_titles = []
+    for index, clip in enumerate(selected, 1):
+        # Use only official CHZZK links, ignoring untrusted URL fields.
+        uid = str(clip.get("id") or "")
+        if not _ID.fullmatch(uid):
+            continue
+        title = re.sub(r"[\\[\\]<>*`_\\r\\n]", " ", str(clip.get("title") or "제목 없음"))
+        title = re.sub(r"\\s+", " ", title).strip() or "제목 없음"
+        short_title = title[:26] + ("…" if len(title) > 26 else "")
+        original = "https://chzzk.naver.com/clips/" + uid
+        numbered_titles.append("**%02d** [%s](%s)" % (index, short_title, original))
+        media = str(clip.get("video_url") or clip.get("thumbnail") or "")
+        parsed = urlsplit(media)
+        if parsed.scheme == "https" and parsed.hostname and len(media) <= 2048:
+            items.append({"media": {"url": media},
+                          "description": "%02d. %s" % (index, title[:110])})
+    if items:
+        # One adaptive Discord gallery instead of ten vertically stacked
+        # media players. Each item remains associated with its title by
+        # original index and accessible ALT description.
+        parts.append({"type": 12, "items": items})
+    # Keep the entire title list small (up to five paired rows). Discord
+    # clients may wrap it into one column on narrow screens; the media grid
+    # still stays compact and the links remain independently clickable.
+    rows = ["  ·  ".join(numbered_titles[i:i+2])
+            for i in range(0, len(numbered_titles), 2)]
+    parts.append({"type": 10, "content": "**클립 제목 · 갤러리 순서**\n"
+                  + "\n".join(rows)})
     previous = []
     for day, clip in sorted(history.items(), reverse=True)[:7]:
         if isinstance(clip, dict) and _ID.fullmatch(str(clip.get("id", ""))):
             previous.append("[" + day + "](https://chzzk.naver.com/clips/" + clip["id"] + ")")
     if previous:
-        # The final group has at most eight children; even a full 3-clip
-        # batch plus these two elements stays within the 10-child limit.
-        last = containers[-1]["components"]
-        last.append({"type": 14, "divider": True, "spacing": 1})
-        last.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
-    return {"flags": 32768, "components": containers,
+        parts.append({"type": 14, "divider": True, "spacing": 1})
+        parts.append({"type": 10, "content": "**지난 대표 클립** · " + " · ".join(previous)})
+    return {"flags": 32768,
+            "components": [{"type": 17, "accent_color": 0x8391BB,
+                            "components": parts}],
             "allowed_mentions": {"parse": []}}
 
 
