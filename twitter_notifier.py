@@ -205,6 +205,7 @@ def _notify(post):
     logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
                  USERNAME,post.get("id"),len(photo_urls),has_video,media_known,
                  bool(payload.get("_abyss_verified_text_only")))
+    payload["_abyss_event_key"] = "x-original:" + USERNAME.lower() + ":" + str(post["id"])
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
