@@ -37,32 +37,8 @@ jobs:
           sess=requests.Session()
           sess.headers.update({"Authorization":"Bot "+token})
           url="https://discord.com/api/v10"
-          channels=[]
-          for key,value in os.environ.items():
-              if ("CHANNEL_ID" in key or "THREAD_ID" in key) and isinstance(value,str) and value.isdigit():
-                  channels.append((value,key))
-          guilds=[guild]
-          try:
-              r=sess.get(f"{url}/users/@me/guilds",timeout=12)
-              if r.ok:
-                  guilds=list(dict.fromkeys([guild]+[str(g["id"]) for g in r.json() if isinstance(g,dict)]))
-          except requests.RequestException: pass
-          print("GUILD_COUNT",len(guilds))
-          for guild_id in guilds[:15]:
-              try:
-                  r=sess.get(f"{url}/guilds/{guild_id}/channels",timeout=12)
-                  if r.ok:
-                      for ch in r.json():
-                          if ch.get("type") in (0,5,11,12,15):
-                              channels.append((str(ch["id"]),"guild_channel"))
-              except requests.RequestException: pass
-              try:
-                  r=sess.get(f"{url}/guilds/{guild_id}/threads/active",timeout=12)
-                  if r.ok:
-                      for ch in r.json().get("threads",[]):
-                          channels.append((str(ch["id"]),"active_thread"))
-              except requests.RequestException: pass
-          channels=list(dict.fromkeys(channels))
+          # Exact user-provided guild/channel URL; no broad channel enumeration.
+          channels=[("1566509366591627344","user_provided_channel")]
           found={}
           print("DISCOVERY_CHANNEL_COUNT",len(channels))
           # Message IDs are deterministic; never write, send or delete Discord messages.
