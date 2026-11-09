@@ -42,4 +42,33 @@ jobs:
               p=Path(path)
               print('FILE',path,'size_bytes',p.stat().st_size if p.exists() else None)
           PY
+          echo "=== Live fast-path selection microbenchmark: NO Discord delivery ==="
+          "$PY" - <<'PY'
+          import time,os
+          from pathlib import Path
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          from fanart_usage import server_reserved_post_ids
+          from fanart_url_media import candidates
+          from discord_v2 import alert
+          from random_media import prepare_payload
+          from fanart_url_media import apply
+          for group in ('hanayo','sakihane'):
+              for label,call in (
+                  ('reserve_ids',lambda:server_reserved_post_ids(group)),
+                  ('notification_candidates',lambda:candidates(group))):
+                  started=time.monotonic()
+                  value=call()
+                  print('MICROBENCH',group,label,'seconds',round(time.monotonic()-started,3),
+                        'count',len(value))
+          payload=alert('chzzk','하나요 히요리','https://example.org/banner.jpg',
+                        title='Read-only performance test',url='https://chzzk.naver.com/live/test',
+                        avatar='https://example.org/avatar.jpg',ping=False)
+          begin=time.monotonic()
+          candidate,chosen=prepare_payload(payload)
+          print('MICROBENCH','chzzk','profile_and_banner_pick','seconds',round(time.monotonic()-begin,3),'chosen',bool(chosen))
+          begin=time.monotonic()
+          decorated,selection=apply(candidate)
+          print('MICROBENCH','chzzk','fanart_decoration','seconds',round(time.monotonic()-begin,3),'selected',bool(selection))
+          PY
           REMOTE
