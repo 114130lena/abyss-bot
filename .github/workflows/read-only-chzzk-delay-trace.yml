@@ -1,0 +1,42 @@
+name: Read-only CHZZK 227-second live alert trace
+on:
+  pull_request:
+    paths: ['.github/workflows/read-only-chzzk-delay-trace.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Trace recent CHZZK alert pipeline without writing
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          timeout 105s ssh -o ConnectTimeout=12 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          echo "=== CHZZK exact alert trace 2026-11-09 21:28 - 21:36 KST ==="
+          journalctl -u chzzk-bot.service --since '2026-11-09 12:28:00 UTC' --until '2026-11-09 12:36:00 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD_|X_MEDIA_DOWNLOAD|FANART_|랜덤|profile|banner|서버 배너|status|OPEN|attachment|upload' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-320 | tail -95 || true
+          echo "=== CHZZK previous alert trace 2026-11-09 18:00 - 18:35 KST ==="
+          journalctl -u chzzk-bot.service --since '2026-11-09 09:30:00 UTC' --until '2026-11-09 09:34:00 UTC' -o short-iso --utc --no-pager | grep -Ei 'CHZZK|치지직|DISCORD_|X_MEDIA_DOWNLOAD|FANART_|랜덤|profile|banner' | sed -E 's#https?://[^ ]+#[URL]#g' | cut -c1-320 | tail -55 || true
+          echo "=== Config feature flags and media pool sizes ==="
+          python3 - <<'PY'
+          import os,json
+          from pathlib import Path
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          for key in ('ABYSS_RANDOM_MEDIA','ABYSS_NOTIFICATION_FANART','ABYSS_FANART_URLS','CHZZK_THUMBNAIL_ENABLED','POLL_INTERVAL'):
+              print('FLAG',key,os.getenv(key,'(default)'))
+          for path in ('creator_media/index.json','creator_media/fanart_discovery.json','creator_media/fanart_notification_history.json'):
+              p=Path(path)
+              print('FILE',path,'size_bytes',p.stat().st_size if p.exists() else None)
+          PY
+          REMOTE
