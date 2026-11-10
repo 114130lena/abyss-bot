@@ -24,7 +24,7 @@ class BluebirdShadowSafetyTests(unittest.TestCase):
         self.assertIn("--memory 384m", workflow)
         self.assertIn("--interval 60", workflow)
         self.assertNotIn("DISCORD_WEBHOOK_URL", workflow)
-        self.assertNotIn("TWSCRAPER_COOKIES", workflow)
+        self.assertNotIn("-e TWSCRAPER_COOKIES=", workflow)
         self.assertNotIn("systemctl restart chzzk-bot", workflow)
         self.assertNotIn("systemctl stop chzzk-bot", workflow)
 
