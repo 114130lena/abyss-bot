@@ -1,4 +1,4 @@
-name: Abyss comprehensive alert preview
+name: "알림 · 전체 플랫폼 디자인 미리보기"
 on:
   issues:
     types: [opened]

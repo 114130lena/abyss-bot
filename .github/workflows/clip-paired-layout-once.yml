@@ -1,4 +1,4 @@
-name: Apply neatly spaced clip-grid titles once
+name: "클립 · 제목·영상 배치 일회성 적용"
 
 on:
   issues:

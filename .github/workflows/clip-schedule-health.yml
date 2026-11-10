@@ -1,4 +1,4 @@
-name: Verify published Hanayo clip message
+name: "클립 · 정기 게시 일정 점검"
 on:
   schedule:
     # KST 08:25 and 18:25; collection continues independently every 2 hours.
