@@ -25,7 +25,7 @@ assert GROUP == "sakihane"
 ROLE = role_for(GROUP)
 SEEN_FILE = BASE_DIR / "x_huya_seen_posts.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
+INTERVAL = max(15, int(os.getenv("X_FAST_POLL_INTERVAL", "20")))
 FEEDS = list(dict.fromkeys([
     f"https://nitter.meowing.monster/{USERNAME}/rss",
     f"https://nitter.mie.foundation/{USERNAME}/rss",
@@ -59,10 +59,10 @@ def _fetch_posts(feed):
     return posts
 
 
-def _fetch_merged_posts():
+def _fetch_merged_posts(on_batch=None):
     posts = {}
     successes = 0
-    with ThreadPoolExecutor(max_workers=min(3, len(FEEDS))) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(FEEDS) + 1, 5)) as pool:
         jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
         from x_fx_feed import fetch_creator_originals
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
@@ -80,6 +80,8 @@ def _fetch_merged_posts():
                     previous = posts.get(item["id"])
                     if previous is None or (item.get("repost"),len(item.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
                         posts[item["id"]] = item
+                if on_batch is not None and items:
+                    on_batch(sorted(items, key=lambda p: int(p["id"])))
             except (requests.RequestException, ValueError, ET.ParseError, OSError) as exc:
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
     if successes == 0:
