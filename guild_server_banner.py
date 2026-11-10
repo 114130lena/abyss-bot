@@ -1042,6 +1042,11 @@ def retry_scheduled_banner_once(now=None):
     """
     now = (now or datetime.now(KST)).astimezone(KST)
     current = slot(now)
+    # If the process restarts at 18:01 (or 08:01), the exact-minute
+    # scheduler tick was missed. Recover it within the normal 10-minute
+    # backup window without scheduling an unrelated late rotation.
+    if not current and now.hour in (8, 18) and now.minute < 10:
+        current = now.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M")
     pending = _pending_banner_read()
     state = read_state()
     if current and state.get("last_slot") == current:
