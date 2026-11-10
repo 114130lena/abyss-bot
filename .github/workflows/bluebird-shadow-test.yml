@@ -17,7 +17,7 @@ jobs:
         run: |
           python -m py_compile scripts/bluebird_shadow_probe.py
           test "$(grep -c 'from core.' scripts/bluebird_shadow_probe.py)" -ge 3
-          ! grep -E 'Webhook\\(|send_webhook\\(|discord.com|TWSCRAPER_COOKIES' scripts/bluebird_shadow_probe.py
+          ! grep -F -e 'Webhook(' -e 'send_webhook(' -e 'discord.com' -e 'TWSCRAPER_COOKIES' scripts/bluebird_shadow_probe.py
       - name: Copy probe and install isolated Bluebird container
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
