@@ -62,6 +62,7 @@ class HistoricalOriginalTests(unittest.TestCase):
                                NOW - timedelta(days=30))
                 state_file = root / ("x_seen_posts.json" if watcher is hi else "x_huya_seen_posts.json")
                 repost_file = root / ("x_repost_seen_posts.json" if watcher is hi else "x_huya_repost_seen_posts.json")
+                state_file.write_text("[]", encoding="utf-8")
                 repost_file.write_text("[]", encoding="utf-8")
                 def get_posts(*args, **kwargs):
                     kwargs["on_batch"]([old])
