@@ -25,11 +25,11 @@ assert GROUP == "sakihane"
 ROLE = role_for(GROUP)
 SEEN_FILE = BASE_DIR / "x_huya_seen_posts.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-INTERVAL = max(15, int(os.getenv("X_FAST_POLL_INTERVAL", "20")))
+INTERVAL = max(20, int(os.getenv("X_FAST_POLL_INTERVAL", os.getenv("X_POLL_INTERVAL", "30"))))
 FEEDS = list(dict.fromkeys([
-    f"https://nitter.meowing.monster/{USERNAME}/rss",
-    f"https://nitter.mie.foundation/{USERNAME}/rss",
+    f"https://nitter.gq/{USERNAME}/rss",
     f"https://nitter.mizuki.st/{USERNAME}/rss",
+    f"https://nitter.meowing.monster/{USERNAME}/rss",
 ]))
 next_check = 0.0
 failures = 0
