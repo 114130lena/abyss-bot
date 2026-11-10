@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ACCOUNTS = ("HanayoHiyori", "SakihaneHuya")
-COOKIES_FILE = Path("/run/secrets/x.cookies")
+COOKIES_FILE = Path("/private/x.cookies")
 DATABASE_FILE = Path("/private/twscraper.db")
 SAMPLE_FILE = Path("/results/auth_samples.jsonl")
 STOP = False
