@@ -24,10 +24,10 @@ from creator_groups import x_group, role_for
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
 USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
-FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
-BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mie.foundation/{USERNAME}/rss,https://nitter.mizuki.st/{USERNAME}/rss").split(",") if v.strip()]
+FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.gq/{USERNAME}/rss")
+BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mizuki.st/{USERNAME}/rss,https://nitter.meowing.monster/{USERNAME}/rss").split(",") if v.strip()]
 ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
-INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
+INTERVAL = max(20, int(os.getenv("X_FAST_POLL_INTERVAL", os.getenv("X_POLL_INTERVAL", "30"))))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
 X_GROUP = x_group(USERNAME)
@@ -241,14 +241,14 @@ def _fx_image_map(username):
     return found
 
 
-def _fetch_merged_posts(include_backups=True):
+def _fetch_merged_posts(include_backups=True, on_batch=None):
     """Poll all configured RSS sources concurrently and deduplicate post IDs."""
     posts_by_id = {}
     successes = 0
     feeds = list(ALL_FEEDS)
     if not feeds:
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(feeds) + 1, 5)) as pool:
         futures = {pool.submit(feed_health.timed_fetch, _fetch_posts, source): source for source in feeds if feed_health.active(source)}
         from x_fx_feed import fetch_creator_originals
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
@@ -262,13 +262,18 @@ def _fetch_merged_posts(include_backups=True):
             source = futures[future]
             try:
                 items = future.result()
-                successes += 1
-                for post in items:
-                    previous = posts_by_id.get(post["id"])
-                    if previous is None or (post.get("repost"),len(post.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
-                        posts_by_id[post["id"]] = post
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
+                continue
+            successes += 1
+            for post in items:
+                previous = posts_by_id.get(post["id"])
+                if previous is None or (post.get("repost"), len(post.get("images", []))) > (previous.get("repost"), len(previous.get("images", []))):
+                    posts_by_id[post["id"]] = post
+            if on_batch is not None and items:
+                # Alert failures must propagate to the caller, never be
+                # mistaken for an upstream RSS outage.
+                on_batch(sorted(items, key=lambda p: int(p["id"])))
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
     # Do not block delivery on optional FxEmbed image lookups.
@@ -295,7 +300,54 @@ def check_twitter():
         logging.warning("X 알림 건너뜀: DISCORD_WEBHOOK_URL 설정 필요")
         return
     try:
-        posts = _fetch_merged_posts(True)
+        seen = _load_seen()
+        repost_file = BASE_DIR / "x_repost_seen_posts.json"
+        try:
+            repost_data = json.loads(repost_file.read_text(encoding="utf-8"))
+            if not isinstance(repost_data, list):
+                raise ValueError("Invalid repost seen state")
+            repost_seen = set(map(str, repost_data))
+        except (OSError, ValueError, TypeError):
+            repost_seen = None
+        from x_repost_notifier import is_repost_post, notify as notify_repost
+        from x_post_classification import classify, status_author
+        fx_source = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+
+        def deliver(post, fast=False):
+            kind = classify(post, USERNAME)
+            if kind == "reply":
+                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
+                return
+            repost = is_repost_post(post, USERNAME)
+            if fast and not repost and not (
+                    kind == "original" and (
+                        post.get("source") == fx_source
+                        or status_author(post.get("source_link")) == USERNAME.lower())):
+                # Ambiguous originals wait for all sources to be reconciled.
+                return
+            if repost:
+                if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s fast=%s",
+                                 post["id"], post.get("source", "?"), fast)
+                    notify_repost(X_GROUP, post, WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(
+                        json.dumps(sorted(repost_seen, key=int)[-500:]), encoding="utf-8")
+                return
+            if post["id"] in seen:
+                return
+            _notify(post)
+            seen.add(post["id"])
+            _save_seen(seen)
+            logging.info("X_ORIGINAL_DELIVERED creator=%s id=%s fast=%s source=%s age_seconds=%s",
+                         USERNAME, post["id"], fast, post.get("source", "?"), _post_latency(post))
+
+        def on_batch(items):
+            if seen is None or repost_seen is None:
+                return
+            for post in items:
+                deliver(post, fast=True)
+        posts = _fetch_merged_posts(True, on_batch=on_batch)
         if posts is None:
             # Every provider is in its circuit-breaker period: neither a success nor a new failure.
             sources = ALL_FEEDS + ["https://fxtwitter.com/" + USERNAME + "/feed.xml"]
@@ -310,38 +362,16 @@ def check_twitter():
             except Exception:
                 logging.exception("X 수집 진단 기록 실패")
             return
-        seen = _load_seen()
         if seen is None:
             _save_seen({post["id"] for post in posts})
             logging.info("X RSS 첫 실행: 기존 글 %d개 읽음 처리", len(posts))
             failures = 0
             return
-        from x_repost_notifier import is_repost_post, notify as notify_repost
-        repost_file=BASE_DIR / "x_repost_seen_posts.json"
-        try:
-            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
-        except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
-            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
-        from x_post_classification import classify
+        if repost_seen is None:
+            repost_seen = {p["id"] for p in posts if is_repost_post(p, USERNAME)}
+            repost_file.write_text(json.dumps(sorted(repost_seen)), encoding="utf-8")
         for post in posts:
-            if classify(post, USERNAME) == "reply":
-                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
-                continue
-            if is_repost_post(post, USERNAME):
-                if post["id"] not in repost_seen:
-                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))
-                    notify_repost(X_GROUP,post,WEBHOOK_URL)
-                    repost_seen.add(post["id"])
-                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
-                continue
-            if post["id"] in seen:
-                continue
-            _notify(post)
-            seen.add(post["id"])
-            _save_seen(seen)
-            logging.info("X 새 게시글 알림 성공: %s | RSS=%s | 작성 후 지연=%s초",
-                         post["url"], post.get("source", "?"), _post_latency(post))
+            deliver(post)
         failures = 0
         try:
             from notice_intelligence import report_source

@@ -25,11 +25,11 @@ assert GROUP == "sakihane"
 ROLE = role_for(GROUP)
 SEEN_FILE = BASE_DIR / "x_huya_seen_posts.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
+INTERVAL = max(20, int(os.getenv("X_FAST_POLL_INTERVAL", os.getenv("X_POLL_INTERVAL", "30"))))
 FEEDS = list(dict.fromkeys([
-    f"https://nitter.meowing.monster/{USERNAME}/rss",
-    f"https://nitter.mie.foundation/{USERNAME}/rss",
+    f"https://nitter.gq/{USERNAME}/rss",
     f"https://nitter.mizuki.st/{USERNAME}/rss",
+    f"https://nitter.meowing.monster/{USERNAME}/rss",
 ]))
 next_check = 0.0
 failures = 0
@@ -59,10 +59,10 @@ def _fetch_posts(feed):
     return posts
 
 
-def _fetch_merged_posts():
+def _fetch_merged_posts(on_batch=None):
     posts = {}
     successes = 0
-    with ThreadPoolExecutor(max_workers=min(3, len(FEEDS))) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(FEEDS) + 1, 5)) as pool:
         jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
         from x_fx_feed import fetch_creator_originals
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
@@ -75,13 +75,16 @@ def _fetch_merged_posts():
         for job in as_completed(jobs):
             try:
                 items = job.result()
-                successes += 1
-                for item in items:
-                    previous = posts.get(item["id"])
-                    if previous is None or (item.get("repost"),len(item.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
-                        posts[item["id"]] = item
             except (requests.RequestException, ValueError, ET.ParseError, OSError) as exc:
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
+                continue
+            successes += 1
+            for item in items:
+                previous = posts.get(item["id"])
+                if previous is None or (item.get("repost"), len(item.get("images", []))) > (previous.get("repost"), len(previous.get("images", []))):
+                    posts[item["id"]] = item
+            if on_batch is not None and items:
+                on_batch(sorted(items, key=lambda p: int(p["id"])))
     if successes == 0:
         raise ValueError("All Huya X RSS sources failed")
     # Do not block alert delivery on optional FxEmbed media enrichment.
@@ -168,7 +171,53 @@ def check_huya_x():
         logging.warning("후야 X 알림 건너뜀: 웹훅 미설정")
         return
     try:
-        posts = _fetch_merged_posts()
+        seen = _load_seen()
+        repost_file = BASE_DIR / "x_huya_repost_seen_posts.json"
+        try:
+            repost_data = json.loads(repost_file.read_text(encoding="utf-8"))
+            if not isinstance(repost_data, list):
+                raise ValueError("Invalid repost seen state")
+            repost_seen = set(map(str, repost_data))
+        except (OSError, ValueError, TypeError):
+            repost_seen = None
+        from x_repost_notifier import is_repost_post, notify as notify_repost
+        from x_post_classification import classify, status_author
+        fx_source = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+
+        def deliver(post, fast=False):
+            kind = classify(post, USERNAME)
+            if kind == "reply":
+                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
+                return
+            repost = is_repost_post(post, USERNAME)
+            if fast and not repost and not (
+                    kind == "original" and (
+                        post.get("source") == fx_source
+                        or status_author(post.get("source_link")) == USERNAME.lower())):
+                return
+            if repost:
+                if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s fast=%s",
+                                 post["id"], post.get("source", "?"), fast)
+                    notify_repost(GROUP, post, WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(
+                        json.dumps(sorted(repost_seen, key=int)[-500:]), encoding="utf-8")
+                return
+            if post["id"] in seen:
+                return
+            _notify(post)
+            seen.add(post["id"])
+            _save_seen(seen)
+            logging.info("X_ORIGINAL_DELIVERED creator=%s id=%s fast=%s source=%s",
+                         USERNAME, post["id"], fast, post.get("source", "?"))
+
+        def on_batch(items):
+            if seen is None or repost_seen is None:
+                return
+            for post in items:
+                deliver(post, fast=True)
+        posts = _fetch_merged_posts(on_batch=on_batch)
         if posts is None:
             # Every provider is in its circuit-breaker period: neither a success nor a new failure.
             sources = FEEDS + ["https://fxtwitter.com/" + USERNAME + "/feed.xml"]
@@ -182,37 +231,16 @@ def check_huya_x():
             except Exception:
                 logging.exception("X 수집 진단 기록 실패")
             return
-        seen = _load_seen()
         if seen is None:
             _save_seen({post["id"] for post in posts})
             logging.info("후야 X 감시 초기화: 기존 %d개 읽음 처리", len(posts))
             failures = 0
             return
-        from x_repost_notifier import is_repost_post, notify as notify_repost
-        repost_file=BASE_DIR / "x_huya_repost_seen_posts.json"
-        try:
-            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
-        except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
-            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
-        from x_post_classification import classify
+        if repost_seen is None:
+            repost_seen = {p["id"] for p in posts if is_repost_post(p, USERNAME)}
+            repost_file.write_text(json.dumps(sorted(repost_seen)), encoding="utf-8")
         for post in posts:
-            if classify(post, USERNAME) == "reply":
-                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
-                continue
-            if is_repost_post(post, USERNAME):
-                if post["id"] not in repost_seen:
-                    logging.info("X_REPOST_DISCOVERED creator=sakihane id=%s source=%s",post["id"],post.get("source","?"))
-                    notify_repost(GROUP,post,WEBHOOK_URL)
-                    repost_seen.add(post["id"])
-                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
-                continue
-            if post["id"] in seen:
-                continue
-            _notify(post)
-            seen.add(post["id"])
-            _save_seen(seen)
-            logging.info("후야 X 새 글 알림: %s", post["url"])
+            deliver(post)
         failures = 0
         try:
             from notice_intelligence import report_source
