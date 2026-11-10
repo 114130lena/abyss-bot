@@ -1,4 +1,4 @@
-name: Diagnose X posts and repost activity
+name: "X · 현재 수집 상태 점검"
 on:
   issues:
     types: [opened]

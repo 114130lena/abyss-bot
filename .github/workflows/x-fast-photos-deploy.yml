@@ -1,4 +1,4 @@
-name: Deploy X creator-only fast photo fallback
+name: "X · 원본 사진 빠른 수집 적용"
 on:
   issues:
     types: [opened]

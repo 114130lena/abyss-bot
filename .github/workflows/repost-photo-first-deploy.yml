@@ -1,4 +1,4 @@
-name: Deploy repost photo-first selection
+name: "X · 리트윗 원본 사진 우선 적용"
 on:
   issues:
     types: [opened]
