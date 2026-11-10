@@ -962,7 +962,7 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
             checked.append(menu_id)
             return []
         with patch.object(cafe, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
-             patch.object(cafe, "last_check", 0), \
+             patch.object(cafe, "last_check", -10000), \
              patch.object(cafe, "get_articles", side_effect=fetch):
             cafe.check_cafe()
         self.assertCountEqual(checked, ["431", "382"])
