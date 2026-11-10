@@ -90,6 +90,22 @@ class EventLedgerTests(unittest.TestCase):
         state = json.loads(dedup.LEDGER.read_text(encoding="utf-8"))
         self.assertEqual(state["cafe:431:502"]["status"], "uncertain")
 
+    def test_source_clock_metadata_never_reaches_discord(self):
+        accepted = Mock(status_code=200)
+        accepted.json.return_value = {"id": "123", "mention_roles": []}
+        payload = {"components": [], "_abyss_source_platform": "youtube",
+                   "_abyss_source_time": "2026-11-11T00:00:00Z"}
+        with patch.object(resilience.requests, "post", return_value=accepted) as post, \
+             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \
+             patch.object(resilience, "_collect_x_video_attachments", return_value=[]), \
+             patch("delivery_latency.record_source_lag") as metric:
+            resilience._send_webhook_transport(
+                "https://discord.com/api/webhooks/1/secret", payload)
+        actual = post.call_args.kwargs["json"]
+        self.assertNotIn("_abyss_source_platform", actual)
+        self.assertNotIn("_abyss_source_time", actual)
+        metric.assert_called_once_with("youtube", "2026-11-11T00:00:00Z")
+
     def test_http_429_is_still_retryable(self):
         limited = Mock(status_code=429)
         limited.json.return_value = {"retry_after": 0}
