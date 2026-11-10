@@ -104,7 +104,7 @@ def _load_seen():
 def _save_seen(ids):
     SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp = SEEN_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(sorted(ids, key=int)[-200:]), encoding="utf-8")
+    temp.write_text(json.dumps(sorted(ids, key=int)[-3000:]), encoding="utf-8")
     temp.replace(SEEN_FILE)
 
 
@@ -205,6 +205,12 @@ def check_huya_x():
                         json.dumps(sorted(repost_seen, key=int)[-500:]), encoding="utf-8")
                 return
             if post["id"] in seen:
+                return
+            if common._historical_original(post):
+                seen.add(post["id"])
+                _save_seen(seen)
+                logging.warning("X_HISTORICAL_ORIGINAL_SUPPRESSED creator=%s id=%s source=%s",
+                                USERNAME, post["id"], post.get("source", "?"))
                 return
             _notify(post)
             seen.add(post["id"])
