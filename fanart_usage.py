@@ -144,7 +144,10 @@ def excluded_notification_art(group):
     reserved_posts = {x for x in state.get("all_used_post_ids", [])
                       if isinstance(x, str) and x.isdigit()} if isinstance(state, dict) else set()
     # Separate FUTURE server-banner candidates too, not just previously used art.
-    reserved_posts.update(server_reserved_post_ids(group))
+    # Future guild candidates are shared until actually used. Reserving the entire
+    # potential guild pool starved the much more frequent notification rotation.
+    # Historical guild selections remain excluded permanently (above).
+    # Guild selection itself excludes posts already shown in notifications.
     # Cached guild-banner artwork lives in the discovery queue, not necessarily
     # the curated index. Exclude any post whose cached artwork was selected.
     if group in ("hanayo", "sakihane") and used:
