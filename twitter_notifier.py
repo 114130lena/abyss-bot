@@ -300,7 +300,54 @@ def check_twitter():
         logging.warning("X 알림 건너뜀: DISCORD_WEBHOOK_URL 설정 필요")
         return
     try:
-        posts = _fetch_merged_posts(True)
+        seen = _load_seen()
+        repost_file = BASE_DIR / "x_repost_seen_posts.json"
+        try:
+            repost_data = json.loads(repost_file.read_text(encoding="utf-8"))
+            if not isinstance(repost_data, list):
+                raise ValueError("Invalid repost seen state")
+            repost_seen = set(map(str, repost_data))
+        except (OSError, ValueError, TypeError):
+            repost_seen = None
+        from x_repost_notifier import is_repost_post, notify as notify_repost
+        from x_post_classification import classify, status_author
+        fx_source = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
+
+        def deliver(post, fast=False):
+            kind = classify(post, USERNAME)
+            if kind == "reply":
+                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
+                return
+            repost = is_repost_post(post, USERNAME)
+            if fast and not repost and not (
+                    kind == "original" and (
+                        post.get("source") == fx_source
+                        or status_author(post.get("source_link")) == USERNAME.lower())):
+                # Ambiguous originals wait for all sources to be reconciled.
+                return
+            if repost:
+                if post["id"] not in repost_seen:
+                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s fast=%s",
+                                 post["id"], post.get("source", "?"), fast)
+                    notify_repost(X_GROUP, post, WEBHOOK_URL)
+                    repost_seen.add(post["id"])
+                    repost_file.write_text(
+                        json.dumps(sorted(repost_seen, key=int)[-500:]), encoding="utf-8")
+                return
+            if post["id"] in seen:
+                return
+            _notify(post)
+            seen.add(post["id"])
+            _save_seen(seen)
+            logging.info("X_ORIGINAL_DELIVERED creator=%s id=%s fast=%s source=%s age_seconds=%s",
+                         USERNAME, post["id"], fast, post.get("source", "?"), _post_latency(post))
+
+        def on_batch(items):
+            if seen is None or repost_seen is None:
+                return
+            for post in items:
+                deliver(post, fast=True)
+        posts = _fetch_merged_posts(True, on_batch=on_batch)
         if posts is None:
             # Every provider is in its circuit-breaker period: neither a success nor a new failure.
             sources = ALL_FEEDS + ["https://fxtwitter.com/" + USERNAME + "/feed.xml"]
@@ -315,38 +362,16 @@ def check_twitter():
             except Exception:
                 logging.exception("X 수집 진단 기록 실패")
             return
-        seen = _load_seen()
         if seen is None:
             _save_seen({post["id"] for post in posts})
             logging.info("X RSS 첫 실행: 기존 글 %d개 읽음 처리", len(posts))
             failures = 0
             return
-        from x_repost_notifier import is_repost_post, notify as notify_repost
-        repost_file=BASE_DIR / "x_repost_seen_posts.json"
-        try:
-            repost_seen=set(json.loads(repost_file.read_text(encoding="utf-8")))
-        except (OSError,ValueError,TypeError):
-            repost_seen={p["id"] for p in posts if is_repost_post(p, USERNAME)}
-            repost_file.write_text(json.dumps(sorted(repost_seen)),encoding="utf-8")
-        from x_post_classification import classify
+        if repost_seen is None:
+            repost_seen = {p["id"] for p in posts if is_repost_post(p, USERNAME)}
+            repost_file.write_text(json.dumps(sorted(repost_seen)), encoding="utf-8")
         for post in posts:
-            if classify(post, USERNAME) == "reply":
-                logging.info("X_REPLY_SKIPPED creator=%s id=%s", USERNAME, post.get("id"))
-                continue
-            if is_repost_post(post, USERNAME):
-                if post["id"] not in repost_seen:
-                    logging.info("X_REPOST_DISCOVERED creator=hanayo id=%s source=%s",post["id"],post.get("source","?"))
-                    notify_repost(X_GROUP,post,WEBHOOK_URL)
-                    repost_seen.add(post["id"])
-                    repost_file.write_text(json.dumps(sorted(repost_seen,key=int)[-500:]),encoding="utf-8")
-                continue
-            if post["id"] in seen:
-                continue
-            _notify(post)
-            seen.add(post["id"])
-            _save_seen(seen)
-            logging.info("X 새 게시글 알림 성공: %s | RSS=%s | 작성 후 지연=%s초",
-                         post["url"], post.get("source", "?"), _post_latency(post))
+            deliver(post)
         failures = 0
         try:
             from notice_intelligence import report_source
