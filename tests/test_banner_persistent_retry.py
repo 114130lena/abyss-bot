@@ -82,6 +82,24 @@ class PendingBannerTests(unittest.TestCase):
         self.assertEqual(banner._pending_banner_read()["next_attempt_at"],
                          when(18, 20).isoformat())
 
+    def test_late_start_within_ten_minutes_creates_current_slot(self):
+        with patch.object(banner, "read_state", return_value={
+                "last_slot": "2026-11-09 08:00",
+                "guild_banner_hash": "oldhash"}), \
+             patch.object(banner, "rotate_once", return_value={"status": "changed"}) as rotate:
+            result = banner.retry_scheduled_banner_once(when(18, 6))
+        self.assertEqual(result["status"], "changed")
+        self.assertEqual(rotate.call_args.kwargs["now"], when(18, 0))
+        self.assertEqual(banner._pending_banner_read(), {})
+
+    def test_late_start_after_grace_does_not_create_slot(self):
+        with patch.object(banner, "read_state", return_value={
+                "last_slot": "2026-11-09 08:00"}), \
+             patch.object(banner, "rotate_once") as rotate:
+            result = banner.retry_scheduled_banner_once(when(18, 11))
+        self.assertEqual(result["status"], "no_pending_slot")
+        rotate.assert_not_called()
+
     def test_success_does_not_restart_same_slot(self):
         with patch.object(banner, "read_state", return_value={
                 "last_slot": "2026-11-09 18:00"}), \
