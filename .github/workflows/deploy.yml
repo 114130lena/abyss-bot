@@ -228,6 +228,56 @@ jobs:
           echo "Deployment complete."
           REMOTE
 
+      - name: Recover missed November 10 guild banner rotation exactly once
+        if: ${{ contains(github.event.head_commit.message, '[banner-once-20261110]') }}
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from guild_server_banner import rotate_once, read_state
+          # Reserve BEFORE the API call: rerunning an old workflow must never
+          # rotate a second time or consume a second image.
+          request = Path("/home/ubuntu/chzzk-bot/creator_media/banner_recovery_20261110_once.json")
+          request.parent.mkdir(parents=True, exist_ok=True)
+          try:
+              fd = os.open(str(request), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+          except FileExistsError:
+              print("BANNER_ONE_SHOT already_attempted=true (no second write)")
+              raise SystemExit(0)
+          with os.fdopen(fd, "w") as stream:
+              json.dump({"status": "reserved", "request": "2026-11-10 missed 08:00"}, stream)
+          before = read_state()
+          try:
+              result = rotate_once(manual=True)
+              status = result.get("status", "unknown")
+              print("BANNER_ONE_SHOT status=%s candidate_total=%s" % (
+                  status, result.get("candidate_total", 0)))
+              if status != "changed":
+                  raise RuntimeError("Banner change not confirmed: " + status)
+              after = read_state()
+              if after.get("last_slot") != before.get("last_slot"):
+                  raise RuntimeError("One-time banner recovery modified the regular schedule slot")
+              request.write_text(json.dumps({"status": "changed", "sha256": result.get("sha256")}),
+                                 encoding="utf-8")
+          except Exception:
+              # A failed or indeterminate Discord write must never be retried
+              # blindly by this one-shot, to avoid a duplicate banner change.
+              raise
+          PY
+          REMOTE
+
       - name: Verify original Discord server banner information actually updates
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
