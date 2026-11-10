@@ -27,7 +27,7 @@ USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
 FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
 BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mie.foundation/{USERNAME}/rss,https://nitter.mizuki.st/{USERNAME}/rss").split(",") if v.strip()]
 ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
-INTERVAL = max(30, int(os.getenv("X_POLL_INTERVAL", "30")))
+INTERVAL = max(15, int(os.getenv("X_FAST_POLL_INTERVAL", "20")))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
 X_GROUP = x_group(USERNAME)
@@ -241,14 +241,14 @@ def _fx_image_map(username):
     return found
 
 
-def _fetch_merged_posts(include_backups=True):
+def _fetch_merged_posts(include_backups=True, on_batch=None):
     """Poll all configured RSS sources concurrently and deduplicate post IDs."""
     posts_by_id = {}
     successes = 0
     feeds = list(ALL_FEEDS)
     if not feeds:
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 5)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(feeds) + 1, 5)) as pool:
         futures = {pool.submit(feed_health.timed_fetch, _fetch_posts, source): source for source in feeds if feed_health.active(source)}
         from x_fx_feed import fetch_creator_originals
         fx_url = "https://fxtwitter.com/" + USERNAME + "/feed.xml"
@@ -267,6 +267,10 @@ def _fetch_merged_posts(include_backups=True):
                     previous = posts_by_id.get(post["id"])
                     if previous is None or (post.get("repost"),len(post.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
                         posts_by_id[post["id"]] = post
+                if on_batch is not None and items:
+                    # Dispatch trusted events from the first completed provider;
+                    # other provider requests continue in parallel.
+                    on_batch(sorted(items, key=lambda p: int(p["id"])))
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
     if not successes:
