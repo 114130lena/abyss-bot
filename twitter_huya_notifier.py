@@ -75,15 +75,16 @@ def _fetch_merged_posts(on_batch=None):
         for job in as_completed(jobs):
             try:
                 items = job.result()
-                successes += 1
-                for item in items:
-                    previous = posts.get(item["id"])
-                    if previous is None or (item.get("repost"),len(item.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
-                        posts[item["id"]] = item
-                if on_batch is not None and items:
-                    on_batch(sorted(items, key=lambda p: int(p["id"])))
             except (requests.RequestException, ValueError, ET.ParseError, OSError) as exc:
                 logging.warning("후야 X RSS 소스 실패 %s: %s", jobs[job], exc)
+                continue
+            successes += 1
+            for item in items:
+                previous = posts.get(item["id"])
+                if previous is None or (item.get("repost"), len(item.get("images", []))) > (previous.get("repost"), len(previous.get("images", []))):
+                    posts[item["id"]] = item
+            if on_batch is not None and items:
+                on_batch(sorted(items, key=lambda p: int(p["id"])))
     if successes == 0:
         raise ValueError("All Huya X RSS sources failed")
     # Do not block alert delivery on optional FxEmbed media enrichment.
