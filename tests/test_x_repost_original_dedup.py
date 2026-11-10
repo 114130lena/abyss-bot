@@ -48,8 +48,10 @@ class CrossFeedDedupTests(unittest.TestCase):
                        "https://nitter.mie.foundation/mttpape/status/2111459758842789889",
                        text="RT by HanayoHiyori: limited preview")
         fx = dict(ORIGINAL, text="A different truncated preview")
-        self.assertNotEqual(ledger.fingerprint("hanayo", wrapper),
-                            ledger.fingerprint("hanayo", fx))
+        # Both short bodies are deliberately below the text-fingerprint
+        # threshold. The canonical original status ID must do the dedup.
+        self.assertIsNone(ledger.fingerprint("hanayo", wrapper))
+        self.assertIsNone(ledger.fingerprint("hanayo", fx))
         self.assertTrue(ledger.reserve("hanayo", wrapper))
         ledger.mark_sent("hanayo", wrapper)
         self.assertFalse(ledger.reserve("hanayo", fx))
