@@ -1,4 +1,4 @@
-name: Bluebird auth shadow status only
+name: "X · Bluebird 로그인 상태 진단"
 on:
   issues:
     types: [opened]

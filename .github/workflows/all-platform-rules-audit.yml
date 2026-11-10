@@ -1,4 +1,4 @@
-name: Audit all platform notification paths
+name: "진단 · 전체 알림 규칙 점검"
 on:
   issues:
     types: [opened]

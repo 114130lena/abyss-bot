@@ -1,4 +1,4 @@
-name: Inspect all notification delays
+name: "진단 · 전체 플랫폼 알림 지연"
 on:
   issues:
     types: [opened]
