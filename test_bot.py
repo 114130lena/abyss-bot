@@ -945,9 +945,9 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
             return {"channel_id": channel_id, "name": channel_id,
                     "status": "CLOSE", "title": "idle",
                     "live_id": "", "open_date": ""}
-        with patch.object(main, "load_channels", return_value=["alpha", "beta"]), \\
-             patch.object(main, "get_live_info", side_effect=fetch), \\
-             patch.object(main, "save_json"), \\
+        with patch.object(main, "load_channels", return_value=["alpha", "beta"]), \
+             patch.object(main, "get_live_info", side_effect=fetch), \
+             patch.object(main, "save_json"), \
              patch.object(main, "warn_failure") as warn:
             main.check_chzzk_once(state)
         warn.assert_not_called()
@@ -961,8 +961,8 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
             pair.wait()
             checked.append(menu_id)
             return []
-        with patch.object(cafe, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \\
-             patch.object(cafe, "last_check", 0), \\
+        with patch.object(cafe, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
+             patch.object(cafe, "last_check", 0), \
              patch.object(cafe, "get_articles", side_effect=fetch):
             cafe.check_cafe()
         self.assertCountEqual(checked, ["431", "382"])
@@ -973,9 +973,9 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
         def fetch(channel_id):
             pair.wait()
             return []
-        with patch.object(yt, "_channel_retry_at", {}), \\
-             patch.object(yt, "_load_seen", return_value={"first": [], "second": []}), \\
-             patch.object(yt, "_fetch_uploads", side_effect=fetch), \\
+        with patch.object(yt, "_channel_retry_at", {}), \
+             patch.object(yt, "_load_seen", return_value={"first": [], "second": []}), \
+             patch.object(yt, "_fetch_uploads", side_effect=fetch), \
              patch.object(yt, "warn_failure") as warn:
             yt._check_youtube_channels(["first", "second"])
         warn.assert_not_called()
@@ -993,11 +993,11 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
                 yt.check_youtube()
             except Exception as exc:
                 errors.append(exc)
-        with patch.object(yt, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \\
-             patch.object(yt, "last_check", -1000000000), \\
-             patch.object(yt, "load_channel_ids", return_value=["slow"]), \\
-             patch.object(yt, "_channel_retry_at", {}), \\
-             patch.object(yt, "_fetch_uploads", side_effect=fetch), \\
+        with patch.object(yt, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
+             patch.object(yt, "last_check", -1000000000), \
+             patch.object(yt, "load_channel_ids", return_value=["slow"]), \
+             patch.object(yt, "_channel_retry_at", {}), \
+             patch.object(yt, "_fetch_uploads", side_effect=fetch), \
              patch.object(yt, "_load_seen", return_value={"slow": []}):
             thread = Thread(target=worker, daemon=True)
             thread.start()
