@@ -1,4 +1,4 @@
-name: Deploy post-photo fanart exclusion
+name: "팬아트 · 원본 사진 우선 처리 적용"
 on:
   issues:
     types: [opened]

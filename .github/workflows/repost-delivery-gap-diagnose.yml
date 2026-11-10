@@ -1,4 +1,4 @@
-name: Diagnose repost delivery gap
+name: "X · 리트윗 누락·지연 진단"
 on:
   issues:
     types: [opened]
