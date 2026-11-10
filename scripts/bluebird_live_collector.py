@@ -102,7 +102,7 @@ def _event(post, complete):
         "created_at": int(post.created_at),
         "images": photos,
         "bluebird_video_url": video,
-        "bluebird_media_verified": bool(complete),
+        "bluebird_media_verified": bool(complete and not repost),
         "rss_title": (title + text[:140]) if repost else text[:140],
         "rss_description": "",
         "repost": repost,
