@@ -24,10 +24,10 @@ from creator_groups import x_group, role_for
 BASE_DIR = Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot"))
 load_dotenv(BASE_DIR / ".env")
 USERNAME = os.getenv("X_USERNAME", "HanayoHiyori").lstrip("@")
-FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.meowing.monster/{USERNAME}/rss")
-BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mie.foundation/{USERNAME}/rss,https://nitter.mizuki.st/{USERNAME}/rss").split(",") if v.strip()]
+FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.gq/{USERNAME}/rss")
+BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mizuki.st/{USERNAME}/rss,https://nitter.meowing.monster/{USERNAME}/rss").split(",") if v.strip()]
 ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
-INTERVAL = max(15, int(os.getenv("X_FAST_POLL_INTERVAL", "20")))
+INTERVAL = max(20, int(os.getenv("X_FAST_POLL_INTERVAL", os.getenv("X_POLL_INTERVAL", "30"))))
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
 X_GROUP = x_group(USERNAME)
