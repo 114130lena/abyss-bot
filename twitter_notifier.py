@@ -28,6 +28,8 @@ FEED_URL = os.getenv("X_RSS_URL", f"https://nitter.gq/{USERNAME}/rss")
 BACKUP_FEEDS = [v.strip() for v in os.getenv("X_BACKUP_RSS_URLS", f"https://nitter.mizuki.st/{USERNAME}/rss,https://nitter.meowing.monster/{USERNAME}/rss").split(",") if v.strip()]
 ALL_FEEDS = list(dict.fromkeys([FEED_URL] + BACKUP_FEEDS))
 INTERVAL = max(20, int(os.getenv("X_FAST_POLL_INTERVAL", os.getenv("X_POLL_INTERVAL", "30"))))
+# Permit a day for RSS outages without replaying the creator's old timeline.
+ORIGINAL_MAX_AGE_SECONDS = 24 * 3600
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 SEEN_FILE = BASE_DIR / "x_seen_posts.json"
 X_GROUP = x_group(USERNAME)
@@ -51,7 +53,7 @@ def _load_seen():
 def _save_seen(ids):
     SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = SEEN_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(sorted(ids, key=int)[-200:], ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(sorted(ids, key=int)[-3000:], ensure_ascii=False), encoding="utf-8")
     tmp.replace(SEEN_FILE)
 
 
@@ -289,6 +291,37 @@ def _post_latency(post):
         return None
 
 
+def _historical_original(post, now=None):
+    """Reject historical ORIGINAL tweets surfaced by a new/recovered RSS mirror.
+
+    Do not use this for reposts: a new repost can legitimately refer to an
+    ancient original status. Check the post's timestamp and the X snowflake,
+    independently, so inaccurate mirror pubDate cannot resurrect old originals.
+    """
+    now = now or datetime.now(timezone.utc)
+    ages = []
+    published = post.get("pub_date") or ""
+    if published:
+        try:
+            stamp = parsedate_to_datetime(published)
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            ages.append((now - stamp).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            pass
+    try:
+        status = int(str(post.get("id") or ""))
+        # Twitter snowflake embeds the creation time in its upper bits.
+        # Short fixture IDs and non-standard mirror IDs have no reliable clock.
+        if status >= 1 << 48:
+            milliseconds = (status >> 22) + 1288834974657
+            snowflake = datetime.fromtimestamp(milliseconds / 1000, tz=timezone.utc)
+            ages.append((now - snowflake).total_seconds())
+    except (ValueError, OverflowError, OSError, TypeError):
+        pass
+    return bool(ages) and max(ages) > ORIGINAL_MAX_AGE_SECONDS
+
+
 def check_twitter():
     """Poll all configured RSS servers every interval; deduplicate by post ID."""
     global next_check, failures
@@ -335,6 +368,14 @@ def check_twitter():
                         json.dumps(sorted(repost_seen, key=int)[-500:]), encoding="utf-8")
                 return
             if post["id"] in seen:
+                return
+            if _historical_original(post):
+                # Record skipped IDs so an old mirror item does not repeatedly
+                # enter the delivery path after restarts or provider recovery.
+                seen.add(post["id"])
+                _save_seen(seen)
+                logging.warning("X_HISTORICAL_ORIGINAL_SUPPRESSED creator=%s id=%s source=%s",
+                                USERNAME, post["id"], post.get("source", "?"))
                 return
             _notify(post)
             seen.add(post["id"])
