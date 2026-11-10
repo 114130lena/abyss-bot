@@ -25,18 +25,27 @@ STATUS = re.compile(r"^/([A-Za-z0-9_]{1,15})/status/(\d+)(?:/)?$")
 UNAVAILABLE = re.compile(r"(?im)^\s*(?:This post is unavailable|This Tweet is unavailable)\s*$")
 
 
-def _author_from_url(post):
+def _original_status_from_url(group, post):
+    """Identify a trusted off-creator ORIGINAL status, including Nitter links.
+
+    The RSS repost wrapper can have a creator-owned ID whereas FxTwitter lists
+    the original author's ID. Both should claim one stable original identity.
+    """
+    owner = {"hanayo": "hanayohiyori", "sakihane": "sakihanehuya"}.get(group)
+    if not owner:
+        return None
     for field in ("source_link", "url"):
         url = urlsplit(str(post.get(field) or ""))
-        if url.scheme not in ("https", "http") or (url.hostname or "").lower() not in (
-                "x.com", "www.x.com", "twitter.com", "www.twitter.com",
-                "fxtwitter.com", "www.fxtwitter.com"):
+        host = (url.hostname or "").lower()
+        if url.scheme not in ("https", "http") or not (
+                host in ("x.com", "www.x.com", "twitter.com", "www.twitter.com",
+                         "fxtwitter.com", "www.fxtwitter.com")
+                or host.startswith("nitter.")):
             continue
         match = STATUS.fullmatch(url.path)
-        if match:
-            return match.group(1).lower()
-    return ""
-
+        if match and match.group(1).lower() != owner:
+            return match.group(1).lower(), match.group(2)
+    return None
 
 def fingerprint(group, post):
     """Return a stable content identity for known original artist reposts.
@@ -49,7 +58,8 @@ def fingerprint(group, post):
     match = USER.match(body) or USER.match(title)
     # The RSS repost wrapper includes RT @artist:. Fx timeline instead points
     # directly to artist/status/original_id without a wrapper.
-    artist = match.group(1).lower() if match else _author_from_url(post)
+    origin = _original_status_from_url(group, post)
+    artist = match.group(1).lower() if match else (origin[0] if origin else "")
     creator = "hanayohiyori" if group == "hanayo" else "sakihanehuya"
     if artist == creator:
         artist = ""
@@ -71,6 +81,12 @@ def _post_key(group, post):
 
 def _keys(group, post):
     result = [_post_key(group, post)]
+    # Cross-provider identity must not depend on exact RSS text or length.
+    origin = _original_status_from_url(group, post)
+    if origin:
+        result.append("original:" + group + ":" + origin[0] + ":" + origin[1])
+    # Preserve existing body keys for historical ledgers and wrappers that
+    # expose only the creator's repost ID and the original artist's handle.
     result.append(fingerprint(group, post))
     return tuple(x for x in result if x)
 

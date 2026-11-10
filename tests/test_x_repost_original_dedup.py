@@ -41,6 +41,49 @@ class CrossFeedDedupTests(unittest.TestCase):
         self.assertFalse(ledger.reserve("hanayo", ORIGINAL))
         self.assertEqual(len(json.loads(ledger.LEDGER.read_text())), 2)
 
+    def test_nitter_and_fx_same_original_id_even_with_different_short_text(self):
+        # The wrapper's own ID differs from Fx's original ID. A short/truncated
+        # Nitter body cannot provide the historical 45-character fingerprint.
+        wrapper = dict(WRAPPER, source_link=
+                       "https://nitter.mie.foundation/mttpape/status/2111459758842789889",
+                       text="RT by HanayoHiyori: limited preview")
+        fx = dict(ORIGINAL, text="A different truncated preview")
+        self.assertNotEqual(ledger.fingerprint("hanayo", wrapper),
+                            ledger.fingerprint("hanayo", fx))
+        self.assertTrue(ledger.reserve("hanayo", wrapper))
+        ledger.mark_sent("hanayo", wrapper)
+        self.assertFalse(ledger.reserve("hanayo", fx))
+
+    def test_original_status_claim_blocks_ambiguous_delivery_from_other_feed(self):
+        wrapper = dict(WRAPPER, source_link=
+                       "https://nitter.mizuki.st/mttpape/status/2111459758842789889",
+                       text="RT by HanayoHiyori: short")
+        fx = dict(ORIGINAL, text="short original")
+        self.assertTrue(ledger.reserve("hanayo", fx))
+        ledger.mark_uncertain("hanayo", fx, "Timeout")
+        self.assertFalse(ledger.reserve("hanayo", wrapper))
+
+    def test_nitter_only_artist_url_enables_cross_provider_fingerprint(self):
+        mirror = dict(WRAPPER, rss_title="Reposted by HanayoHiyori",
+                      text=TEXT, source_link=
+                      "https://nitter.meowing.monster/mttpape/status/2111459758842789889")
+        self.assertEqual(ledger.fingerprint("hanayo", mirror),
+                         ledger.fingerprint("hanayo", ORIGINAL))
+
+    def test_original_status_claim_is_not_shared_between_creators(self):
+        short = dict(ORIGINAL, text="short")
+        self.assertTrue(ledger.reserve("hanayo", short))
+        self.assertTrue(ledger.reserve("sakihane", short))
+
+    def test_untrusted_original_link_cannot_claim_a_other_authors_status(self):
+        first = {"id": "100", "url": "https://x.com/HanayoHiyori/status/100",
+                 "source_link": "https://example.org/mttpape/status/222",
+                 "text": "short"}
+        second = {"id": "101", "url": "https://x.com/mttpape/status/222",
+                  "text": "short"}
+        self.assertTrue(ledger.reserve("hanayo", first))
+        self.assertTrue(ledger.reserve("hanayo", second))
+
     def test_other_artist_or_other_creator_not_suppressed(self):
         self.assertTrue(ledger.reserve("hanayo", WRAPPER))
         other = dict(ORIGINAL, url="https://x.com/another_artist/status/2111459758842789888",
