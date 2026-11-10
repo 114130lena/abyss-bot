@@ -1,4 +1,4 @@
-name: Inspect production code overwrite
+name: "미디어 · 이미지 덮어쓰기 진단"
 on:
   issues:
     types: [opened]

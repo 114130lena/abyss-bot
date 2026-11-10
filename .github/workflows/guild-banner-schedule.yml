@@ -1,4 +1,4 @@
-name: Backup check for Hanayo Discord server banner
+name: "배너 · 서버 배너 정기 교체"
 
 on:
   schedule:
