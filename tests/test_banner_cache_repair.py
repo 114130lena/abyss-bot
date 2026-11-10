@@ -71,10 +71,19 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.assertFalse(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
         self.assertEqual(fanart_url_media.candidates("hanayo"), [])
 
-    def test_future_server_banner_art_is_reserved_before_first_rotation(self):
+    def test_future_server_banner_candidates_remain_available_to_notifications(self):
+        # Prospective guild art cannot monopolize the entire notification pool.
         self.assertEqual(fanart_usage.server_reserved_post_ids("hanayo"), {"12345"})
-        self.assertFalse(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
-        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
+        self.assertTrue(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
+        self.assertEqual(len(fanart_url_media.candidates("hanayo")), 1)
+
+    def test_notification_used_art_cannot_later_become_guild_banner(self):
+        used = {"hanayo": {self.source: "2026-11-10T00:00:00+00:00"}}
+        (self.base / "fanart_url_used.json").write_text(
+            json.dumps(used), encoding="utf-8")
+        with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1"}):
+            inventory = guild_server_banner.banner_inventory(state={})
+        self.assertEqual(inventory["unused"], 0)
 
     def test_notification_fanart_keeps_artist_credit_and_only_source_button(self):
         from discord_v2 import alert
