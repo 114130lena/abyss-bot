@@ -212,6 +212,15 @@ def send_webhook(url, payload, attempts=3):
         outcome = _send_webhook_transport(url, cleaned, attempts)
         update(key, "sent")
         return outcome
+    except requests.ConnectTimeout:
+        # The transport only raises ConnectTimeout when no connection succeeded
+        # after its bounded retries. Release for a safe future source poll.
+        try:
+            from discord_event_dedup import release_preconnect
+            release_preconnect(key)
+        except (OSError, ValueError, TypeError):
+            logging.exception("DISCORD_PRECONNECT_RELEASE_FAILED key=%s", key)
+        raise
     except Exception:
         # Could have been accepted by Discord before failure or process death.
         try:
