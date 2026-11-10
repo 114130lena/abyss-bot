@@ -118,7 +118,7 @@ BLUEBIRD_BRIDGE_PATH = Path(
     os.getenv("X_BLUEBIRD_BRIDGE_PATH", "/home/ubuntu/bluebird-shadow/data/bluebird_bridge_events.json")
 )
 _BLUEBIRD_CREATORS = {"hanayohiyori", "sakihanehuya"}
-_BLUEBIRD_STATUS = re.compile(r"^https://x\\.com/([A-Za-z0-9_]{1,15})/status/([0-9]+)$")
+_BLUEBIRD_STATUS = re.compile(r"^https://x\.com/([A-Za-z0-9_]{1,15})/status/([0-9]+)$")
 _BLUEBIRD_MAX_AGE = 7200
 _BLUEBIRD_MAX_STALENESS = 240
 
