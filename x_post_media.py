@@ -185,6 +185,23 @@ def resolve_media(post, username):
     falling back to the video thumbnail and original X link when absent.
     """
     existing=list(post.get("images") or [])
+    # Bluebird's authenticated X response already contains the actual media
+    # URLs. Trust positive media witnesses and avoid a slower public API lookup.
+    # For repost wrappers, NEVER infer that an empty wrapper means an empty
+    # original tweet; the caller may resolve the original separately.
+    if post.get("source") == "bluebird-twscraper":
+        candidate = str(post.get("bluebird_video_url") or "")
+        playback = _playable_video_url({"url": candidate}) if candidate else ""
+        photos = []
+        for value in existing[:4]:
+            url = _media_url(value)
+            if url and urlsplit(url).hostname == "pbs.twimg.com" and "/media/" in urlsplit(url).path:
+                if url not in photos:
+                    photos.append(url)
+        if photos or playback:
+            return photos, playback, bool(playback), True
+        if post.get("bluebird_media_verified") is True and post.get("repost") is not True:
+            return [], "", False, True
     post_id=str(post.get("id",""))
     if not post_id.isdigit():
         return existing,"",False,bool(existing)

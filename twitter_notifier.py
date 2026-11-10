@@ -247,6 +247,16 @@ def _fetch_merged_posts(include_backups=True, on_batch=None):
     """Poll all configured RSS sources concurrently and deduplicate post IDs."""
     posts_by_id = {}
     successes = 0
+    # Authenticated Bluebird events were baselined by its independent producer.
+    # Route through our existing on_batch/seen/ledger, NEVER its Discord webhook.
+    from x_fx_feed import fetch_bluebird_events
+    bluebird = fetch_bluebird_events(USERNAME)
+    if bluebird is not None:
+        successes = 1
+        for item in bluebird:
+            posts_by_id[item["id"]] = item
+        if on_batch is not None and bluebird:
+            on_batch(bluebird)
     feeds = list(ALL_FEEDS)
     if not feeds:
         raise ValueError("X RSS 서버가 설정되지 않았습니다")
@@ -257,6 +267,8 @@ def _fetch_merged_posts(include_backups=True, on_batch=None):
         if feed_health.active(fx_url):
             futures[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, __import__("sys").modules[__name__]), fx_url)] = fx_url
         if not futures:
+            if successes:
+                return sorted(posts_by_id.values(), key=lambda post: int(post["id"]))
             logging.info("X_ALL_SOURCES_COOLING_DOWN creator=%s retry_in_seconds=%d",
                          USERNAME, max(1, int(feed_health.retry_after(feeds + [fx_url]))))
             return None

@@ -62,6 +62,15 @@ def _fetch_posts(feed):
 def _fetch_merged_posts(on_batch=None):
     posts = {}
     successes = 0
+    # Preserve the existing X notifier and repost-only thread; Bluebird is data only.
+    from x_fx_feed import fetch_bluebird_events
+    bluebird = fetch_bluebird_events(USERNAME)
+    if bluebird is not None:
+        successes = 1
+        for item in bluebird:
+            posts[item["id"]] = item
+        if on_batch is not None and bluebird:
+            on_batch(bluebird)
     with ThreadPoolExecutor(max_workers=min(len(FEEDS) + 1, 5)) as pool:
         jobs = {pool.submit(feed_health.timed_fetch, _fetch_posts, url): url for url in FEEDS if feed_health.active(url)}
         from x_fx_feed import fetch_creator_originals
@@ -69,6 +78,8 @@ def _fetch_merged_posts(on_batch=None):
         if feed_health.active(fx_url):
             jobs[pool.submit(feed_health.timed_fetch, lambda _url: fetch_creator_originals(USERNAME, common), fx_url)] = fx_url
         if not jobs:
+            if successes:
+                return sorted(posts.values(), key=lambda item: int(item["id"]))
             logging.info("X_ALL_SOURCES_COOLING_DOWN creator=%s retry_in_seconds=%d",
                          USERNAME, max(1, int(feed_health.retry_after(FEEDS + [fx_url]))))
             return None
