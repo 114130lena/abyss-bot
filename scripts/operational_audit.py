@@ -280,3 +280,10 @@ if __name__ == "__main__":
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["services"].get("chzzk-bot.service"):
         raise SystemExit(2)
+    # Scheduled Actions must fail visibly on a stale Bluebird producer or
+    # an ambiguous Discord delivery; never repair by blindly resending.
+    if report.get("bluebird", {}).get("status") != "ok":
+        raise SystemExit(3)
+    if any(item.get("uncertain", 0) for item in
+           report.get("delivery_integrity", {}).get("unresolved", {}).values()):
+        raise SystemExit(4)
