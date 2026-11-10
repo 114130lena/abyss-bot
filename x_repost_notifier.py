@@ -104,7 +104,11 @@ def notify(group,post,webhook):
                  bool(payload.get("_abyss_verified_text_only")))
     payload["allowed_mentions"]={"parse":[]}
     payload["_abyss_source_platform"] = "x-repost"
-    payload["_abyss_source_time"] = post.get("pub_date", "")
+    # Fx/Nitter original-author timestamps are not necessarily repost times.
+    # Only an authenticated Bluebird repost event has a verified event clock.
+    payload["_abyss_source_time"] = (
+        post.get("pub_date", "") if post.get("source") == "bluebird-twscraper" else ""
+    )
     from x_repost_delivery_ledger import reserve, mark_sent, mark_uncertain
     if not reserve(group, post):
         return {"status": "duplicate_suppressed"}
