@@ -103,6 +103,8 @@ def notify(group,post,webhook):
                  group,post.get("id"),len(resolved_images),has_video,photo_known,
                  bool(payload.get("_abyss_verified_text_only")))
     payload["allowed_mentions"]={"parse":[]}
+    payload["_abyss_source_platform"] = "x-repost"
+    payload["_abyss_source_time"] = post.get("pub_date", "")
     from x_repost_delivery_ledger import reserve, mark_sent, mark_uncertain
     if not reserve(group, post):
         return {"status": "duplicate_suppressed"}
