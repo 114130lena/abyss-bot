@@ -176,6 +176,60 @@ def component_check_summary():
         "warning_codes": sorted(health_warnings(raw)),
     }
 
+
+def delivery_integrity():
+    """Read-only unresolved delivery claims and privacy-safe latency."""
+    records = {}
+    for label, filename in (("global", "discord_event_delivery_ledger.json"),
+                            ("x_repost", "x_repost_delivery_ledger.json")):
+        data = _read_dict(BASE / filename)
+        counts = {"pending": 0, "uncertain": 0}
+        seen = set()
+        for key, row in data.items():
+            if not isinstance(row, dict) or row.get("status") not in counts:
+                continue
+            identity = str(row.get("post_id") or key) if label == "x_repost" else key
+            if identity in seen:
+                continue
+            seen.add(identity)
+            counts[row["status"]] += 1
+        records[label] = counts
+    lag = _read_dict(BASE / "discord_source_delivery_latency.json")
+    summaries = {}
+    for platform, samples in lag.items():
+        if not isinstance(samples, list):
+            continue
+        values = sorted(x for x in samples if isinstance(x, (int, float))
+                        and not isinstance(x, bool) and 0 <= x <= 7*86400)
+        if values:
+            summaries[platform] = {
+                "samples": len(values),
+                "p50_seconds": round(values[(len(values)-1)//2], 2),
+                "p95_seconds": round(values[max(0, (95*len(values)+99)//100-1)], 2),
+            }
+    return {"unresolved": records, "source_to_discord": summaries}
+
+
+def bluebird_integrity(now=None):
+    """Read bridge freshness without exposing tweets, cookies or secrets."""
+    now = time.time() if now is None else now
+    path = Path("/home/ubuntu/bluebird-shadow/data/bluebird_bridge_events.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        updated, users = data.get("updated_at"), data.get("users")
+        if not isinstance(updated, int) or not isinstance(users, dict):
+            raise ValueError("invalid snapshot")
+        age = now - updated
+        present = all(isinstance(users.get(user), list)
+                      for user in ("hanayohiyori", "sakihanehuya"))
+        return {"status": "ok" if present and 0 <= age <= 240 else "stale_or_incomplete",
+                "snapshot_age_seconds": round(age), "both_creators_present": present}
+    except FileNotFoundError:
+        return {"status": "missing"}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {"status": "invalid"}
+
+
 def inspect():
     report = {"checked_at": int(time.time()), "services": {}, "files": {}, "disk": {}, "findings": []}
     for service in ("chzzk-bot.service", "abyss-media-refresh.timer"):
@@ -194,6 +248,13 @@ def inspect():
     if usage.free < 1024 * 1024 * 1024:
         report["findings"].append("less than 1GiB free")
     report["cache"] = safe_clean(dry_run=True)
+    report["delivery_integrity"] = delivery_integrity()
+    report["bluebird"] = bluebird_integrity()
+    if report["bluebird"]["status"] != "ok":
+        report["findings"].append("bluebird_" + report["bluebird"]["status"])
+    unresolved = report["delivery_integrity"]["unresolved"]
+    if sum(sum(x.values()) for x in unresolved.values()):
+        report["findings"].append("unresolved_discord_deliveries")
     report["sources"] = source_check_summary()
     # Degrade the diagnostic, not the live service, if a read-only module is
     # unavailable. Do not dump raw exceptions, posts or tokens into Actions.
