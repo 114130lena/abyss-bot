@@ -214,6 +214,8 @@ def notify(article, role_id, menu_id, group):
     else:
         logging.warning("CAFE_DELIVERY_ID_MISSING menu=%s; transport event dedup unavailable",
                         menu_id)
+    payload["_abyss_source_platform"] = "cafe"
+    payload["_abyss_source_time"] = article.get("date", "")
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
