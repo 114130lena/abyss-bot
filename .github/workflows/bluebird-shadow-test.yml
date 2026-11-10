@@ -1,0 +1,133 @@
+name: Bluebird shadow install and benchmark
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  shadow:
+    if: ${{ github.event.issue.title == '[abyss-test] bluebird-shadow' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout shadow probe
+        uses: actions/checkout@v4
+      - name: Validate isolated Python probe
+        run: |
+          python -m py_compile scripts/bluebird_shadow_probe.py
+          test "$(grep -c 'from core.' scripts/bluebird_shadow_probe.py)" -ge 3
+          ! grep -F -e 'Webhook(' -e 'send_webhook(' -e 'discord.com' -e 'TWSCRAPER_COOKIES' scripts/bluebird_shadow_probe.py
+      - name: Copy probe and install isolated Bluebird container
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/bluebird_shadow_key
+          chmod 600 ~/.ssh/bluebird_shadow_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/bluebird_shadow_key -o IdentitiesOnly=yes scripts/bluebird_shadow_probe.py "$SSH_USER@$SSH_HOST:/tmp/abyss-bluebird-shadow-probe.py"
+          ssh -i ~/.ssh/bluebird_shadow_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo BLUEBIRD_PRECHECK
+          systemctl is-active chzzk-bot.service
+          systemctl is-active caddy.service || true
+          df -h /home/ubuntu | tail -1
+          free -h | grep -E '^Mem:|^Swap:' || true
+          if [ -d /home/ubuntu/bluebird-shadow ] && [ ! -f /home/ubuntu/bluebird-shadow/.abyss-shadow-marker ]; then
+            echo BLUEBIRD_ABORT_UNRECOGNIZED_DIRECTORY
+            exit 1
+          fi
+          AVAILABLE_MB=$(df -Pm /home/ubuntu | awk 'NR==2 {print $4}')
+          if [ "$AVAILABLE_MB" -lt 1800 ]; then
+            echo BLUEBIRD_ABORT_INSUFFICIENT_DISK_MB="$AVAILABLE_MB"
+            exit 1
+          fi
+          if ! command -v docker >/dev/null 2>&1; then
+            echo BLUEBIRD_INSTALL_DOCKER_FROM_UBUNTU_REPOSITORY
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+          fi
+          sudo systemctl start docker
+          sudo docker version --format '{{.Server.Version}}' || exit 1
+          BASE=/home/ubuntu/bluebird-shadow
+          mkdir -p "$BASE/data" "$BASE/scripts"
+          chmod 700 "$BASE" "$BASE/data"
+          touch "$BASE/.abyss-shadow-marker"
+          chmod 600 "$BASE/.abyss-shadow-marker"
+          install -m 0644 /tmp/abyss-bluebird-shadow-probe.py "$BASE/scripts/bluebird_shadow_probe.py"
+          rm -f /tmp/abyss-bluebird-shadow-probe.py
+          echo BLUEBIRD_PULL_OFFICIAL_IMAGE
+          sudo docker pull ghcr.io/ethanc/bluebird:latest
+          if sudo docker container inspect abyss-bluebird-shadow >/dev/null 2>&1; then
+            echo BLUEBIRD_SHADOW_CONTAINER_ALREADY_EXISTS
+            sudo docker start abyss-bluebird-shadow || true
+          else
+            echo BLUEBIRD_CREATE_ISOLATED_CONTAINER
+            sudo docker run -d \
+              --name abyss-bluebird-shadow \
+              --restart unless-stopped \
+              --memory 384m --cpus 0.6 --pids-limit 96 \
+              --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --user "$(id -u):$(id -g)" \
+              --network bridge \
+              --mount "type=bind,src=$BASE/scripts/bluebird_shadow_probe.py,dst=/probe/bluebird_shadow_probe.py,readonly" \
+              --mount "type=bind,src=$BASE/data,dst=/results" \
+              --tmpfs /tmp:rw,nosuid,size=32m \
+              -e PYTHONPATH=/bluebird -e PYTHONDONTWRITEBYTECODE=1 -e TWS_TELEMETRY=0 \
+              --log-opt max-size=2m --log-opt max-file=2 \
+              --entrypoint python \
+              ghcr.io/ethanc/bluebird:latest \
+              /probe/bluebird_shadow_probe.py --interval 60
+          fi
+          echo BLUEBIRD_DOCKER_STATUS
+          sudo docker ps --filter name=abyss-bluebird-shadow --format '{{.Names}} {{.Status}} {{.Image}}'
+          echo BLUEBIRD_FIRST_SAMPLE
+          for attempt in $(seq 1 16); do
+            if [ -s "$BASE/data/samples.jsonl" ]; then break; fi
+            sleep 5
+          done
+          if [ ! -s "$BASE/data/samples.jsonl" ]; then
+            sudo docker logs --tail 65 abyss-bluebird-shadow || true
+            echo BLUEBIRD_NO_RESULTS
+            exit 1
+          fi
+          echo BLUEBIRD_SIDE_BY_SIDE
+          python3 - <<'PY'
+          import collections,json,time
+          from pathlib import Path
+          base=Path('/home/ubuntu/bluebird-shadow/data/samples.jsonl')
+          rows=[json.loads(s) for s in base.read_text().splitlines() if s.strip()]
+          latest={}
+          for r in rows:latest[(r['account'],r['provider'])]=r
+          for (account,provider),r in sorted(latest.items()):
+              ids={p['id'] for p in r.get('items',[])}
+              originals=sum(not p['repost'] for p in r.get('items',[]))
+              print('BLUEBIRD_RESULT',account,provider,'success',r['ok'],
+                    'latency_s',r['elapsed_seconds'],
+                    'seen_ids',len(ids),'originals',originals,
+                    'reposts',r.get('reposts_count',0),
+                    'media_posts',r.get('media_posts_count',0),
+                    'video_urls',r.get('video_url_posts_count',0),
+                    'error',r.get('error','-'),flush=True)
+          for username,state_file in [('HanayoHiyori','x_seen_posts.json'),('SakihaneHuya','x_huya_seen_posts.json')]:
+              path=Path('/home/ubuntu/chzzk-bot')/state_file
+              try:legacy=set(str(x) for x in json.loads(path.read_text()))
+              except Exception:legacy=set()
+              for provider in ('BetterTwitFix','CarryFeed','FxEmbed'):
+                  r=latest.get((username,provider))
+                  if not r:continue
+                  original_ids={p['id'] for p in r.get('items',[]) if not p['repost']}
+                  print('BLUEBIRD_LEGACY_OVERLAP',username,provider,
+                        'bluebird_original_ids',len(original_ids),
+                        'already_seen_by_abyss',len(original_ids & legacy),flush=True)
+          print('BLUEBIRD_SAMPLES',len(rows),'UPDATED_EPOCH',int(time.time()))
+          PY
+          echo BLUEBIRD_LATEST_LOG
+          sudo docker logs --tail 24 abyss-bluebird-shadow 2>&1 | sed -E 's/(auth_token|ct0|password)=([^ ]+)/\1=REDACTED/g' || true
+          echo BLUEBIRD_EXISTING_BOT_SERVICE
+          systemctl is-active chzzk-bot.service
+          REMOTE
