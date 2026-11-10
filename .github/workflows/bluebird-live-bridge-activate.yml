@@ -1,0 +1,106 @@
+name: Activate Bluebird Twscraper X bridge
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  bridge:
+    if: ${{ github.event.issue.title == '[abyss-activate] bluebird-x-bridge' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout bridge script
+        uses: actions/checkout@v4
+      - name: Validate collection-only script
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/bluebird_live_collector.py
+          ! grep -F -e 'send_webhook(' -e 'Webhook(' -e 'discord.com/api/' -e 'DISCORD_WEBHOOK_URL' scripts/bluebird_live_collector.py
+          python -m unittest discover -s tests -p 'test_x_bluebird_live_bridge.py' -v
+      - name: Install and start isolated Bluebird live X collector
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_blue_live_key
+          chmod 600 ~/.ssh/abyss_blue_live_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_blue_live_key -o IdentitiesOnly=yes scripts/bluebird_live_collector.py "$SSH_USER@$SSH_HOST:/tmp/abyss-bluebird-live-collector.py"
+          ssh -i ~/.ssh/abyss_blue_live_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo X_BRIDGE_PRECHECK
+          test -f /home/ubuntu/bluebird-shadow/.abyss-shadow-marker
+          systemctl is-active chzzk-bot.service
+          systemctl is-active caddy.service
+          BASE=/home/ubuntu/bluebird-shadow
+          COOKIE="$BASE/private/x.cookies"
+          if [ ! -s "$COOKIE" ] || [ "$(stat -c '%a' "$COOKIE")" != "600" ] || [ "$(stat -c '%u' "$COOKIE")" != "$(id -u)" ]; then
+            echo X_BRIDGE_NO_SECURE_LOGIN_FILE
+            exit 1
+          fi
+          if [ "$(df -Pm "$BASE" | awk 'NR==2{print $4}')" -lt 500 ]; then
+            echo X_BRIDGE_NOT_ENOUGH_DISK
+            exit 1
+          fi
+          sudo docker image inspect ghcr.io/ethanc/bluebird:latest >/dev/null
+          mkdir -p "$BASE/private" "$BASE/data" "$BASE/scripts"
+          chmod 700 "$BASE/private" "$BASE/data"
+          install -m 0644 /tmp/abyss-bluebird-live-collector.py "$BASE/scripts/bluebird_live_collector.py"
+          rm -f /tmp/abyss-bluebird-live-collector.py
+          if sudo docker container inspect abyss-bluebird-x-bridge >/dev/null 2>&1; then
+            echo X_BRIDGE_REPLACE_ONLY_SIDE_CONTAINER
+            sudo docker rm -f abyss-bluebird-x-bridge
+          fi
+          echo X_BRIDGE_START
+          sudo docker run -d \
+            --name abyss-bluebird-x-bridge \
+            --restart unless-stopped --no-healthcheck \
+            --memory 320m --cpus 0.5 --pids-limit 96 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --network bridge \
+            --mount "type=bind,src=$BASE/scripts/bluebird_live_collector.py,dst=/probe/bluebird_live_collector.py,readonly" \
+            --mount "type=bind,src=$BASE/private,dst=/private" \
+            --mount "type=bind,src=$BASE/data,dst=/results" \
+            --tmpfs /tmp:rw,nosuid,size=32m \
+            -e PYTHONPATH=/bluebird -e PYTHONDONTWRITEBYTECODE=1 -e TWS_TELEMETRY=0 \
+            --log-opt max-size=1m --log-opt max-file=2 \
+            --entrypoint python \
+            ghcr.io/ethanc/bluebird:latest \
+            /probe/bluebird_live_collector.py --interval 90
+          echo X_BRIDGE_WAIT_FIRST_BASELINE
+          for attempt in $(seq 1 42); do
+            if [ -s "$BASE/data/bluebird_bridge_events.json" ]; then break; fi
+            sleep 5
+          done
+          echo X_BRIDGE_STATUS
+          sudo docker ps --filter name=abyss-bluebird-x-bridge --format '{{.Names}} {{.Status}} {{.Image}}'
+          echo X_BRIDGE_INITIAL_SNAPSHOT
+          python3 - <<'PY'
+          import json, time
+          from pathlib import Path
+          base=Path('/home/ubuntu/bluebird-shadow')
+          snapshot=base/'data/bluebird_bridge_events.json'
+          if not snapshot.is_file():
+              raise SystemExit('X_BRIDGE_BASELINE_NOT_READY')
+          value=json.loads(snapshot.read_text(encoding='utf-8'))
+          if value.get('version') != 1 or set(value.get('users',{})) != {'hanayohiyori','sakihanehuya'}:
+              raise SystemExit('X_BRIDGE_BAD_SNAPSHOT_SCHEMA')
+          if time.time()-int(value['updated_at'])>240:
+              raise SystemExit('X_BRIDGE_SNAPSHOT_TOO_OLD')
+          state=json.loads((base/'private/bluebird_live_state.json').read_text(encoding='utf-8'))
+          for account in ('hanayohiyori','sakihanehuya'):
+              meta=state['users'][account]
+              print('X_BRIDGE_ACCOUNT_BASELINE',account,'seen_ids',len(meta['seen']),
+                    'new_events',len(value['users'][account]),'has_cursor',bool(meta.get('cursor')))
+          print('X_BRIDGE_BASELINE_READY true')
+          PY
+          echo X_BRIDGE_LOG_EVENTS_ONLY
+          sudo docker logs --tail 24 abyss-bluebird-x-bridge 2>&1 | grep -E '^X_BRIDGE_(STARTED|FETCH|SNAPSHOT|DISABLED|CHECKPOINT|ERROR)' || true
+          echo X_BRIDGE_EXISTING_SERVICE
+          systemctl is-active chzzk-bot.service
+          REMOTE
