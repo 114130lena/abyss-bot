@@ -435,6 +435,16 @@ jobs:
           posted = response.json()
           if str(posted.get("id")) != message:
               raise SystemExit("Discord returned a different banner information message")
+          from guild_server_banner import _current_guild_banner, read_state
+          actual_hash = _current_guild_banner(token, os.environ["DISCORD_GUILD_ID"])
+          if not actual_hash:
+              raise SystemExit("Current server banner is missing or unreadable")
+          import json
+          visual = json.dumps(posted.get("components") or [], ensure_ascii=False)
+          if (f"/banners/{os.environ['DISCORD_GUILD_ID']}/{actual_hash}." not in visual):
+              raise SystemExit("BANNER_INFO_MISMATCH: original message shows a stale banner image")
+          if read_state().get("banner_info_updated_hash") != actual_hash:
+              raise SystemExit("BANNER_INFO_MISMATCH: stored card hash differs from live banner")
           parts = (posted.get("components") or [])
           def all_text(items):
               for item in items:
