@@ -59,7 +59,7 @@ def note_failure(url, exc):
             seconds = 3600
         else:
             # Timeouts and transient 5xx responses also deserve cooldown.
-            seconds = min(1800, 300 * (2 ** min(failures - 1, 3)))
+            seconds = min(600, 90 * (2 ** min(failures - 1, 3)))
         # Small jitter prevents both creators from synchronizing their retries.
         seconds += random.randint(0, min(seconds // 10, 45))
         until = time.monotonic() + seconds

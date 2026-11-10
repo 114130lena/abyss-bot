@@ -764,7 +764,8 @@ class RoutingTests(unittest.TestCase):
              patch.object(yt, "warn_failure"), \
              patch.object(yt.time, "monotonic", return_value=100):
             yt._check_youtube_channels(["bad", "good"])
-            self.assertGreaterEqual(yt._channel_retry_at["bad"], 3700)
+            self.assertGreaterEqual(yt._channel_retry_at["bad"], 100 + yt._RSS_FAILURE_BASE)
+            self.assertLessEqual(yt._channel_retry_at["bad"], 100 + yt._RSS_FAILURE_MAX)
             yt._check_youtube_channels(["bad", "good"])
             self.assertEqual([call.args[0] for call in fetched.call_args_list],
                              ["bad", "good", "good"])
@@ -929,6 +930,88 @@ class WebSubSafetyTests(unittest.TestCase):
         with patch.object(notifier,"load_channel_ids",return_value=["UCHAr9pWGS30akL4MQCQT4uQ"]):
             with self.assertRaises(ValueError):
                 notifier.receive_websub_feed(xml)
+
+
+
+class CrossPlatformLowLatencyTests(unittest.TestCase):
+    """No live network calls; prevent slow creators from blocking one another."""
+
+    def test_chzzk_channels_are_fetched_concurrently(self):
+        from threading import Barrier
+        pair = Barrier(2, timeout=3)
+        state = {"alpha": {"status": "CLOSE"}, "beta": {"status": "CLOSE"}}
+        def fetch(channel_id):
+            pair.wait()
+            return {"channel_id": channel_id, "name": channel_id,
+                    "status": "CLOSE", "title": "idle",
+                    "live_id": "", "open_date": ""}
+        with patch.object(main, "load_channels", return_value=["alpha", "beta"]), \
+             patch.object(main, "get_live_info", side_effect=fetch), \
+             patch.object(main, "save_json"), \
+             patch.object(main, "warn_failure") as warn:
+            main.check_chzzk_once(state)
+        warn.assert_not_called()
+        self.assertEqual(set(state), {"alpha", "beta"})
+
+    def test_cafe_board_fetches_are_independent(self):
+        from threading import Barrier
+        pair = Barrier(2, timeout=3)
+        checked = []
+        def fetch(menu_id):
+            pair.wait()
+            checked.append(menu_id)
+            return []
+        with patch.object(cafe, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
+             patch.object(cafe, "last_check", 0), \
+             patch.object(cafe, "get_articles", side_effect=fetch):
+            cafe.check_cafe()
+        self.assertCountEqual(checked, ["431", "382"])
+
+    def test_youtube_rss_fetches_run_in_parallel(self):
+        from threading import Barrier
+        pair = Barrier(2, timeout=3)
+        def fetch(channel_id):
+            pair.wait()
+            return []
+        with patch.object(yt, "_channel_retry_at", {}), \
+             patch.object(yt, "_load_seen", return_value={"first": [], "second": []}), \
+             patch.object(yt, "_fetch_uploads", side_effect=fetch), \
+             patch.object(yt, "warn_failure") as warn:
+            yt._check_youtube_channels(["first", "second"])
+        warn.assert_not_called()
+
+    def test_youtube_websub_not_blocked_by_slow_rss_request(self):
+        from threading import Event, Thread
+        started, release = Event(), Event()
+        errors = []
+        def fetch(channel_id):
+            started.set()
+            release.wait(3)
+            return []
+        def worker():
+            try:
+                yt.check_youtube()
+            except Exception as exc:
+                errors.append(exc)
+        with patch.object(yt, "WEBHOOK_URL", "https://discord.com/api/webhooks/mock/token"), \
+             patch.object(yt, "last_check", -1000000000), \
+             patch.object(yt, "load_channel_ids", return_value=["slow"]), \
+             patch.object(yt, "_channel_retry_at", {}), \
+             patch.object(yt, "_fetch_uploads", side_effect=fetch), \
+             patch.object(yt, "_load_seen", return_value={"slow": []}):
+            thread = Thread(target=worker, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(started.wait(2))
+                acquired = yt._state_lock.acquire(timeout=0.4)
+                if acquired:
+                    yt._state_lock.release()
+                self.assertTrue(acquired, "Slow RSS fetch held WebSub's state lock")
+            finally:
+                release.set()
+                thread.join(timeout=3)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(errors)
 
 
 if __name__ == "__main__":

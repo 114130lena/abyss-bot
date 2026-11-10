@@ -4,6 +4,7 @@ Add channel IDs to youtube_channels.txt or YOUTUBE_CHANNEL_IDS in .env to enable
 """
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 import re
@@ -130,11 +131,25 @@ _state_lock = threading.RLock()
 failures = 0
 _channel_failures = {}
 _channel_retry_at = {}
-# WebSub is the primary notifier; unhealthy YouTube RSS should not be retried every minute.
-_RSS_FAILURE_BASE = max(300, int(os.getenv("YOUTUBE_RSS_FAILURE_RETRY_SECONDS", "3600")))
-_RSS_FAILURE_MAX = 21600
+# WebSub remains primary, but RSS must recover quickly from temporary outages.
+_RSS_FAILURE_BASE = max(60, int(os.getenv("YOUTUBE_RSS_FAILURE_RETRY_SECONDS", "120")))
+_RSS_FAILURE_MAX = 1800
 session = requests.Session()
 session.headers.update({"User-Agent": "abyss-bot/1.0"})
+_local_session = threading.local()
+
+
+def _request_session():
+    """Avoid sharing requests.Session across concurrent RSS fetches."""
+    if threading.current_thread() is threading.main_thread():
+        return session
+    client = getattr(_local_session, "client", None)
+    if client is None:
+        client = requests.Session()
+        client.headers.update(session.headers)
+        _local_session.client = client
+    return client
+
 
 
 def _load_seen():
@@ -161,7 +176,7 @@ def _fetch_uploads(channel_id):
     feed = "https://www.youtube.com/feeds/videos.xml"
     fallback = False
     try:
-        res = session.get(feed, params={"channel_id": channel_id}, timeout=15)
+        res = _request_session().get(feed, params={"channel_id": channel_id}, timeout=15)
         res.raise_for_status()
     except requests.HTTPError as exc:
         code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -171,7 +186,7 @@ def _fetch_uploads(channel_id):
         # playlist is an independent public RSS URL (UU + UC suffix).
         fallback = True
         logging.warning("YOUTUBE_RSS_FALLBACK channel=%s status=%s", channel_id, code)
-        res = session.get(feed, params={"playlist_id": "UU" + channel_id[2:]}, timeout=15)
+        res = _request_session().get(feed, params={"playlist_id": "UU" + channel_id[2:]}, timeout=15)
         res.raise_for_status()
     root = ET.fromstring(res.content)
     if root.tag != ATOM + "feed":
@@ -224,7 +239,7 @@ def _notify(video):
 
 
 def check_youtube():
-    """Check configured channels; first sight of a channel does not alert for old uploads."""
+    """Poll RSS independently from WebSub; slow feeds cannot lock out pushes."""
     global last_check, failures
     channel_ids = load_channel_ids()
     if not channel_ids:
@@ -236,43 +251,55 @@ def check_youtube():
     if not WEBHOOK_URL.startswith("https://"):
         logging.warning("YouTube: no valid Discord webhook configured")
         return
-    with _state_lock:
-        _check_youtube_channels(channel_ids)
+    _check_youtube_channels(channel_ids)
 
 
 def _check_youtube_channels(channel_ids):
-    """One broken feed must never block other creator notifications."""
-    seen = _load_seen()
-    for channel_id in channel_ids:
-        if time.monotonic() < _channel_retry_at.get(channel_id, 0):
-            continue
-        try:
-            videos = _fetch_uploads(channel_id)
-            if channel_id not in seen:
-                seen[channel_id] = [v["id"] for v in videos][-100:]
-                _save_seen(seen)
-                logging.info("YouTube %s: initialized with %d previous uploads", channel_id, len(videos))
+    """Fetch eligible feeds concurrently, commit each event under the dedup lock."""
+    ready = [cid for cid in channel_ids
+             if time.monotonic() >= _channel_retry_at.get(cid, 0)]
+    if not ready:
+        return
+    with ThreadPoolExecutor(max_workers=min(3, len(ready))) as pool:
+        pending = {pool.submit(_fetch_uploads, channel_id): channel_id
+                   for channel_id in ready}
+        for future in as_completed(pending):
+            channel_id = pending[future]
+            try:
+                videos = future.result()
+                with _state_lock:
+                    # WebSub may have delivered while RSS was fetching. Reload
+                    # state only AFTER the network call, preventing stale writes.
+                    seen = _load_seen()
+                    if channel_id not in seen:
+                        seen[channel_id] = [v["id"] for v in videos][-100:]
+                        _save_seen(seen)
+                        logging.info("YouTube %s: initialized with %d previous uploads",
+                                     channel_id, len(videos))
+                    else:
+                        ids = set(seen[channel_id])
+                        for video in videos:
+                            if video["id"] in ids:
+                                continue
+                            _notify(video)
+                            seen[channel_id] = (seen[channel_id] + [video["id"]])[-100:]
+                            ids.add(video["id"])
+                            _save_seen(seen)
+                            logging.info("YouTube notification sent: %s", video["url"])
+                _channel_failures[channel_id] = 0
+                _channel_retry_at.pop(channel_id, None)
+            except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
+                count = _channel_failures.get(channel_id, 0) + 1
+                _channel_failures[channel_id] = count
+                delay = min(_RSS_FAILURE_MAX, _RSS_FAILURE_BASE * (2 ** min(count - 1, 3)))
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                if status_code in (403, 429):
+                    delay = max(delay, 1800)
+                _channel_retry_at[channel_id] = time.monotonic() + delay
+                logging.warning("YOUTUBE_RSS_BACKOFF channel=%s seconds=%d failures=%d error=%s",
+                                channel_id, delay, count, type(exc).__name__)
+                warn_failure("YouTube " + channel_id, count, exc)
                 continue
-            ids = set(seen[channel_id])
-            for video in videos:
-                if video["id"] in ids:
-                    continue
-                _notify(video)
-                seen[channel_id] = (seen[channel_id] + [video["id"]])[-100:]
-                ids.add(video["id"])
-                _save_seen(seen)
-                logging.info("YouTube notification sent: %s", video["url"])
-            _channel_failures[channel_id] = 0
-            _channel_retry_at.pop(channel_id, None)
-        except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
-            count = _channel_failures.get(channel_id, 0) + 1
-            _channel_failures[channel_id] = count
-            delay = min(_RSS_FAILURE_MAX, _RSS_FAILURE_BASE * (2 ** min(count - 1, 3)))
-            _channel_retry_at[channel_id] = time.monotonic() + delay
-            logging.warning("YOUTUBE_RSS_BACKOFF channel=%s seconds=%d failures=%d error=%s",
-                            channel_id, delay, count, type(exc).__name__)
-            warn_failure("YouTube " + channel_id, count, exc)
-            continue
 
 
 def receive_websub_feed(xml_bytes):

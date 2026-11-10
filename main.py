@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -114,35 +115,44 @@ _chzzk_failures = {}
 
 
 def check_chzzk_once(state):
-    """Record each observed live session so restarts do not repeat or lose alerts."""
-    for channel_id in load_channels():
-        try:
-            live = get_live_info(channel_id)
-            status = live["status"]
-            previous = state.get(channel_id, {})
-            if not isinstance(previous, dict):
-                previous = {}
-            # A completed stream may keep an old liveId. Only use it for OPEN sessions.
-            live_id = live.get("live_id", "")
-            previously_open = previous.get("status") == "OPEN"
-            previous_id = previous.get("live_id", "")
-            opened_at = live.get("open_date") or ""
-            previous_opened_at = previous.get("open_date", "")
-            # A new live session can be detected even across a restart.
-            changed_session = ((bool(live_id) and bool(previous_id) and live_id != previous_id)
-                               or (bool(opened_at) and bool(previous_opened_at) and opened_at != previous_opened_at))
-            should_notify = (status == "OPEN" and bool(previous)
-                             and (not previously_open or changed_session))
-            if should_notify:
-                send_discord_notification(live)
-            state[channel_id] = {"status": status, "live_id": live_id if status == "OPEN" else "",
-                                 "open_date": opened_at if status == "OPEN" else ""}
-            save_json(LIVE_STATE_FILE, state)
-            _chzzk_failures[channel_id] = 0
-            logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
-        except Exception as exc:
-            _chzzk_failures[channel_id] = _chzzk_failures.get(channel_id, 0) + 1
-            warn_failure("치지직 " + channel_id, _chzzk_failures[channel_id], exc)
+    """Fetch channels concurrently; serialize session state and Discord dedup."""
+    channels = load_channels()
+    if not channels:
+        return
+    with ThreadPoolExecutor(max_workers=min(4, len(channels))) as pool:
+        pending = {pool.submit(get_live_info, channel_id): channel_id
+                   for channel_id in channels}
+        for future in as_completed(pending):
+            channel_id = pending[future]
+            try:
+                live = future.result()
+                status = live["status"]
+                previous = state.get(channel_id, {})
+                if not isinstance(previous, dict):
+                    previous = {}
+                live_id = live.get("live_id", "")
+                previously_open = previous.get("status") == "OPEN"
+                previous_id = previous.get("live_id", "")
+                opened_at = live.get("open_date") or ""
+                previous_opened_at = previous.get("open_date", "")
+                changed_session = ((bool(live_id) and bool(previous_id) and live_id != previous_id)
+                                   or (bool(opened_at) and bool(previous_opened_at)
+                                       and opened_at != previous_opened_at))
+                should_notify = (status == "OPEN" and bool(previous)
+                                 and (not previously_open or changed_session))
+                if should_notify:
+                    send_discord_notification(live)
+                state[channel_id] = {
+                    "status": status,
+                    "live_id": live_id if status == "OPEN" else "",
+                    "open_date": opened_at if status == "OPEN" else "",
+                }
+                save_json(LIVE_STATE_FILE, state)
+                _chzzk_failures[channel_id] = 0
+                logging.info("%s | 상태: %s | 제목: %s", live["name"], status, live["title"])
+            except Exception as exc:
+                _chzzk_failures[channel_id] = _chzzk_failures.get(channel_id, 0) + 1
+                warn_failure("치지직 " + channel_id, _chzzk_failures[channel_id], exc)
 
 
 def run_worker(name, checker, interval):

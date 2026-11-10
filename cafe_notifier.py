@@ -2,6 +2,8 @@ import json
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import time
 from pathlib import Path
@@ -42,6 +44,20 @@ session.headers.update({
 })
 
 last_check = 0.0
+_local_session = threading.local()
+
+
+def _request_session():
+    """Use isolated HTTP sessions for concurrent board fetches."""
+    if threading.current_thread() is threading.main_thread():
+        return session
+    client = getattr(_local_session, "client", None)
+    if client is None:
+        client = requests.Session()
+        client.headers.update(session.headers)
+        _local_session.client = client
+    return client
+
 
 
 def get_articles(menu_id):
@@ -49,7 +65,7 @@ def get_articles(menu_id):
         "https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/"
         f"cafes/{CAFE_ID}/menus/{menu_id}/articles"
     )
-    response = session.get(url, timeout=15)
+    response = _request_session().get(url, timeout=15)
     response.raise_for_status()
     data = response.json()
     entries = (data.get("result") or {}).get("articleList") or []
@@ -151,7 +167,7 @@ def article_detail(article):
     fallback_images = list(article.get("images") or [])[:4]
     try:
         url = f"https://apis.naver.com/cafe-web/cafe-articleapi/v3/cafes/{CAFE_ID}/articles/{article['id']}"
-        response = session.get(url, timeout=12)
+        response = _request_session().get(url, timeout=12)
         response.raise_for_status()
         html = _article_html(response.json())
         if not html:
@@ -207,42 +223,55 @@ def notify(article, role_id, menu_id, group):
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
 
+def _check_cafe_board(board):
+    """One board's failure must not delay or discard another board's posts."""
+    menu_id = board["menu_id"]
+    articles = get_articles(menu_id)
+    if not articles:
+        logging.info("카페 게시판 %s 게시글 목록이 비어 있습니다.", menu_id)
+        return
+    seen = load_seen(board["seen_file"])
+    current_ids = [article["id"] for article in articles]
+    if seen is None:
+        save_seen(board["seen_file"], current_ids)
+        logging.info("카페 게시판 %s 초기 설정 완료: 기존 글 %d개", menu_id, len(current_ids))
+        return
+    seen_set = set(seen)
+    new_articles = [article for article in articles if article["id"] not in seen_set]
+    new_articles.reverse()
+    for article in new_articles:
+        notify(article, None, menu_id, board["group"])
+        seen.insert(0, article["id"])
+        seen = seen[:100]
+        save_seen(board["seen_file"], seen)
+    if not new_articles:
+        logging.info("카페 게시판 %s 새 게시글 없음", menu_id)
+
+
 def check_cafe():
     global last_check
     if time.monotonic() - last_check < INTERVAL:
         return
-
     if not WEBHOOK_URL.startswith("https://"):
         raise ValueError("DISCORD_WEBHOOK_URL이 설정되지 않았습니다.")
-
-    for board in BOARDS:
-        menu_id = board["menu_id"]
-        articles = get_articles(menu_id)
-        if not articles:
-            logging.info("카페 게시판 %s 게시글 목록이 비어 있습니다.", menu_id)
-            continue
-
-        seen = load_seen(board["seen_file"])
-        current_ids = [article["id"] for article in articles]
-        if seen is None:
-            save_seen(board["seen_file"], current_ids)
-            logging.info("카페 게시판 %s 초기 설정 완료: 기존 글 %d개", menu_id, len(current_ids))
-            continue
-
-        seen_set = set(seen)
-        new_articles = [article for article in articles if article["id"] not in seen_set]
-        new_articles.reverse()
-
-        for article in new_articles:
-            notify(article, None, menu_id, board["group"])
-            seen.insert(0, article["id"])
-            seen = seen[:100]
-            save_seen(board["seen_file"], seen)
-
-        if not new_articles:
-            logging.info("카페 게시판 %s 새 게시글 없음", menu_id)
-
+    if not BOARDS:
+        return
+    errors = []
+    with ThreadPoolExecutor(max_workers=min(4, len(BOARDS))) as pool:
+        pending = {pool.submit(_check_cafe_board, board): board for board in BOARDS}
+        for future in as_completed(pending):
+            try:
+                future.result()
+            except Exception as exc:
+                menu_id = pending[future]["menu_id"]
+                logging.warning("CAFE_BOARD_FAILURE menu=%s error=%s", menu_id,
+                                type(exc).__name__)
+                errors.append((menu_id, exc))
     last_check = time.monotonic()
+    if errors:
+        # Both boards have been attempted, including when one failed.
+        raise RuntimeError("Cafe board check failed: " + ",".join(
+            str(menu_id) for menu_id, _ in errors)) from errors[0][1]
     try:
         from notice_intelligence import report_source
         report_source("네이버 카페", True)
