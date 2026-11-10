@@ -164,6 +164,8 @@ def _notify(post):
         payload["_abyss_event_key"] = "x-original:" + USERNAME.lower() + ":" + post_id
     else:
         logging.warning("X_ORIGINAL_EVENT_ID_MISSING creator=%s", USERNAME)
+    payload["_abyss_source_platform"] = "x-original"
+    payload["_abyss_source_time"] = post.get("pub_date", "")
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
