@@ -11,6 +11,11 @@ on:
         type: boolean
         required: false
         default: false
+      sync_banner_info_only:
+        description: 'Refresh the existing server banner info card without changing the image'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -281,6 +286,54 @@ jobs:
               # A failed or indeterminate Discord write must never be retried
               # blindly by this one-shot, to avoid a duplicate banner change.
               raise
+          PY
+          REMOTE
+
+      - name: Repair existing banner information card without banner rotation
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_banner_info_only == true }}
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import os
+          import requests
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from guild_server_banner import sync_banner_info, read_state, _current_guild_banner
+          result = sync_banner_info(force=True)
+          print("BANNER_INFO_REPAIR status=%s reason=%s" % (
+              result.get("status"), result.get("reason", "")))
+          if result.get("status") not in ("updated", "up_to_date"):
+              raise SystemExit("Banner information card not editable: check original message ownership")
+          state = read_state()
+          token = os.environ["DISCORD_BOT_TOKEN"]
+          guild = os.environ["DISCORD_GUILD_ID"]
+          current = _current_guild_banner(token, guild)
+          if not current or state.get("banner_info_updated_hash") != current:
+              raise SystemExit("Banner info state has not caught up with the live guild banner")
+          channel = os.environ["SERVER_BANNER_INFO_CHANNEL_ID"]
+          message = os.environ["SERVER_BANNER_INFO_MESSAGE_ID"]
+          response = requests.get(
+              f"https://discord.com/api/v10/channels/{channel}/messages/{message}",
+              headers={"Authorization": "Bot " + token}, timeout=12)
+          response.raise_for_status()
+          data = response.json()
+          if str(data.get("id")) != message:
+              raise SystemExit("Unexpected message ID")
+          # Verify the actual current banner CDN reference is present in the
+          # existing message, not merely that PATCH returned HTTP 200.
+          import json
+          body = json.dumps(data.get("components") or [], ensure_ascii=False)
+          if current not in body:
+              raise SystemExit("Original banner info card does not display the live banner hash")
+          print("BANNER_INFO_REPAIR verified_live_hash=true original_message=true")
           PY
           REMOTE
 
