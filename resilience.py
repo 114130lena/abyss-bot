@@ -333,7 +333,20 @@ def _send_webhook_transport(url, payload, attempts=3):
                                              files=uploaded, timeout=35)
             else:
                 response = requests.post(url, json=prepared, timeout=12)
-            if response.status_code not in (429, 500, 502, 503, 504):
+            # A 5xx response does not prove the Discord write failed. Retrying
+            # could create a second message or ping users twice. Fail closed:
+            # the caller retains its pre-send claim as uncertain for review.
+            if response.status_code in (500, 502, 503, 504):
+                logging.warning("DISCORD_DELIVERY_UNCERTAIN_HTTP status=%d; automatic_retry_blocked",
+                                response.status_code)
+                try:
+                    from delivery_review import record
+                    record(payload, "HTTP_" + str(response.status_code))
+                except (OSError, ValueError, TypeError) as exc:
+                    logging.warning("Delivery review journal unavailable: %s", type(exc).__name__)
+                response.raise_for_status()
+                raise requests.HTTPError("Ambiguous Discord 5xx delivery")
+            if response.status_code != 429:
                 response.raise_for_status()
                 if selected_urls:
                     try:
