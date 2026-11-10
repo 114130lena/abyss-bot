@@ -4,6 +4,48 @@ from unittest.mock import patch
 import guild_server_banner as banner
 
 class BannerMinimumTests(unittest.TestCase):
+    def test_hiyori_is_preferred_when_both_creators_have_unused_art(self):
+        available = {
+            "hiyori": ("h.jpg", {"sha256": "hiyori", "group": "hanayo",
+                                  "banner_format": "square_fit", "vision_score": 60}),
+            "huya": ("u.jpg", {"sha256": "huya", "group": "sakihane",
+                               "banner_format": "16:9", "vision_score": 99}),
+        }
+        with patch.object(banner, "banner_inventory", return_value={
+                "available": available, "total": 2, "unused": 2}), \
+             patch("fanart_vision.enabled", return_value=True), \
+             patch.object(banner.random, "random", return_value=0.5):
+            selected, history, _, _ = banner.rotation_selection(state={})
+        self.assertEqual(selected[1]["group"], "hanayo")
+        self.assertIn("hiyori", history)
+
+    def test_huya_retains_occasional_share(self):
+        available = {
+            "hiyori": ("h.jpg", {"sha256": "hiyori", "group": "hanayo",
+                                  "banner_format": "16:9"}),
+            "huya": ("u.jpg", {"sha256": "huya", "group": "sakihane",
+                               "banner_format": "16:9"}),
+        }
+        with patch.object(banner, "banner_inventory", return_value={
+                "available": available, "total": 2, "unused": 2}), \
+             patch("fanart_vision.enabled", return_value=False), \
+             patch.object(banner.random, "random", return_value=0.95):
+            selected, _, _, _ = banner.rotation_selection(state={})
+        self.assertEqual(selected[1]["group"], "sakihane")
+
+    def test_huya_is_fallback_if_no_fresh_hiyori_remains(self):
+        available = {
+            "huya": ("u.jpg", {"sha256": "huya", "group": "sakihane",
+                               "banner_format": "16:9"}),
+        }
+        with patch.object(banner, "banner_inventory", return_value={
+                "available": available, "total": 1, "unused": 1}), \
+             patch("fanart_vision.enabled", return_value=False), \
+             patch.object(banner.random, "random") as chance:
+            selected, _, _, _ = banner.rotation_selection(state={})
+        self.assertEqual(selected[1]["group"], "sakihane")
+        chance.assert_not_called()
+
     def test_square_art_can_fill_banner_without_crop_as_fallback(self):
         import json
         import tempfile
