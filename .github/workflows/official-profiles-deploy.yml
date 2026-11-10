@@ -1,4 +1,4 @@
-name: Deploy independent official profile refresh
+name: "프로필 · 공식 이미지 적용"
 on:
   issues:
     types: [opened]

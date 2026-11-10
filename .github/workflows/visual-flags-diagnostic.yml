@@ -1,4 +1,4 @@
-name: Inspect current Discord media flags
+name: "미디어 · 표시 상태 진단"
 on:
   issues:
     types: [opened]

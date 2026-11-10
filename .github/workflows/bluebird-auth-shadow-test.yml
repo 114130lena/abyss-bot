@@ -1,4 +1,4 @@
-name: Bluebird authenticated Twscraper shadow test
+name: "X · Bluebird 로그인 수집 일회성 테스트"
 on:
   issues:
     types: [opened]

@@ -1,4 +1,4 @@
-name: Preview image card in Discord test thread
+name: "검증 · 이미지 카드 표시"
 on:
   workflow_dispatch:
     inputs:

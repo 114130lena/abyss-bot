@@ -1,4 +1,4 @@
-name: Deploy cross-platform auto recovery
+name: "운영 · 전체 알림 자동 복구"
 on:
   issues:
     types: [opened]

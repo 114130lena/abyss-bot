@@ -1,4 +1,4 @@
-name: Media and clip regression
+name: "검증 · 미디어 및 클립"
 
 on:
   pull_request:

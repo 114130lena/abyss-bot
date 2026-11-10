@@ -1,4 +1,4 @@
-name: Inspect X alternative photo sources
+name: "X · 대체 무료 수집원 비교 진단"
 on:
   issues:
     types: [opened]

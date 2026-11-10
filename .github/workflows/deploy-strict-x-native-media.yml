@@ -1,4 +1,4 @@
-name: Deploy strict X original-photo safeguard
+name: "X · 원본 미디어 처리 배포"
 on:
   issues:
     types: [opened]

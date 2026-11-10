@@ -1,4 +1,4 @@
-name: Abyss integration validation
+name: "검증 · 전체 기능 통합 테스트"
 on:
   push:
     branches:

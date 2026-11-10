@@ -1,4 +1,4 @@
-name: Sync live media code
+name: "미디어 · 이미지 동기화"
 on:
   issues:
     types: [opened]

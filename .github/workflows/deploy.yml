@@ -1,4 +1,4 @@
-name: Deploy CHZZK Bot
+name: "운영 · 어비스봇 자동배포"
 
 on:
   push:

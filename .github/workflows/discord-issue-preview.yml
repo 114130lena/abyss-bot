@@ -1,4 +1,4 @@
-name: Abyss Discord preview via approved issue
+name: "디스코드 · 요청 기반 미리보기"
 
 on:
   issues:

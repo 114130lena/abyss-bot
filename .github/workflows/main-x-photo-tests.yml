@@ -1,4 +1,4 @@
-name: Main X photo delivery tests
+name: "검증 · X 원본 사진 처리"
 on:
   pull_request:
     paths:

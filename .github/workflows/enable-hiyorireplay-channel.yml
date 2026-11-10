@@ -1,4 +1,4 @@
-name: Enable Hiyorireplay YouTube channel
+name: "유튜브 · 히요리 다시보기 채널 적용"
 on:
   issues:
     types: [opened]

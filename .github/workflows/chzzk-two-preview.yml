@@ -1,4 +1,4 @@
-name: Abyss CHZZK two alert preview
+name: "치지직 · 알림 2종 미리보기"
 on:
   issues:
     types: [opened]

@@ -1,4 +1,4 @@
-name: Abyss production-path media and alert audit
+name: "미디어 · 운영 전송 경로 점검"
 on:
   issues:
     types: [opened]

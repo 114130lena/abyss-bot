@@ -1,4 +1,4 @@
-name: Verify live Bluebird X bridge without messages
+name: "X · Bluebird 운영 연동 검증"
 on:
   issues:
     types: [opened]

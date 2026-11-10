@@ -1,4 +1,4 @@
-name: Diagnose X alert latency
+name: "X · 알림 전송 지연 진단"
 on:
   issues:
     types: [opened]

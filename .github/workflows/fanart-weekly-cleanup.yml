@@ -1,4 +1,4 @@
-name: Abyss weekly fanart cache cleanup
+name: "팬아트 · 주간 캐시 정리"
 on:
   issues:
     types: [opened]

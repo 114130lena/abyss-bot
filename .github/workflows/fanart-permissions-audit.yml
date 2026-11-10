@@ -1,4 +1,4 @@
-name: Fanart permissions evidence audit
+name: "팬아트 · 사용 권한 점검"
 on:
   issues:
     types: [opened]

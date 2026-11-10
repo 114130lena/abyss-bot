@@ -1,4 +1,4 @@
-name: Verify official profile rotation in isolated Discord tests
+name: "프로필 · 랜덤 이미지 미리보기"
 on:
   issues:
     types: [opened]

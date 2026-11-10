@@ -1,4 +1,4 @@
-name: Activate Bluebird Twscraper X bridge
+name: "X · Bluebird 수집기 활성화"
 on:
   issues:
     types: [opened]

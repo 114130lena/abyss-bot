@@ -1,4 +1,4 @@
-name: Abyss operational audit
+name: "운영 · 시스템 상태 점검"
 on:
   issues:
     types: [opened]

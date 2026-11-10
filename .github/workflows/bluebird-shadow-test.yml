@@ -1,4 +1,4 @@
-name: Bluebird shadow install and benchmark
+name: "X · Bluebird 비로그인 비교 테스트"
 on:
   issues:
     types: [opened]

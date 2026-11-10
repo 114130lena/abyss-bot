@@ -1,4 +1,4 @@
-name: Deploy X incomplete-media fanart safeguard
+name: "X · 미확인 미디어 보호 적용"
 on:
   issues:
     types: [opened]

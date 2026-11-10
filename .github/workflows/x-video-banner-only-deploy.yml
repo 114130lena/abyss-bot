@@ -1,4 +1,4 @@
-name: Deploy X video and official-banner routing
+name: "X · 영상 포함 알림 배너 처리 적용"
 on:
   issues:
     types: [opened]

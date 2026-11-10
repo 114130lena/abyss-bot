@@ -1,4 +1,4 @@
-name: Diagnose recurrent X photos replaced by fanart
+name: "X · 사진 대신 팬아트 출력 진단"
 on:
   issues:
     types: [opened]
