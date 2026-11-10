@@ -1,4 +1,4 @@
-name: Deploy YouTube faster retry
+name: "유튜브 · 업로드 알림 빠른 재시도"
 on:
   issues:
     types: [opened]

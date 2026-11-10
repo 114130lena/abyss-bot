@@ -1,4 +1,4 @@
-name: Abyss X media regression
+name: "검증 · X 사진·영상 처리"
 
 on:
   pull_request:

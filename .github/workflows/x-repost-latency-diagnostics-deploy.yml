@@ -1,4 +1,4 @@
-name: Deploy X latency and repost diagnostics
+name: "X · 리트윗 지연 기록 적용"
 on:
   issues:
     types: [opened]
