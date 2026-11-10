@@ -638,7 +638,11 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
     method = str(state.get("banner_change_method") or "").strip()
-    if not method or method.startswith(("기존 기록", "이전 기록")):
+    # Display one user-facing policy for both scheduled and one-off bot edits.
+    # Keep the precise provenance in state/history for diagnostics and auditing.
+    if method in ("봇 자동 교체", "봇 수동 명령 교체"):
+        method = "자동 업데이트 / 필요에따라 수정 교체"
+    elif not method or method.startswith(("기존 기록", "이전 기록")):
         method = "이전 배너 · 변경 방식 미확인"
     changed_at = str(state.get("banner_changed_at") or "").strip()
     if not changed_at and state.get("banner_first_observed_at"):
