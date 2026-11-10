@@ -61,15 +61,17 @@ jobs:
           install -m 0644 /tmp/abyss-bluebird-shadow-probe.py "$BASE/scripts/bluebird_shadow_probe.py"
           rm -f /tmp/abyss-bluebird-shadow-probe.py
           echo BLUEBIRD_PULL_OFFICIAL_IMAGE
-          sudo docker pull ghcr.io/ethanc/bluebird:latest
+          if ! sudo docker image inspect ghcr.io/ethanc/bluebird:latest >/dev/null 2>&1; then
+            sudo docker pull ghcr.io/ethanc/bluebird:latest
+          fi
           if sudo docker container inspect abyss-bluebird-shadow >/dev/null 2>&1; then
-            echo BLUEBIRD_SHADOW_CONTAINER_ALREADY_EXISTS
-            sudo docker start abyss-bluebird-shadow || true
-          else
-            echo BLUEBIRD_CREATE_ISOLATED_CONTAINER
-            sudo docker run -d \
+            echo BLUEBIRD_RECREATE_ONLY_SHADOW_CONTAINER_TO_UPDATE_HEALTHCHECK
+            sudo docker rm -f abyss-bluebird-shadow
+          fi
+          echo BLUEBIRD_CREATE_ISOLATED_CONTAINER
+          sudo docker run -d \
               --name abyss-bluebird-shadow \
-              --restart unless-stopped \
+              --restart unless-stopped --no-healthcheck \
               --memory 384m --cpus 0.6 --pids-limit 96 \
               --read-only --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" \
@@ -82,7 +84,6 @@ jobs:
               --entrypoint python \
               ghcr.io/ethanc/bluebird:latest \
               /probe/bluebird_shadow_probe.py --interval 60
-          fi
           echo BLUEBIRD_DOCKER_STATUS
           sudo docker ps --filter name=abyss-bluebird-shadow --format '{{.Names}} {{.Status}} {{.Image}}'
           echo BLUEBIRD_FIRST_SAMPLE
@@ -124,8 +125,17 @@ jobs:
                   print('BLUEBIRD_LEGACY_OVERLAP',username,provider,
                         'bluebird_original_ids',len(original_ids),
                         'already_seen_by_abyss',len(original_ids & legacy),flush=True)
+                  for post in r.get('items',[]):
+                      if post['id'] in original_ids-legacy:
+                          age_min=round((time.time()-post['created_at'])/60,1)
+                          print('BLUEBIRD_UNMATCHED_ORIGINAL',username,provider,
+                                'id',post['id'],'age_minutes',age_min,
+                                'reply',post['reply'],'quote',post['quote'],
+                                'media_count',post['media_count'],flush=True)
           print('BLUEBIRD_SAMPLES',len(rows),'UPDATED_EPOCH',int(time.time()))
           PY
+          echo BLUEBIRD_RESOURCE_USAGE
+          sudo docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' abyss-bluebird-shadow || true
           echo BLUEBIRD_LATEST_LOG
           sudo docker logs --tail 24 abyss-bluebird-shadow 2>&1 | sed -E 's/(auth_token|ct0|password)=([^ ]+)/\1=REDACTED/g' || true
           echo BLUEBIRD_EXISTING_BOT_SERVICE

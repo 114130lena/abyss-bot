@@ -22,6 +22,8 @@ class BluebirdShadowSafetyTests(unittest.TestCase):
         self.assertIn("--read-only --cap-drop ALL --security-opt no-new-privileges", workflow)
         self.assertIn("--entrypoint python", workflow)
         self.assertIn("--memory 384m", workflow)
+        self.assertIn("--no-healthcheck", workflow)
+        self.assertIn("sudo docker rm -f abyss-bluebird-shadow", workflow)
         self.assertIn("--interval 60", workflow)
         self.assertNotIn("DISCORD_WEBHOOK_URL", workflow)
         self.assertNotIn("-e TWSCRAPER_COOKIES=", workflow)
