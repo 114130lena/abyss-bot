@@ -1,0 +1,127 @@
+name: Bluebird authenticated Twscraper shadow test
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  auth-shadow:
+    if: ${{ github.event.issue.title == '[abyss-test] bluebird-auth-shadow' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Check out isolated probe code
+        uses: actions/checkout@v4
+      - name: Validate probe never sends Discord or prints cookies
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/bluebird_auth_shadow_probe.py
+          ! grep -F -e 'send_webhook(' -e 'Webhook(' -e 'discord.com' -e 'print(cookies)' scripts/bluebird_auth_shadow_probe.py
+          python -m unittest discover -s tests -p 'test_x_bluebird_auth_safety.py' -v
+      - name: Perform guarded one-shot on the existing Ubuntu server
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_blue_auth_key
+          chmod 600 ~/.ssh/abyss_blue_auth_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/abyss_blue_auth_key -o IdentitiesOnly=yes scripts/bluebird_auth_shadow_probe.py "$SSH_USER@$SSH_HOST:/tmp/abyss-bluebird-auth-shadow-probe.py"
+          ssh -i ~/.ssh/abyss_blue_auth_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo AUTH_SHADOW_PRECHECK
+          systemctl is-active chzzk-bot.service
+          test -f /home/ubuntu/bluebird-shadow/.abyss-shadow-marker
+          BASE=/home/ubuntu/bluebird-shadow
+          mkdir -p "$BASE/private" "$BASE/scripts" "$BASE/data"
+          chmod 700 "$BASE/private" "$BASE/data"
+          install -m 0644 /tmp/abyss-bluebird-auth-shadow-probe.py "$BASE/scripts/bluebird_auth_shadow_probe.py"
+          rm -f /tmp/abyss-bluebird-auth-shadow-probe.py
+          COOKIE="$BASE/private/x.cookies"
+          if [ ! -s "$COOKIE" ]; then
+            echo AUTH_SHADOW_NOT_CONFIGURED_NEEDS_LOCAL_COOKIE
+            echo AUTH_SHADOW_NO_LOGIN_ATTEMPT
+            exit 0
+          fi
+          COOKIE_MODE="$(stat -c '%a' "$COOKIE")"
+          COOKIE_OWNER="$(stat -c '%u' "$COOKIE")"
+          if [ "$COOKIE_MODE" != "600" ] || [ "$COOKIE_OWNER" != "$(id -u)" ]; then
+            echo AUTH_SHADOW_UNSAFE_COOKIE_PERMISSIONS
+            exit 1
+          fi
+          if ! command -v docker >/dev/null 2>&1; then
+            echo AUTH_SHADOW_DOCKER_MISSING
+            exit 1
+          fi
+          sudo docker image inspect ghcr.io/ethanc/bluebird:latest >/dev/null 2>&1 || {
+            echo AUTH_SHADOW_IMAGE_MISSING
+            exit 1
+          }
+          if sudo docker container inspect abyss-bluebird-auth-shadow >/dev/null 2>&1; then
+            echo AUTH_SHADOW_REMOVE_ONLY_PREVIOUS_TEST_CONTAINER
+            sudo docker rm -f abyss-bluebird-auth-shadow
+          fi
+          echo AUTH_SHADOW_START
+          sudo docker run -d \
+            --name abyss-bluebird-auth-shadow \
+            --no-healthcheck \
+            --memory 320m --cpus 0.5 --pids-limit 96 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --network bridge \
+            --mount "type=bind,src=$BASE/scripts/bluebird_auth_shadow_probe.py,dst=/probe/bluebird_auth_shadow_probe.py,readonly" \
+            --mount "type=bind,src=$COOKIE,dst=/run/secrets/x.cookies,readonly" \
+            --mount "type=bind,src=$BASE/private,dst=/private" \
+            --mount "type=bind,src=$BASE/data,dst=/results" \
+            --tmpfs /tmp:rw,nosuid,size=32m \
+            -e PYTHONPATH=/bluebird -e PYTHONDONTWRITEBYTECODE=1 -e TWS_TELEMETRY=0 \
+            --log-opt max-size=1m --log-opt max-file=2 \
+            --entrypoint python \
+            ghcr.io/ethanc/bluebird:latest \
+            /probe/bluebird_auth_shadow_probe.py --interval 300 --cycles 1
+          for attempt in $(seq 1 54); do
+            if [ "$(sudo docker inspect --format '{{.State.Running}}' abyss-bluebird-auth-shadow)" = "false" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ "$(sudo docker inspect --format '{{.State.Running}}' abyss-bluebird-auth-shadow)" = "true" ]; then
+            echo AUTH_SHADOW_TEST_TIMEOUT
+            sudo docker stop -t 10 abyss-bluebird-auth-shadow || true
+            exit 1
+          fi
+          STATUS="$(sudo docker inspect --format '{{.State.ExitCode}}' abyss-bluebird-auth-shadow)"
+          echo AUTH_SHADOW_EXIT_CODE "$STATUS"
+          sudo docker logs --tail 25 abyss-bluebird-auth-shadow 2>&1
+          if [ "$STATUS" != "0" ]; then exit 1; fi
+          echo AUTH_SHADOW_RESULTS
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('/home/ubuntu/bluebird-shadow/data/auth_samples.jsonl')
+          if not path.is_file():raise SystemExit('AUTH_SHADOW_MISSING_RESULTS')
+          rows=[json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+          for row in rows[-2:]:
+              print('AUTH_SHADOW_RESULT',
+                    row['account'],'success',row['ok'],
+                    'seconds',row['elapsed_seconds'],
+                    'originals',row.get('originals_count',0),
+                    'reposts',row.get('reposts_count',0),
+                    'replies',row.get('replies_count',0),
+                    'media',row.get('media_posts_count',0),
+                    'error',row.get('error','-'))
+              for item in row.get('items',[]):
+                  if item['repost']:
+                      print('AUTH_REPOST_META',row['account'],
+                            'event_id',item['id'],
+                            'original_id',item.get('repost_original_id'),
+                            'created_at',item['created_at'],
+                            'media_count',item['media_count'])
+          PY
+          sudo docker rm abyss-bluebird-auth-shadow
+          echo AUTH_SHADOW_LIVE_BOT_STATUS
+          systemctl is-active chzzk-bot.service
+          REMOTE
