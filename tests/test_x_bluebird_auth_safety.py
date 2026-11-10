@@ -40,6 +40,18 @@ class AuthBluebirdShadowTests(unittest.TestCase):
         self.assertNotIn("DISCORD_WEBHOOK_URL", workflow)
         self.assertNotIn("TWSCRAPER_COOKIES=", workflow)
 
+    def test_one_shot_does_not_wait_300_seconds_after_collection(self):
+        spec = importlib.util.spec_from_file_location("bluebird_auth_shadow_probe", PROBE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertFalse(mod.needs_next_cycle(1, 1))
+        self.assertTrue(mod.needs_next_cycle(1, 2))
+        self.assertFalse(mod.needs_next_cycle(2, 2))
+        self.assertTrue(mod.needs_next_cycle(1, 0))
+        self.assertTrue(mod.needs_next_cycle(500, 0))
+        code = PROBE.read_text(encoding="utf-8")
+        self.assertIn("if not needs_next_cycle(cycle, args.cycles):\\n                break".replace("\\n", "\n"), code)
+
     def test_repost_event_id_and_target_are_separate(self):
         spec = importlib.util.spec_from_file_location("bluebird_auth_shadow_probe", PROBE)
         mod = importlib.util.module_from_spec(spec)

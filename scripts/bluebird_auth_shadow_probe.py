@@ -67,6 +67,11 @@ def save_sample(record):
         temporary.replace(SAMPLE_FILE)
 
 
+def needs_next_cycle(cycle: int, maximum_cycles: int) -> bool:
+    """Never sleep after the final cycle of a one-shot benchmark."""
+    return maximum_cycles == 0 or cycle < maximum_cycles
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--interval", type=int, default=300)
@@ -147,6 +152,8 @@ def main():
                     ),
                     flush=True,
                 )
+            if not needs_next_cycle(cycle, args.cycles):
+                break
             elapsed = time.monotonic() - start
             remaining = max(0, args.interval - elapsed)
             while remaining > 0 and not STOP:
