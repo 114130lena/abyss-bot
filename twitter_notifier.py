@@ -262,17 +262,18 @@ def _fetch_merged_posts(include_backups=True, on_batch=None):
             source = futures[future]
             try:
                 items = future.result()
-                successes += 1
-                for post in items:
-                    previous = posts_by_id.get(post["id"])
-                    if previous is None or (post.get("repost"),len(post.get("images", []))) > (previous.get("repost"),len(previous.get("images", []))):
-                        posts_by_id[post["id"]] = post
-                if on_batch is not None and items:
-                    # Dispatch trusted events from the first completed provider;
-                    # other provider requests continue in parallel.
-                    on_batch(sorted(items, key=lambda p: int(p["id"])))
             except (requests.RequestException, ET.ParseError, ValueError, OSError) as exc:
                 logging.warning("X RSS 서버 조회 실패: %s (%s)", source, exc)
+                continue
+            successes += 1
+            for post in items:
+                previous = posts_by_id.get(post["id"])
+                if previous is None or (post.get("repost"), len(post.get("images", []))) > (previous.get("repost"), len(previous.get("images", []))):
+                    posts_by_id[post["id"]] = post
+            if on_batch is not None and items:
+                # Alert failures must propagate to the caller, never be
+                # mistaken for an upstream RSS outage.
+                on_batch(sorted(items, key=lambda p: int(p["id"])))
     if not successes:
         raise ValueError("모든 X RSS 서버 조회 실패")
     # Do not block delivery on optional FxEmbed image lookups.
