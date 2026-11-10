@@ -1,4 +1,4 @@
-name: Verify fanart recycle and current card design
+name: "팬아트 · 재사용·중복 방지 검증"
 on:
   issues:
     types: [opened]

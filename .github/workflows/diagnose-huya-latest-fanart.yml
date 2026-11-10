@@ -1,4 +1,4 @@
-name: Diagnose latest Huya image fanart mismatch
+name: "팬아트 · 후야 최신 알림 진단"
 on:
   issues:
     types: [opened]
