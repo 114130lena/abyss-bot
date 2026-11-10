@@ -1,4 +1,4 @@
-name: Replace one unsuitable Hanayo server banner
+name: "배너 · 서버 배너 일회성 교체"
 
 on:
   issues:

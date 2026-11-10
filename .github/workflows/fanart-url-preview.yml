@@ -1,4 +1,4 @@
-name: Fanart URL-only Discord preview
+name: "팬아트 · 원본 링크 미리보기"
 on:
   issues:
     types: [opened]

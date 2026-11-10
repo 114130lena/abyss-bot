@@ -1,4 +1,4 @@
-name: Check FxTwitter feed item fields
+name: "X · FxTwitter 피드 형식 진단"
 on:
   issues:
     types: [opened]

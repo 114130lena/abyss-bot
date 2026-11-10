@@ -1,4 +1,4 @@
-name: Deploy fixed four and five footer links
+name: "알림 · 하단 버튼 5개 적용"
 on:
   issues:
     types: [opened]

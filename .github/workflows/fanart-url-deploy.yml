@@ -1,4 +1,4 @@
-name: Deploy fanart URL random media
+name: "팬아트 · 원본 링크 처리 배포"
 on:
   issues:
     types: [opened]

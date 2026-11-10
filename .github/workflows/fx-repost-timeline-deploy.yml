@@ -1,4 +1,4 @@
-name: Deploy Fx repost timeline collection
+name: "X · 리트윗 타임라인 처리 배포"
 on:
   issues:
     types: [opened]
