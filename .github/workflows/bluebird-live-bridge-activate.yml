@@ -17,6 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile scripts/bluebird_live_collector.py
+          python -m pip install -q -r requirements.txt
           ! grep -F -e 'send_webhook(' -e 'Webhook(' -e 'discord.com/api/' -e 'DISCORD_WEBHOOK_URL' scripts/bluebird_live_collector.py
           python -m unittest discover -s tests -p 'test_x_bluebird_live_bridge.py' -v
       - name: Install and start isolated Bluebird live X collector
