@@ -44,4 +44,93 @@ jobs:
                       print('ALT_TWEET',data.get('code'),tweet.get('id'),list(media.keys()) if isinstance(media,dict) else type(media).__name__,len(media.get('photos',[])) if isinstance(media,dict) else 0,flush=True)
               except Exception as e: print('ALT_ERROR',url.split('/')[2],type(e).__name__,str(e)[:120],flush=True)
           PY
+          "$PY" - <<'PY'
+          import concurrent.futures
+          import time
+          from datetime import datetime, timezone
+          from urllib.parse import urlsplit
+          import requests
+          
+          # Bluebird's free public adapters, probed WITHOUT running Bluebird's notifier.
+          # This has no X login, no paid API, no Discord webhook and no writes to bot state.
+          USERS = ("HanayoHiyori", "SakihaneHuya")
+          PROVIDERS = (
+              ("BetterTwitFix", "https://api.vxtwitter.com/{user}", {"with_tweets": "true", "timestamp": str(int(time.time()))}),
+              ("CarryFeed", "https://api.carryfeed.com/api/profile/{user}/statuses", {"count": "40", "with_replies": "true"}),
+              ("FxEmbed", "https://api.fxtwitter.com/2/profile/{user}/statuses", {"count": "40", "with_replies": "true"}),
+          )
+          def probe(task):
+              label, user, template, params = task
+              url = template.format(user=user)
+              start = time.monotonic()
+              try:
+                  response = requests.get(
+                      url, params=params, timeout=(2.5, 7), allow_redirects=False,
+                      headers={"User-Agent": "abyss-bot/1.0 (read-only source comparison)"},
+                  )
+                  elapsed = round(time.monotonic() - start, 2)
+                  code = response.status_code
+                  if code != 200:
+                      return (label, user, "HTTP_"+str(code), elapsed, 0, 0, 0, "-", "-")
+                  if len(response.content) > 3000000:
+                      return (label, user, "OVERSIZE", elapsed, 0, 0, 0, "-", "-")
+                  raw = response.json()
+                  if not isinstance(raw, dict):
+                      return (label, user, "BAD_JSON_SHAPE", elapsed, 0, 0, 0, "-", "-")
+                  if label == "BetterTwitFix":
+                      items = raw.get("latest_tweets")
+                  else:
+                      items = raw.get("results")
+                  if not isinstance(items, list):
+                      return (label, user, "NO_TIMELINE", elapsed, 0, 0, 0, "-", "-")
+                  ids = []
+                  own = []
+                  reposts = 0
+                  for p in items:
+                      if not isinstance(p, dict):
+                          continue
+                      if label == "BetterTwitFix":
+                          sid = str(p.get("tweetID") or "")
+                          is_repost = bool(p.get("retweetURL") or p.get("retweet"))
+                          author = str(p.get("user_screen_name") or p.get("screen_name") or user)
+                          ts = p.get("date_epoch")
+                      else:
+                          if p.get("type") != "status":
+                              continue
+                          sid = str(p.get("id") or "")
+                          author = str((p.get("author") or {}).get("screen_name") or "")
+                          is_repost = bool(p.get("reposted_by"))
+                          ts = p.get("created_timestamp")
+                      if not sid.isdigit():
+                          continue
+                      ids.append(sid)
+                      if is_repost:
+                          reposts += 1
+                          continue
+                      if author.casefold() != user.casefold():
+                          continue
+                      try:
+                          age_minutes = round((time.time()-float(ts))/60, 1)
+                          own.append((sid, age_minutes))
+                      except (ValueError, TypeError):
+                          own.append((sid, None))
+                  fresh = [x for x in own if x[1] is not None]
+                  most_recent = sorted(fresh, key=lambda x:x[1])[:2]
+                  min_age = most_recent[0][1] if most_recent else "-"
+                  sample = ",".join(x[0] for x in most_recent) or "-"
+                  return (label, user, "OK", elapsed, len(ids), len(own), reposts, min_age, sample)
+              except Exception as exc:
+                  return (label, user, type(exc).__name__, round(time.monotonic()-start, 2), 0, 0, 0, "-", "-")
+          
+          tasks=[(label,user,template,params) for label,template,params in PROVIDERS for user in USERS]
+          print("FREE_X_SOURCE_COMPARISON_BEGIN accounts=2 providers=3 auth=no paid_api=no send_discord=no", flush=True)
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              for result in concurrent.futures.as_completed([pool.submit(probe,t) for t in tasks]):
+                  provider,user,status,seconds,count,own,reposts,age,ids=result.result()
+                  print("FREE_X_SOURCE",provider,user,"status",status,"elapsed_s",seconds,
+                        "statuses",count,"creator_originals",own,"repost_candidates",reposts,
+                        "freshest_creator_original_age_min",age,"latest_creator_original_ids",ids,
+                        flush=True)
+          print("FREE_X_SOURCE_COMPARISON_END", flush=True)
+          PY
           REMOTE
