@@ -1,0 +1,61 @@
+name: Verify live Bluebird X bridge without messages
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  verify:
+    if: ${{ github.event.issue.title == '[abyss-test] bluebird-live-health' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read-only X bridge and bot integration probe
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/blue_live_verify_key
+          chmod 600 ~/.ssh/blue_live_verify_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/blue_live_verify_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo X_BRIDGE_VERIFY_START
+          systemctl is-active chzzk-bot.service
+          systemctl is-active caddy.service
+          echo X_BRIDGE_DEPLOYED_REVISION
+          cat /home/ubuntu/chzzk-bot/.deployed_revision || true
+          echo X_BRIDGE_CONTAINER_STATUS
+          sudo docker inspect --format 'running={{.State.Running}} oom={{.State.OOMKilled}} restart={{.RestartCount}}' abyss-bluebird-x-bridge
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          echo X_BRIDGE_BOT_CAN_READ
+          "$BOT_PY" - <<'PY'
+          import json,time,os
+          from pathlib import Path
+          from dotenv import load_dotenv
+          load_dotenv('/home/ubuntu/chzzk-bot/.env')
+          from x_fx_feed import fetch_bluebird_events
+          snapshot=Path('/home/ubuntu/bluebird-shadow/data/bluebird_bridge_events.json')
+          data=json.loads(snapshot.read_text(encoding='utf-8'))
+          age=int(time.time())-int(data['updated_at'])
+          print('X_BRIDGE_SNAPSHOT_AGE_SECONDS',age)
+          for account in ('HanayoHiyori','SakihaneHuya'):
+              posts=fetch_bluebird_events(account)
+              print('X_BRIDGE_BOT_READ',account,'available',posts is not None,
+                    'events',len(posts) if posts is not None else -1,
+                    'reposts',sum(p['repost'] for p in posts) if posts is not None else -1)
+              if posts is None:
+                  raise SystemExit('X_BRIDGE_BOT_READ_FAILED_'+account)
+          PY
+          echo X_BRIDGE_LATEST_PRODUCER_LOG
+          sudo docker logs --tail 30 abyss-bluebird-x-bridge 2>&1 | grep -E '^X_BRIDGE_(STARTED|FETCH|SNAPSHOT|DISABLED|CHECKPOINT)' || true
+          echo X_BRIDGE_LATEST_BOT_CONSUMER_LOG
+          sudo journalctl -u chzzk-bot.service --since '15 minutes ago' --no-pager -o cat | grep -E 'X_BRIDGE_(READ|STALE)|X_REPOST_DISCOVERED.*bluebird-twscraper|X_ORIGINAL_DELIVERED.*bluebird-twscraper' | tail -15 || true
+          echo X_BRIDGE_VERIFY_DONE
+          REMOTE
