@@ -401,6 +401,19 @@ def rotation_selection(previous=None, used=None, state=None):
     unseen = available["available"]
     if not unseen:
         return None, history, available["total"], 0
+    # Prefer Hiyori for the guild banner when both creators have
+    # unused, eligible art. Huya retains an occasional 10% share and is
+    # the fallback whenever the Hiyori pool is exhausted.
+    hiyori = {sha: item for sha, item in unseen.items()
+              if item[1].get("group", "hanayo") == "hanayo"}
+    huya = {sha: item for sha, item in unseen.items()
+            if item[1].get("group") == "sakihane"}
+    if hiyori and huya:
+        unseen = hiyori if random.random() < 0.90 else huya
+    elif hiyori:
+        unseen = hiyori
+    elif huya:
+        unseen = huya
     from fanart_vision import enabled as vision_enabled
     if vision_enabled():
         best = max(int(meta.get("vision_score") or 0) for _path, meta in unseen.values())
