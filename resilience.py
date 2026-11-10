@@ -243,6 +243,8 @@ def _send_webhook_transport(url, payload, attempts=3):
             prepared.pop('_abyss_photo_unknown', None)
             prepared.pop('_abyss_has_video', None)
             prepared.pop('_abyss_verified_text_only', None)
+            source_lag_platform = prepared.pop('_abyss_source_platform', None)
+            source_lag_time = prepared.pop('_abyss_source_time', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
@@ -369,6 +371,13 @@ def _send_webhook_transport(url, payload, attempts=3):
                     except Exception as exc:
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 _audit_role_mention(response, prepared)
+                # Only a confirmed HTTP success contributes to source-to-Discord timing.
+                try:
+                    if source_lag_platform and source_lag_time:
+                        from delivery_latency import record_source_lag
+                        record_source_lag(source_lag_platform, source_lag_time)
+                except (OSError, ValueError, TypeError) as exc:
+                    logging.warning("DISCORD_SOURCE_LAG_UNAVAILABLE reason=%s", type(exc).__name__)
                 logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
                              attempt + 1, time.monotonic() - delivery_started,
                              len(x_photos) + len(x_videos) + (2 if chosen else 0) + (1 if local_fanart else 0))
