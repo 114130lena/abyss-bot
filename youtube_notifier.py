@@ -235,6 +235,8 @@ def _notify(video):
         date=video.get("published", ""),
         handle=creator_handle(group), avatar=creator_avatar(group))
     payload["_abyss_event_key"] = "youtube:" + str(video["channel_id"]) + ":" + str(video["id"])
+    payload["_abyss_source_platform"] = "youtube"
+    payload["_abyss_source_time"] = video.get("published", "")
     send_webhook(youtube_thread_webhook_url(), payload)
 
 
