@@ -290,6 +290,67 @@ jobs:
           PY
           REMOTE
 
+      - name: Catch up missed November 10 18:00 banner slot
+        if: ${{ contains(github.event.head_commit.message, '[recover-20261110-1800]') }}
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          /usr/bin/flock -w 45 creator_media/guild_banner_rotation.lock "$BOT_PY" - <<'PY'
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from guild_server_banner import (
+              read_state, write_state, rotate_once, _current_guild_banner,
+              sync_banner_info)
+          now = datetime.now(ZoneInfo("Asia/Seoul"))
+          # A late deployment must never change tomorrow's banner.
+          if now.strftime("%Y-%m-%d") != "2026-11-10" or now.hour < 18:
+              print("BANNER_1800_RECOVERY outside_recovery_day")
+              raise SystemExit(0)
+          state = read_state()
+          if state.get("last_slot") == "2026-11-10 18:00":
+              print("BANNER_1800_RECOVERY already_rotated")
+              raise SystemExit(0)
+          token = os.environ["DISCORD_BOT_TOKEN"]
+          guild = os.environ["DISCORD_GUILD_ID"]
+          live = _current_guild_banner(token, guild)
+          if state.get("guild_banner_hash") != live:
+              print("BANNER_1800_RECOVERY external_banner_change_detected")
+              raise SystemExit(1)
+          request = Path("/home/ubuntu/chzzk-bot/creator_media/banner_recovery_20261110_1800.json")
+          try:
+              fd = os.open(str(request), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+          except FileExistsError:
+              print("BANNER_1800_RECOVERY already_attempted")
+              raise SystemExit(0)
+          with os.fdopen(fd, "w") as stream:
+              json.dump({"status": "reserved", "slot": "2026-11-10 18:00"}, stream)
+          result = rotate_once(manual=True)
+          if result.get("status") != "changed":
+              print("BANNER_1800_RECOVERY failed_status=%s" % result.get("status"))
+              raise SystemExit(1)
+          changed = read_state()
+          changed["last_slot"] = "2026-11-10 18:00"
+          write_state(changed)
+          request.write_text(json.dumps({"status": "changed", "slot": changed["last_slot"]}))
+          sync = sync_banner_info(force=True)
+          print("BANNER_1800_RECOVERY changed=true info_status=%s" % sync.get("status"))
+          if sync.get("status") not in ("updated", "up_to_date"):
+              raise SystemExit("Banner changed, but information card still needs repair")
+          PY
+          REMOTE
+
       - name: Repair existing banner information card without banner rotation
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sync_banner_info_only == true }}
         env:
