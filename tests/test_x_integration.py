@@ -289,9 +289,9 @@ class XProviderBackoffTests(unittest.TestCase):
         with patch.object(self.feed.time, "monotonic", return_value=100), \
              patch.object(self.feed.random, "randint", return_value=0):
             self.feed.note_failure(u1, TimeoutError())
-            self.assertEqual(self.feed.retry_after([u1,u2]), 300)
+            self.assertEqual(self.feed.retry_after([u1,u2]), 90)
             self.assertEqual(self.feed.retry_after([u2,u3]), 0)
-            self.assertEqual(self.feed.source_snapshot([u2])["fxtwitter.com"]["cooldown_seconds"], 300)
+            self.assertEqual(self.feed.source_snapshot([u2])["fxtwitter.com"]["cooldown_seconds"], 90)
 
     def test_429_is_thirty_minute_shared_provider_pause(self):
         import requests
