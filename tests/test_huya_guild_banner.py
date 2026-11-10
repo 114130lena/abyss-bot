@@ -91,13 +91,13 @@ class HuyaGuildBannerTests(unittest.TestCase):
                 "all_used_post_ids": ["101"],
                 "all_used_sha256": [selected[1]["sha256"]]})
             self.assertEqual(pool["unused"], 0 if selected[1]["post_url"].endswith("/102") else 1)
-        # Every Huya gallery reserved for a guild banner must stay out of
-        # Huya notification fanart even before its scheduled turn.
+        # Future eligible guild artwork remains available to notifications;
+        # only posts actually used for guild banners are prohibited there.
         self.assertEqual(fanart_usage.server_reserved_post_ids("sakihane"),
                          {"101", "102"})
-        self.assertFalse(fanart_usage.notification_allowed(
+        self.assertTrue(fanart_usage.notification_allowed(
             "sakihane", self.queue["sakihane:101"]))
-        self.assertFalse(fanart_usage.notification_allowed(
+        self.assertTrue(fanart_usage.notification_allowed(
             "sakihane", self.queue["sakihane:102"]))
 
     def test_prior_huya_banner_post_stays_excluded_after_restart(self):
