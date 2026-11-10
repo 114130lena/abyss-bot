@@ -4,7 +4,8 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+import requests
 
 import discord_event_dedup as dedup
 import resilience
@@ -51,6 +52,72 @@ class EventLedgerTests(unittest.TestCase):
         send.assert_called_once()
         state=json.loads(dedup.LEDGER.read_text())
         self.assertEqual(state["cafe:431:123"]["status"],"uncertain")
+
+    def test_preconnect_failure_releases_only_safe_claim_for_next_poll(self):
+        payload = {"_abyss_event_key": "youtube:hanayo:preconnect"}
+        with patch.object(resilience, "_send_webhook_transport",
+                          side_effect=requests.ConnectTimeout("never connected")) as transport:
+            with self.assertRaises(requests.ConnectTimeout):
+                resilience.send_webhook("https://discord.com/api/webhooks/1/secret", payload)
+            self.assertFalse(dedup.LEDGER.is_file() and
+                             "youtube:hanayo:preconnect" in json.loads(
+                                 dedup.LEDGER.read_text()))
+            with self.assertRaises(requests.ConnectTimeout):
+                resilience.send_webhook("https://discord.com/api/webhooks/1/secret", payload)
+        self.assertEqual(transport.call_count, 2)
+
+    def test_uncertain_claim_cannot_be_released_as_preconnect(self):
+        key = "cafe:431:uncertain"
+        self.assertTrue(dedup.claim(key))
+        dedup.update(key, "uncertain")
+        self.assertFalse(dedup.release_preconnect(key))
+        self.assertFalse(dedup.claim(key))
+
+    def test_http_5xx_is_uncertain_and_never_double_posts(self):
+        response = Mock(status_code=502)
+        response.raise_for_status.side_effect = requests.HTTPError("Bad Gateway")
+        payload = {"_abyss_event_key": "cafe:431:502", "components": []}
+        with patch.object(resilience.requests, "post", return_value=response) as post, \
+             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \
+             patch.object(resilience, "_collect_x_video_attachments", return_value=[]), \
+             patch("delivery_review.record") as review:
+            with self.assertRaises(requests.HTTPError):
+                resilience.send_webhook("https://discord.com/api/webhooks/1/secret", payload)
+            self.assertIsNone(resilience.send_webhook(
+                "https://discord.com/api/webhooks/1/secret", payload))
+        post.assert_called_once()
+        review.assert_called_once()
+        state = json.loads(dedup.LEDGER.read_text(encoding="utf-8"))
+        self.assertEqual(state["cafe:431:502"]["status"], "uncertain")
+
+    def test_source_clock_metadata_never_reaches_discord(self):
+        accepted = Mock(status_code=200)
+        accepted.json.return_value = {"id": "123", "mention_roles": []}
+        payload = {"components": [], "_abyss_source_platform": "youtube",
+                   "_abyss_source_time": "2026-11-11T00:00:00Z"}
+        with patch.object(resilience.requests, "post", return_value=accepted) as post, \
+             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \
+             patch.object(resilience, "_collect_x_video_attachments", return_value=[]), \
+             patch("delivery_latency.record_source_lag") as metric:
+            resilience._send_webhook_transport(
+                "https://discord.com/api/webhooks/1/secret", payload)
+        actual = post.call_args.kwargs["json"]
+        self.assertNotIn("_abyss_source_platform", actual)
+        self.assertNotIn("_abyss_source_time", actual)
+        metric.assert_called_once_with("youtube", "2026-11-11T00:00:00Z")
+
+    def test_http_429_is_still_retryable(self):
+        limited = Mock(status_code=429)
+        limited.json.return_value = {"retry_after": 0}
+        accepted = Mock(status_code=200)
+        accepted.json.return_value = {"id": "123", "mention_roles": []}
+        with patch.object(resilience.requests, "post", side_effect=[limited, accepted]) as post, \
+             patch.object(resilience, "_collect_x_image_attachments", return_value=[]), \
+             patch.object(resilience, "_collect_x_video_attachments", return_value=[]), \
+             patch.object(resilience.time, "sleep"):
+            resilience._send_webhook_transport(
+                "https://discord.com/api/webhooks/1/secret", {"components": []})
+        self.assertEqual(post.call_count, 2)
 
     def test_corrupt_history_fails_closed(self):
         dedup.LEDGER.write_text("{broken", encoding="utf-8")

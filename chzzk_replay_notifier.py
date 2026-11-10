@@ -71,6 +71,8 @@ def notify(replay):
         replay=True, role_id=role_for("hanayo"), ping=True,
         handle=creator_handle("hanayo"), avatar=creator_avatar("hanayo"))
     message["_abyss_event_key"] = "chzzk-replay:hanayo:" + str(replay["id"])
+    message["_abyss_source_platform"] = "chzzk-replay"
+    message["_abyss_source_time"] = replay.get("date", "")
     send_webhook(thread_webhook_url(), message)
 
 def check_replays():

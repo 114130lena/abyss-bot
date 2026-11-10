@@ -77,6 +77,21 @@ def claim(key, now=None):
     return _locked(action)
 
 
+def release_preconnect(key):
+    """Only release a claim when transport proves no connection was established."""
+    if not isinstance(key, str) or not PATTERN.fullmatch(key):
+        raise ValueError("Invalid notification event identity")
+    def action():
+        history = _read()
+        if history.get(key, {}).get("status") != "pending":
+            return False
+        del history[key]
+        _write(history)
+        logging.info("DISCORD_PRECONNECT_CLAIM_RELEASED key=%s", key)
+        return True
+    return _locked(action)
+
+
 def update(key, status, now=None):
     if status not in ("sent", "uncertain"):
         raise ValueError("Unsupported event delivery status")

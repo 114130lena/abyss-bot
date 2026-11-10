@@ -212,6 +212,15 @@ def send_webhook(url, payload, attempts=3):
         outcome = _send_webhook_transport(url, cleaned, attempts)
         update(key, "sent")
         return outcome
+    except requests.ConnectTimeout:
+        # The transport only raises ConnectTimeout when no connection succeeded
+        # after its bounded retries. Release for a safe future source poll.
+        try:
+            from discord_event_dedup import release_preconnect
+            release_preconnect(key)
+        except (OSError, ValueError, TypeError):
+            logging.exception("DISCORD_PRECONNECT_RELEASE_FAILED key=%s", key)
+        raise
     except Exception:
         # Could have been accepted by Discord before failure or process death.
         try:
@@ -243,6 +252,8 @@ def _send_webhook_transport(url, payload, attempts=3):
             prepared.pop('_abyss_photo_unknown', None)
             prepared.pop('_abyss_has_video', None)
             prepared.pop('_abyss_verified_text_only', None)
+            source_lag_platform = prepared.pop('_abyss_source_platform', None)
+            source_lag_time = prepared.pop('_abyss_source_time', None)
             chosen = None
             selected_urls = None
             # X/Cafe posts with their own photos keep the original official banner.
@@ -333,7 +344,20 @@ def _send_webhook_transport(url, payload, attempts=3):
                                              files=uploaded, timeout=35)
             else:
                 response = requests.post(url, json=prepared, timeout=12)
-            if response.status_code not in (429, 500, 502, 503, 504):
+            # A 5xx response does not prove the Discord write failed. Retrying
+            # could create a second message or ping users twice. Fail closed:
+            # the caller retains its pre-send claim as uncertain for review.
+            if response.status_code in (500, 502, 503, 504):
+                logging.warning("DISCORD_DELIVERY_UNCERTAIN_HTTP status=%d; automatic_retry_blocked",
+                                response.status_code)
+                try:
+                    from delivery_review import record
+                    record(payload, "HTTP_" + str(response.status_code))
+                except (OSError, ValueError, TypeError) as exc:
+                    logging.warning("Delivery review journal unavailable: %s", type(exc).__name__)
+                response.raise_for_status()
+                raise requests.HTTPError("Ambiguous Discord 5xx delivery")
+            if response.status_code != 429:
                 response.raise_for_status()
                 if selected_urls:
                     try:
@@ -356,6 +380,13 @@ def _send_webhook_transport(url, payload, attempts=3):
                     except Exception as exc:
                         logging.warning("최근 랜덤 이미지 기록 실패: %s", exc)
                 _audit_role_mention(response, prepared)
+                # Only a confirmed HTTP success contributes to source-to-Discord timing.
+                try:
+                    if source_lag_platform and source_lag_time:
+                        from delivery_latency import record_source_lag
+                        record_source_lag(source_lag_platform, source_lag_time)
+                except (OSError, ValueError, TypeError) as exc:
+                    logging.warning("DISCORD_SOURCE_LAG_UNAVAILABLE reason=%s", type(exc).__name__)
                 logging.info("DISCORD_WEBHOOK_DELIVERED attempt=%d elapsed_seconds=%.2f files=%d",
                              attempt + 1, time.monotonic() - delivery_started,
                              len(x_photos) + len(x_videos) + (2 if chosen else 0) + (1 if local_fanart else 0))

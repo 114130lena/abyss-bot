@@ -107,6 +107,8 @@ def send_discord_notification(live):
         import hashlib
         stable = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
         payload["_abyss_event_key"] = "chzzk-live:" + str(live["channel_id"]) + ":" + stable
+    payload["_abyss_source_platform"] = "chzzk-live"
+    payload["_abyss_source_time"] = live.get("open_date", "")
     send_webhook(WEBHOOK_URL, payload)
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
 

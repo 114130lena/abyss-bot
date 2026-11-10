@@ -26,6 +26,30 @@ class DeliveryLatencyTests(unittest.TestCase):
                 "max_seconds", "last_seconds", "last_attachment_count", "slow_count"})
             self.assertNotIn("webhook", metrics.STATE.read_text())
 
+    def test_source_to_discord_latency_is_bounded_and_private(self):
+        from datetime import datetime, timezone
+        moment = datetime(2026, 11, 11, 0, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                metrics, "SOURCE_STATE", Path(directory) / "source.json"):
+            measured = metrics.record_source_lag(
+                "youtube", "Tue, 10 Nov 2026 23:58:00 GMT", moment)
+            self.assertEqual(measured, 120)
+            self.assertIsNone(metrics.record_source_lag(
+                "x-repost", "2026-10-01T00:00:00Z", moment))
+            self.assertIsNone(metrics.record_source_lag(
+                "unknown", "2026-11-10T23:58:00Z", moment))
+            summary = metrics.source_lag_summary()
+            self.assertEqual(summary["youtube"]["p50_seconds"], 120)
+            self.assertEqual(summary["youtube"]["samples"], 1)
+            self.assertEqual(set(json.loads(metrics.SOURCE_STATE.read_text())),
+                             {"youtube"})
+            self.assertNotIn("tweet", metrics.SOURCE_STATE.read_text())
+
+    def test_invalid_timestamps_do_not_invent_latency(self):
+        self.assertIsNone(metrics.parse_source_time("no date"))
+        self.assertIsNone(metrics.parse_source_time("2026-11-10 20:00"))
+        self.assertIsNone(metrics.parse_source_time(""))
+
     def test_not_yet_collected_is_unverified_not_healthy(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
                 metrics, "STATE", Path(directory) / "absent.json"):
