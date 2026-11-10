@@ -357,6 +357,16 @@ def banner_inventory(state=None):
             used.add(record["sha256"])
     used_posts = set(x for x in (state.get("all_used_post_ids") or [])
                      if isinstance(x, str) and x.isdigit())
+    # Notification art is shown far more often than guild art (08:00/18:00).
+    # Never rotate the guild banner to an already displayed notification post.
+    from fanart_discovery import BASE as fanart_base, read as read_fanart
+    from fanart_usage import canonical_post
+    notification_history = read_fanart(fanart_base / "fanart_url_used.json")
+    if isinstance(notification_history, dict):
+        for creator_history in notification_history.values():
+            if isinstance(creator_history, dict):
+                used_posts.update(pid for url in creator_history
+                                  if (pid := canonical_post(url)))
     disallowed = set(x for x in (state.get("server_banner_excluded_sha256") or [])
                      if isinstance(x, str) and x)
     unique = {sha: value for sha, value in unique.items() if sha not in disallowed}
