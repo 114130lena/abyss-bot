@@ -1,0 +1,70 @@
+name: Bluebird auth shadow status only
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  status:
+    if: ${{ github.event.issue.title == '[abyss-test] bluebird-auth-status' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Read-only inspect authenticated shadow, never read cookies
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/blue_auth_status_key
+          chmod 600 ~/.ssh/blue_auth_status_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/blue_auth_status_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo AUTH_STATUS_SERVICE
+          systemctl is-active chzzk-bot.service || true
+          echo AUTH_STATUS_FILE_METADATA
+          python3 - <<'PY'
+          from pathlib import Path
+          from datetime import datetime,timezone
+          import json,os,stat,time
+          base=Path('/home/ubuntu/bluebird-shadow')
+          secret=base/'private/x.cookies'
+          if secret.exists():
+              metadata=secret.stat()
+              print('AUTH_STATUS_COOKIE_PRESENT',True,'mode',oct(stat.S_IMODE(metadata.st_mode)),
+                    'owner_correct',metadata.st_uid==os.getuid(),
+                    'nonempty',metadata.st_size>0)
+          else:
+              print('AUTH_STATUS_COOKIE_PRESENT',False)
+          db=base/'private/twscraper.db'
+          print('AUTH_STATUS_DB_EXISTS',db.exists(),'db_bytes',db.stat().st_size if db.exists() else 0)
+          samples=base/'data/auth_samples.jsonl'
+          if samples.exists():
+              rows=[]
+              for line in samples.read_text(encoding='utf-8').splitlines()[-8:]:
+                  try:rows.append(json.loads(line))
+                  except ValueError:continue
+              print('AUTH_STATUS_SAMPLES',len(rows))
+              for row in rows:
+                  print('AUTH_STATUS_SAMPLE',row.get('account','?'),row.get('observed_at','?'),
+                        'ok',row.get('ok'), 'error',row.get('error','-'),
+                        'seconds',row.get('elapsed_seconds'),
+                        'originals',row.get('originals_count',0),
+                        'reposts',row.get('reposts_count',0))
+          else:
+              print('AUTH_STATUS_SAMPLES_MISSING')
+          PY
+          echo AUTH_STATUS_CONTAINER
+          if sudo docker container inspect abyss-bluebird-auth-shadow >/dev/null 2>&1; then
+            sudo docker inspect --format 'AUTH_STATUS_DOCKER running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} finished={{.State.FinishedAt}}' abyss-bluebird-auth-shadow
+            echo AUTH_STATUS_SAFE_APP_LOG_LINES
+            sudo docker logs --tail 90 abyss-bluebird-auth-shadow 2>&1 | grep -E '^AUTH_SHADOW_(STARTED|SAMPLE|STOPPED|INIT_FAILURE|NOT_CONFIGURED|STOP)|^AUTH_' || true
+          else
+            echo AUTH_STATUS_CONTAINER_MISSING
+          fi
+          echo AUTH_STATUS_END
+          REMOTE
