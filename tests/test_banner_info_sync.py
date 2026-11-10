@@ -124,7 +124,7 @@ class BannerInfoTests(unittest.TestCase):
             "banner_change_method": "봇 자동 교체"})
         parts = card["components"][0]["components"]
         full = "\n".join(p.get("content", "") for p in parts)
-        self.assertIn("**변경 방식** · 봇 자동 교체", full)
+        self.assertIn("**변경 방식** · 자동 업데이트 / 필요에따라 수정 교체", full)
         self.assertIn("**변경 시각** · 2026-11-08 18:00 KST", full)
         self.assertIn("@artist", full)
         self.assertIn(source, full)
@@ -135,6 +135,24 @@ class BannerInfoTests(unittest.TestCase):
         self.assertGreater(next(i for i,p in enumerate(parts) if p.get("type")==10 and
                                 "원본 작가" in p.get("content", "")),
                            next(i for i,p in enumerate(parts) if p.get("type")==12))
+
+    def test_one_off_manual_update_uses_same_public_policy_without_losing_provenance(self):
+        for method in ("봇 수동 명령 교체", "봇 자동 교체"):
+            with self.subTest(method=method):
+                state = {"banner_change_method": method,
+                         "banner_changed_at": "2026-11-10 09:00 KST"}
+                card = banner._banner_card("123456", "livehash", state)
+                full = str(card["components"])
+                self.assertIn("자동 업데이트 / 필요에따라 수정 교체", full)
+                self.assertNotIn(method, full)
+                self.assertEqual(state["banner_change_method"], method)
+
+    def test_unverified_external_change_is_not_mislabeled_as_bot_automation(self):
+        card = banner._banner_card("123456", "externalhash", {
+            "banner_change_method": "외부 변경 감지"})
+        self.assertIn("외부 변경 감지", str(card["components"]))
+        self.assertNotIn("자동 업데이트 / 필요에따라 수정 교체",
+                         str(card["components"]))
 
     def test_no_banner_still_has_source_fields_without_inventing_an_artist(self):
         card = banner._banner_card("123456", "", {"artist": "@old",
