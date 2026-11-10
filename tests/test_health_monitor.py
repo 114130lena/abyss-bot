@@ -81,6 +81,34 @@ class HealthWarningsTests(unittest.TestCase):
         self.assertNotIn("DUMMY_X_SECRET", serialized)
         self.assertNotIn("DUMMY_SECRET_TOKEN", serialized)
 
+    def test_quick_deployment_snapshot_skips_slow_banner_inventory(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(health_monitor, "ROOT", Path(folder)), \
+                 patch("guild_server_banner.collected_hanayo_art",
+                       side_effect=AssertionError("full inventory in quick probe")), \
+                 patch("guild_server_banner.collected_huya_art",
+                       side_effect=AssertionError("full inventory in quick probe")), \
+                 patch("guild_server_banner.approved_hanayo_art",
+                       side_effect=AssertionError("full inventory in quick probe")), \
+                 patch("guild_server_banner.banner_inventory",
+                       side_effect=AssertionError("full inventory in quick probe")), \
+                 patch("delivery_review.count_pending", return_value=0):
+                quick = health_monitor.snapshot(quick=True)
+        self.assertFalse(quick["banner"]["inventory_scanned"])
+        self.assertNotIn("total_eligible_candidates", quick["banner"])
+        self.assertIn("states", quick)
+        self.assertIn("clip", quick)
+
+    def test_deploy_workflow_has_bounded_quick_health_probe(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("snapshot(quick=True)", workflow)
+        self.assertIn('timeout --signal=TERM --kill-after=5s 50s "$BOT_PY"', workflow)
+        self.assertIn('inventory_scan=runtime_only', workflow)
+
     def test_verify_file_presence_in_cached_gallery_refs(self):
         import tempfile
         import json

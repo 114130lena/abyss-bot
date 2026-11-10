@@ -423,19 +423,14 @@ jobs:
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
           else BOT_PY=.venv-test/bin/python; fi
-          # A strict art-quality filter can legitimately leave fewer than two
-          # candidates. Never fail deployment or revive the retired legacy
-          # writer: the canonical scheduler safely holds the current banner.
+          # Runtime banner scheduler owns the exhaustive image quality/hash scan.
+          # Avoid repeating its multi-minute scan over SSH during every deploy.
+          # Low pool counts are safe: rotation already holds the current banner.
           "$BOT_PY" - <<'PY'
-          from dotenv import load_dotenv
-          load_dotenv("/home/ubuntu/chzzk-bot/.env")
-          from guild_server_banner import banner_inventory
-          pool = banner_inventory()
-          count = pool["total"]
-          print("BANNER_CANONICAL_POOL eligible=%d unused=%d minimum=2" % (
-              count, pool["unused"]))
-          if count < 2:
-              print("BANNER_CANONICAL_POOL_LOW safe_hold=true legacy_timer_must_remain_disabled")
+          from guild_server_banner import read_state
+          state = read_state()
+          print("BANNER_CONTROLLER_STATE scheduled_slot_present=%s used=%d inventory_scan=runtime_only" % (
+              bool(state.get("last_slot")), len(state.get("rotation_used") or [])))
           PY
           sudo systemctl is-active --quiet chzzk-bot.service
           if sudo systemctl list-unit-files --no-legend abyss-guild-banner.timer | grep -q 'abyss-guild-banner.timer'; then
@@ -454,23 +449,35 @@ jobs:
           SSH_USER: ${{ secrets.ORACLE_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' > bot-health.json <<'REMOTE'
+          # Two explicit deadlines plus SSH keepalives avoid silent 4-minute
+          # broken-pipe failures and expose a bounded, actionable probe error.
+          timeout --signal=TERM --kill-after=5s 85s \
+            ssh -o BatchMode=yes -o ConnectTimeout=15 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+              -i ~/.ssh/oracle_key -o IdentitiesOnly=yes \
+              "$SSH_USER@$SSH_HOST" 'bash -se' > bot-health.json <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/chzzk-bot
           if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
           else BOT_PY=.venv-test/bin/python; fi
-          "$BOT_PY" - <<'PY'
+          timeout --signal=TERM --kill-after=5s 50s "$BOT_PY" - <<'PY'
           import json
           from dotenv import load_dotenv
-          # The deploy probe runs in its own Python process. Without loading
-          # the same .env as main.py, configured flags and eligibility counts
-          # are falsely reported as disabled/defaults.
           load_dotenv("/home/ubuntu/chzzk-bot/.env")
           from health_monitor import snapshot
-          print(json.dumps(snapshot(), ensure_ascii=False, separators=(",", ":")))
+          print(json.dumps(snapshot(quick=True), ensure_ascii=False, separators=(",", ":")))
           PY
           REMOTE
+          # Never mistake an empty or incomplete snapshot for a successful probe.
           python3 -m json.tool bot-health.json > /dev/null
+          python3 - <<'PY'
+          import json
+          with open("bot-health.json", encoding="utf-8") as stream:
+              health = json.load(stream)
+          assert health.get("banner", {}).get("inventory_scanned") is False
+          assert "states" in health and "fanart" in health and "clip" in health
+          print("QUICK_PRODUCTION_HEALTH_VERIFIED")
+          PY
           echo '### Production health snapshot (counts/status only)' >> "$GITHUB_STEP_SUMMARY"
           echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
           cat bot-health.json >> "$GITHUB_STEP_SUMMARY"

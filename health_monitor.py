@@ -19,8 +19,12 @@ def _read(path, default):
         return default
 
 
-def snapshot():
-    """Report only counts and staleness, never keys, Discord tokens or user content."""
+def snapshot(*, quick=False):
+    """Report redacted health data; a quick deployment probe skips image hashing.
+
+    The periodic monitor still uses the complete inventory. Deploy verification
+    must not repeat multi-minute image scans or block a production rollout.
+    """
     now = time.time()
     files = {
         "youtube_seen": ROOT / "youtube_seen_videos.json",
@@ -175,18 +179,25 @@ def snapshot():
         bool(eligible_huya_banner(item)) for item in huya_posts)
     from delivery_review import count_pending
     result["discord_uncertain_deliveries"] = count_pending()
-    try:
-        from guild_server_banner import (collected_hanayo_art, collected_huya_art,
-                                         approved_hanayo_art, banner_inventory)
-        result["banner"]["collected_candidates"] = (
-            len(collected_hanayo_art()) + len(collected_huya_art()))
-        result["banner"]["approved_candidates"] = len(approved_hanayo_art())
-        available = banner_inventory(banner)
-        result["banner"]["unused_candidates"] = available["unused"]
-        result["banner"]["total_eligible_candidates"] = available["total"]
-        result["banner"]["unused_by_group"] = available.get("unused_by_group", {})
-    except (OSError, ValueError, ImportError) as exc:
-        logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
+    if quick:
+        # This is the only expensive stage: inventory reads and hashes every
+        # local cached image repeatedly. Keep it in periodic full snapshots,
+        # never in a time-bounded SSH deploy probe. Missing counts are NOT zero.
+        result["banner"]["inventory_scanned"] = False
+    else:
+        try:
+            from guild_server_banner import (collected_hanayo_art, collected_huya_art,
+                                             approved_hanayo_art, banner_inventory)
+            result["banner"]["collected_candidates"] = (
+                len(collected_hanayo_art()) + len(collected_huya_art()))
+            result["banner"]["approved_candidates"] = len(approved_hanayo_art())
+            available = banner_inventory(banner)
+            result["banner"]["unused_candidates"] = available["unused"]
+            result["banner"]["total_eligible_candidates"] = available["total"]
+            result["banner"]["unused_by_group"] = available.get("unused_by_group", {})
+            result["banner"]["inventory_scanned"] = True
+        except (OSError, ValueError, ImportError) as exc:
+            logging.warning("ABYSS_BANNER_CANDIDATE_COUNT_UNAVAILABLE reason=%s", type(exc).__name__)
     from fanart_vision import enabled as vision_enabled, ready as vision_ready
     result["banner"]["vision_enabled"] = vision_enabled()
     result["banner"]["vision_ready"] = vision_ready()
