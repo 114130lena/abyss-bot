@@ -73,7 +73,6 @@ jobs:
             --read-only --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" --network bridge \
             --mount "type=bind,src=$BASE/scripts/bluebird_auth_shadow_probe.py,dst=/probe/bluebird_auth_shadow_probe.py,readonly" \
-            --mount "type=bind,src=$COOKIE,dst=/run/secrets/x.cookies,readonly" \
             --mount "type=bind,src=$BASE/private,dst=/private" \
             --mount "type=bind,src=$BASE/data,dst=/results" \
             --tmpfs /tmp:rw,nosuid,size=32m \
