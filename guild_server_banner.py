@@ -854,6 +854,99 @@ def slot(now=None):
     return now.strftime("%Y-%m-%d %H:%M") if (now.hour, now.minute) in SLOTS else None
 
 
+def _prepared_banner_paths():
+    root = media_base()
+    return root / "guild_banner_prepared.json", root / "guild_banner_prepared.jpg"
+
+
+def _upcoming_banner_slot(now):
+    """Prepare between :45 and the next 08:00 / 18:00, never in the night."""
+    if now.hour == 7 and now.minute >= 45:
+        return now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if now.hour == 17 and now.minute >= 45:
+        return now.replace(hour=18, minute=0, second=0, microsecond=0)
+    return None
+
+
+def prepare_next_banner(now=None):
+    """Expensive candidate filtering and JPEG conversion happen before the slot.
+
+    This does not reserve or mark an image as USED. Eligibility is checked again
+    using lightweight usage records at commit time.
+    """
+    now = (now or datetime.now(KST)).astimezone(KST)
+    target = _upcoming_banner_slot(now)
+    if target is None:
+        return {"status": "outside_prepare_window"}
+    manifest, image_path = _prepared_banner_paths()
+    key = target.strftime("%Y-%m-%d %H:%M")
+    if manifest.exists():
+        try:
+            cached = json.loads(manifest.read_text("utf-8"))
+            if (cached.get("slot") == key and image_path.is_file()
+                    and hashlib.sha256(image_path.read_bytes()).hexdigest() == cached.get("jpeg_sha256")):
+                return {"status": "ready", "slot": key}
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    state = read_state()
+    selected, history, total, remaining = rotation_selection(
+        state.get("last_sha256"), state.get("rotation_used", []), state=state)
+    if selected is None:
+        return {"status": "no_unused_candidate", "slot": key, "candidate_total": total}
+    source, meta = selected
+    image = convert_banner(source)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    temporary_image = image_path.with_suffix(".jpg.tmp")
+    temporary_image.write_bytes(image)
+    temporary_image.replace(image_path)
+    record = {"slot": key, "sha256": meta["sha256"],
+              "artist": meta.get("artist"), "group": meta.get("group", "hanayo"),
+              "post_url": meta.get("post_url"), "rotation_used": history,
+              "candidate_total": total, "remaining_after": remaining,
+              "jpeg_sha256": hashlib.sha256(image).hexdigest()}
+    temp = manifest.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    temp.replace(manifest)
+    logging.info("SERVER_BANNER_PREPARED slot=%s candidate_total=%d", key, total)
+    return {"status": "prepared", "slot": key, "candidate_total": total}
+
+
+def _load_prepared_banner(current_slot, state):
+    """Fast-path prepared JPEG, refusing stale or consumed artwork."""
+    from fanart_usage import canonical_post
+    from fanart_discovery import BASE as fanart_base, read as read_fanart
+    manifest, image_path = _prepared_banner_paths()
+    try:
+        record = json.loads(manifest.read_text("utf-8"))
+        if not isinstance(record, dict) or record.get("slot") != current_slot:
+            return None
+        sha = record.get("sha256")
+        post_id = canonical_post(record.get("post_url"))
+        if not isinstance(sha, str) or not sha or not post_id:
+            return None
+        used_sha = set(state.get("all_used_sha256") or [])
+        used_sha.update(state.get("rotation_used") or [])
+        used_sha.add(state.get("last_sha256"))
+        if sha in used_sha or sha in (state.get("server_banner_excluded_sha256") or []):
+            return None
+        if post_id in (state.get("all_used_post_ids") or []):
+            return None
+        # Check the notification ledger without decoding/hash scanning the art
+        # collection, to avoid accidentally reusing a notification image.
+        history = read_fanart(fanart_base / "fanart_url_used.json")
+        if isinstance(history, dict):
+            for entries in history.values():
+                if isinstance(entries, dict) and any(
+                        canonical_post(url) == post_id for url in entries):
+                    return None
+        image = image_path.read_bytes()
+        if hashlib.sha256(image).hexdigest() != record.get("jpeg_sha256"):
+            return None
+        return record, image
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
 def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
                 apply_deadline=None):
     """Scheduled writes are bounded; manual tests only record successful changes."""
@@ -863,8 +956,20 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
     previous = read_state()
     if current_slot and not manual and previous.get("last_slot") == current_slot:
         return {"status": "already_rotated"}
-    selected, rotation_used, candidate_total, remaining = rotation_selection(
-        previous.get("last_sha256"), previous.get("rotation_used", []), state=previous)
+    prepared = None if manual or dry_run else _load_prepared_banner(current_slot, previous)
+    if prepared is not None:
+        prepared_meta, image = prepared
+        metadata = {k: prepared_meta.get(k) for k in
+                    ("sha256", "artist", "group", "post_url")}
+        selected = ("preconverted", metadata)
+        rotation_used = list(dict.fromkeys(
+            [*(previous.get("rotation_used") or []), metadata["sha256"]]))
+        candidate_total = prepared_meta.get("candidate_total", 1)
+        remaining = prepared_meta.get("remaining_after", 0)
+        logging.info("SERVER_BANNER_PREPARED_APPLY slot=%s", current_slot)
+    else:
+        selected, rotation_used, candidate_total, remaining = rotation_selection(
+            previous.get("last_sha256"), previous.get("rotation_used", []), state=previous)
     if selected is None:
         if candidate_total:
             logging.info("SERVER_BANNER_ROTATION_EXHAUSTED total=%d; new fanart required",
@@ -879,7 +984,8 @@ def rotate_once(*, manual=False, dry_run=False, now=None, preview_path=None,
     source, metadata = selected
     logging.info("SERVER_BANNER_PICK candidates=%d remaining=%d artist=%s source=%s",
                  candidate_total, remaining, metadata.get("artist", ""), metadata.get("post_url", ""))
-    image = convert_banner(source)
+    if prepared is None:
+        image = convert_banner(source)
     if preview_path is not None:
         destination = Path(preview_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1135,6 +1241,15 @@ def run_server_banner_scheduler():
     while True:
         try:
             now_slot = slot()
+            # Prepare heavy images 15 minutes early; do not block notification
+            # workers at the scheduled change. A failed preparation is retried.
+            now_kst = datetime.now(KST)
+            if _upcoming_banner_slot(now_kst):
+                if not hasattr(run_server_banner_scheduler, "_next_preparation_attempt") or time.monotonic() >= run_server_banner_scheduler._next_preparation_attempt:
+                    run_server_banner_scheduler._next_preparation_attempt = time.monotonic() + 60
+                    preparation = prepare_next_banner(now_kst)
+                    if preparation.get("status") != "ready":
+                        logging.info("server-banner preparation: %s", preparation)
             result = retry_scheduled_banner_once()
             if result.get("status") not in ("no_pending_slot", "retry_waiting"):
                 logging.info("server-banner result: %s", result)
