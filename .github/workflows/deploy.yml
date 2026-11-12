@@ -45,6 +45,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m unittest discover -s tests -p 'test_x_*.py' -v
           python -m unittest discover -s tests -p 'test_global_notification_idempotency.py' -v
+          python -m unittest discover -s tests -p 'test_delivery_latency.py' -v
           python -m unittest discover -s tests -p 'test_chzzk_fanart_fastpath.py' -v
           python -m unittest discover -s tests -p 'test_restore_local_fanart.py' -v
           python -m unittest discover -s tests -p 'test_banner_cache_repair.py' -v

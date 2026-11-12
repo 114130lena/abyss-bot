@@ -67,6 +67,23 @@ SOURCE_LIMIT = 100
 
 def parse_source_time(raw):
     """Accept ISO8601 or RFC2822 only; never guess local timezone."""
+    # Naver Cafe may supply epoch milliseconds as an integer or digit text.
+    # Accept only explicit seconds/milliseconds epochs, never guess local time.
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)) or (
+            isinstance(raw, str) and raw.strip().isdigit()):
+        try:
+            value = float(raw)
+            if not value.is_integer():
+                return None
+            epoch = value / 1000 if value >= 10**12 else value
+            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+            if not 2000 <= dt.year <= 2100:
+                return None
+            return dt
+        except (ValueError, OverflowError, OSError):
+            return None
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:

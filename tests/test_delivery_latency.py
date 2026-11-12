@@ -50,6 +50,21 @@ class DeliveryLatencyTests(unittest.TestCase):
         self.assertIsNone(metrics.parse_source_time("2026-11-10 20:00"))
         self.assertIsNone(metrics.parse_source_time(""))
 
+    def test_cafe_epoch_seconds_and_milliseconds_are_measured(self):
+        from datetime import datetime, timezone
+        moment = datetime(2026, 11, 12, 12, 0, tzinfo=timezone.utc)
+        published = int(datetime(2026, 11, 12, 11, 59, tzinfo=timezone.utc).timestamp())
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                metrics, "SOURCE_STATE", Path(directory) / "source.json"):
+            self.assertEqual(metrics.record_source_lag("cafe", published * 1000, moment), 60)
+            self.assertEqual(metrics.record_source_lag("cafe", str(published * 1000), moment), 60)
+            self.assertEqual(metrics.record_source_lag("cafe", published, moment), 60)
+            self.assertEqual(metrics.source_lag_summary()["cafe"]["samples"], 3)
+            self.assertIsNone(metrics.parse_source_time(True))
+            self.assertIsNone(metrics.parse_source_time("1234"))
+            self.assertIsNone(metrics.parse_source_time("202611121159"))
+            self.assertIsNone(metrics.parse_source_time(1.5))
+
     def test_not_yet_collected_is_unverified_not_healthy(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
                 metrics, "STATE", Path(directory) / "absent.json"):
