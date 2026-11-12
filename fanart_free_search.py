@@ -22,6 +22,7 @@ STATE = BASE / "fanart_free_sources_state.json"
 POST = re.compile(r"https?://(?:www\.)?(?:x\.com|twitter\.com)/([A-Za-z0-9_]{1,15})/status/(\d{2,20})(?:[/?#]|$)", re.I)
 MAX_ITEMS = 20
 MAX_FETCHES = 12
+MAX_FETCHES_PER_GROUP = 6  # Prevent one creator exhausting both budgets.
 MAX_XML_BYTES = 1_000_000
 # Public instances are unstable; allow only named operators' explicit hosts.
 NITTER_HOSTS = {"nitter.mie.foundation", "nitter.mizuki.st", "nitter.jaydenha.uk"}
@@ -83,8 +84,10 @@ def _x_post_url(value, nitter_host=None):
 def _source_urls(tag):
     # A simple web-index query. RSS feeds are only hints; verify every hit.
     q = quote('site:x.com/ "' + "#" + tag + '"', safe="")
+    legacy_q = quote('site:twitter.com/ "' + "#" + tag + '"', safe="")
     return {
         "bing_index": "https://www.bing.com/search?q=" + q + "&format=rss",
+        "bing_legacy_index": "https://www.bing.com/search?q=" + legacy_q + "&format=rss",
         "google_news_index": "https://news.google.com/rss/search?q=" + q,
     }
 
@@ -114,7 +117,7 @@ def _discover_index(name, endpoint, group, tag, session, queue, seen_ids, allowa
     response.raise_for_status()
     examined, added, duplicates, verified = 0, 0, 0, 0
     for item in _rss(response.content):
-        if allowance[0] >= MAX_FETCHES:
+        if allowance[0] >= MAX_FETCHES_PER_GROUP:
             break
         for candidate in _links(item):
             post = _x_post_url(candidate, urlsplit(endpoint).hostname if name.startswith("nitter_") else None)
@@ -169,8 +172,14 @@ def discover(session=None, now=None):
     queue = read(QUEUE)
     results = {}
     seen_ids = set()
-    allowance = [0]
+    total_lookups = 0
+    new_artist_counts = {}
     for group, tag in TAGS.items():
+        allowance = [0]
+        before = set(queue)
+        known_artists = {str(item.get("artist") or "").casefold()
+                         for item in queue.values()
+                         if isinstance(item, dict) and item.get("group") == group}
         results[group] = {}
         urls = _source_urls(tag)
         for host in _nitter_feeds():
@@ -187,11 +196,16 @@ def discover(session=None, now=None):
                                 group, source, type(exc).__name__)
                 results[group][source] = {"status": "unavailable", "added": 0,
                                           "error": type(exc).__name__}
-    # Monitoring never claims completeness; web-index snippets can omit
-    # newest posts and a successful RSS fetch may have zero usable X links.
+        total_lookups += allowance[0]
+        new_artists = {str(item.get("artist") or "").casefold()
+                       for key, item in queue.items() if key not in before
+                       and isinstance(item, dict) and item.get("group") == group}
+        new_artist_counts[group] = len(new_artists - known_artists)
+    # Index coverage is always partial, even when every feed responds.
     status = {"checked_at": now.isoformat(),
               "groups": results, "coverage_verified": False,
               "status": "partial_index_only",
-              "post_lookups": allowance[0]}
+              "post_lookups": total_lookups,
+              "new_artists": new_artist_counts}
     write(STATE, status)
     return status

@@ -10,6 +10,21 @@ import fanart_discovery
 
 
 class FreeFanartRefreshTests(unittest.TestCase):
+    def test_artist_watch_runs_even_if_global_index_responds(self):
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.dict(os.environ, {"FANART_FX_SEARCH_ENABLED": "1",
+                 "FANART_FREE_INDEX_SEARCH_ENABLED": "1",
+                 "FANART_ARTIST_WATCH_ENABLED": "1",
+                 "FANART_CACHE_CANDIDATES": "0"}), \
+             patch("fanart_fx_rss.run", return_value={}), \
+             patch("fanart_fx_search.discover", return_value={"status": "ok"}), \
+             patch("fanart_free_search.discover", return_value={"status": "partial_index_only"}), \
+             patch("fanart_artist_watch.discover", return_value={"added": 0}) as watcher, \
+             patch("fanart_global_sources.update"), \
+             patch.object(fanart_discovery, "BASE", Path(folder)):
+            fanart_refresh.check_fanart()
+        watcher.assert_called_once()
+
     def test_no_paid_requests_even_when_old_flag_is_on(self):
         with tempfile.TemporaryDirectory() as folder, \
              patch.dict(os.environ, {

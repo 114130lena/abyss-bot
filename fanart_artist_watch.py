@@ -7,7 +7,7 @@ to cover every hashtag author. Preserve X post provenance and gallery URLs.
 import html
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
@@ -105,8 +105,30 @@ def discover(session=None, max_artists=MAX_ARTISTS_PER_GROUP):
                          key=str.casefold)
         previous = state.get(group) if isinstance(state.get(group), dict) else {}
         start = int(previous.get("cursor", 0)) % len(artists) if artists else 0
-        selected = [artists[(start + i) % len(artists)]
-                    for i in range(min(max(0, int(max_artists)), len(artists)))]
+        limit = min(max(0, int(max_artists)), len(artists))
+        # Reserve at most one slot for a newly discovered artist (<24h);
+        # keep other slots round-robin so established artists are not starved.
+        now = datetime.now(timezone.utc)
+        recent = []
+        for item in queue.values():
+            if not isinstance(item, dict) or item.get("group") != group:
+                continue
+            artist = str(item.get("artist") or "").lstrip("@")
+            if not HANDLES.fullmatch(artist) or artist.casefold() in OFFICIAL:
+                continue
+            stamp = item.get("discovered_at")
+            try:
+                moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if moment.tzinfo and timedelta(0) <= now - moment <= timedelta(hours=24):
+                    recent.append((moment, artist))
+            except (AttributeError, ValueError, TypeError, OverflowError):
+                continue
+        recent.sort(key=lambda x: x[0], reverse=True)
+        selected = [recent[0][1]] if recent and limit else []
+        rotated = [artists[(start + i) % len(artists)] for i in range(len(artists))]
+        selected.extend(a for a in rotated if a.casefold() not in {v.casefold() for v in selected})
+        selected = selected[:limit]
+        advance = max(1, limit - bool(recent)) if limit else 0
         added = 0
         success = 0
         for artist in selected:
@@ -128,7 +150,7 @@ def discover(session=None, max_artists=MAX_ARTISTS_PER_GROUP):
                          "status": ("no_known_artists" if not artists else
                                     "ok" if success == len(selected) else "partial")}
         total += added
-        state[group] = {"cursor": ((start + len(selected)) % len(artists) if artists else 0)}
+        state[group] = {"cursor": ((start + advance) % len(artists) if artists else 0)}
     state["checked_at"] = datetime.now(timezone.utc).isoformat()
     state["groups"] = groups
     write(STATE, state)

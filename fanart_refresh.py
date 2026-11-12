@@ -58,10 +58,9 @@ def check_fanart():
         except (OSError, ValueError, TypeError, requests.RequestException):
             logging.exception("FANART_FREE_INDEX_UNAVAILABLE; existing queue preserved")
 
-    # Global X hashtag search may be unavailable while media feeds of artists
-    # already recorded in the queue remain accessible. Rotating accounts
-    # preserve the original post and attached images; not global coverage.
-    if global_search_failed and os.getenv("FANART_ARTIST_WATCH_ENABLED", "1") == "1":
+    # Even responding global indexes can miss newer posts. Always run the
+    # bounded artist watch to backfill verified authors, including new ones.
+    if os.getenv("FANART_ARTIST_WATCH_ENABLED", "1") == "1":
         try:
             from fanart_artist_watch import discover as watch_artists
             logging.info("FANART_DISCOVERY_ARTIST_FALLBACK result=%s", watch_artists())

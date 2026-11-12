@@ -60,6 +60,23 @@ class ArtistWatchTests(unittest.TestCase):
         self.assertNotIn("hanayo:987654322", queue)
         self.assertEqual(len(queue["hanayo:987654321"]["image_urls"]), 1)
 
+    def test_prioritizes_recent_new_artist_and_preserves_rotation(self):
+        from datetime import datetime, timezone
+        self.qpath.write_text(json.dumps({
+            "hanayo:111": {"group": "hanayo", "artist": "@aa_old"},
+            "hanayo:112": {"group": "hanayo", "artist": "@bb_old"},
+            "hanayo:113": {"group": "hanayo", "artist": "@zz_new",
+                "discovered_at": datetime.now(timezone.utc).isoformat()}
+        }))
+        client = Mock()
+        client.get.return_value = json_response([])
+        result = watch.discover(session=client, max_artists=2)
+        self.assertEqual(result["groups"]["hanayo"]["checked"], 2)
+        urls = [call.args[0] for call in client.get.call_args_list]
+        self.assertTrue(any("/zz_new/media" in url for url in urls))
+        self.assertTrue(any("/aa_old/media" in url for url in urls))
+        self.assertEqual(json.loads(self.spath.read_text())["hanayo"]["cursor"], 1)
+
     def test_json_timeout_falls_back_to_documented_rss_media(self):
         rss = ('<rss><channel><item>'
                '<link>https://x.com/fan_artist/status/987654321</link>'

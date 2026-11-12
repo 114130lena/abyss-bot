@@ -56,7 +56,7 @@ class FreeSourceTests(unittest.TestCase):
         # hiyori Bing, verified status, hiyori Google, huya Bing, huya Google
         session.get.side_effect = [
             response(rss_data), response(json_value=post("1234567890", "hiyoriart_")),
-            response(rss_data), response(rss([])), response(rss([]))]
+            response(rss_data), response(rss_data), response(rss([])), response(rss([]))]
         result = free.discover(session=session)
         queue = json.loads(free.QUEUE.read_text())
         self.assertEqual(len(queue), 1)
@@ -65,7 +65,8 @@ class FreeSourceTests(unittest.TestCase):
                          ["https://pbs.twimg.com/media/test.jpg"])
         self.assertEqual(result["groups"]["hanayo"]["bing_index"]["added"], 1)
         self.assertEqual(result["groups"]["hanayo"]["google_news_index"]["added"], 0)
-        self.assertEqual(session.get.call_count, 5)
+        self.assertEqual(session.get.call_count, 6)
+        self.assertEqual(result['new_artists'], {'hanayo': 1, 'sakihane': 0})
         self.assertFalse(result["coverage_verified"])
 
     def test_no_photo_or_wrong_tag_never_added(self):
@@ -74,9 +75,31 @@ class FreeSourceTests(unittest.TestCase):
         session.get.side_effect = [
             response(rss([link])),
             response(json_value=post("1234567890", "unrelated")),
-            response(rss([])), response(rss([])), response(rss([]))]
+            response(rss([])), response(rss([])), response(rss([])), response(rss([]))]
         free.discover(session=session)
         self.assertFalse(free.QUEUE.exists())
+
+    def test_both_groups_receive_lookup_budget(self):
+        ids = [str(1000000000+i) for i in range(8)]
+        def fetch(url, **kwargs):
+            if "/status/" in url:
+                post_id = url.rsplit("/", 1)[-1]
+                huya = post_id == "2000000000"
+                return response(json_value=post(post_id,
+                    "huyart" if huya else "hiyoriart_",
+                    "new_huya" if huya else "new_hiyo"))
+            if "hiyoriart_" in url:
+                return response(rss(["https://x.com/new_hiyo/status/"+i for i in ids]))
+            return response(rss(["https://x.com/new_huya/status/2000000000"]))
+        client = Mock()
+        client.get.side_effect = fetch
+        result = free.discover(client)
+        self.assertEqual(result["post_lookups"], 7)
+        self.assertEqual(result["new_artists"], {"hanayo": 1, "sakihane": 1})
+        queue = json.loads(free.QUEUE.read_text())
+        self.assertEqual(sum(k.startswith("hanayo:") for k in queue), 6)
+        self.assertEqual(sum(k.startswith("sakihane:") for k in queue), 1)
+        self.assertFalse(result["coverage_verified"])
 
     def test_no_untrusted_redirect_urls(self):
         self.assertIsNone(free._x_post_url("https://evil.example/redirect?to=https://x.com/a/status/1234"))
