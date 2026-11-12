@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import threading
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ from resilience import load_json, save_json, send_webhook, warn_failure
 BASE_DIR = Path("/home/ubuntu/chzzk-bot")
 CHANNELS_FILE = BASE_DIR / "channels.txt"
 LIVE_STATE_FILE = BASE_DIR / "live_state.json"
+LIVE_OUTBOX_FILE = BASE_DIR / "chzzk_live_outbox.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 POLL_INTERVAL = max(10, int(os.getenv("POLL_INTERVAL", "10")))
 
@@ -92,6 +94,15 @@ def get_live_info(channel_id):
     }
 
 
+def live_event_key(live):
+    """Stable per-stream identity; never deduplicate solely by channel."""
+    session_id = str(live.get("live_id") or live.get("open_date") or "").strip()
+    if not session_id:
+        raise ValueError("CHZZK_OPEN_WITHOUT_SESSION_ID: cannot safely deduplicate live alert")
+    stable = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
+    return "chzzk-live:" + str(live["channel_id"]) + ":" + stable
+
+
 def send_discord_notification(live):
     group = chzzk_group(live["channel_id"])
     role_id = role_for(group)
@@ -102,22 +113,119 @@ def send_discord_notification(live):
         category=live.get("category", ""), date=live.get("open_date", ""),
         handle=creator_handle(group), avatar=live.get("avatar") or creator_avatar(group),
         chzzk_channel_id=live["channel_id"])
-    session_id = str(live.get("live_id") or live.get("open_date") or "").strip()
-    if session_id:
-        import hashlib
-        stable = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:32]
-        payload["_abyss_event_key"] = "chzzk-live:" + str(live["channel_id"]) + ":" + stable
+    key = live_event_key(live)
+    payload["_abyss_event_key"] = key
     payload["_abyss_source_platform"] = "chzzk-live"
     payload["_abyss_source_time"] = live.get("open_date", "")
     send_webhook(WEBHOOK_URL, payload)
+    from discord_event_dedup import get_status
+    if get_status(key) != "sent":
+        raise RuntimeError("CHZZK_DELIVERY_UNVERIFIED: Discord event is not marked sent")
     logging.info("%s 디스코드 알림 전송 성공", live["name"])
+    return True
 
 
+_live_outbox_lock = threading.RLock()
+_live_delivery_inflight = set()
 _chzzk_failures = {}
 
 
+def _read_live_outbox():
+    outbox = load_json(LIVE_OUTBOX_FILE, {})
+    if not isinstance(outbox, dict):
+        raise ValueError("CHZZK_LIVE_OUTBOX_INVALID: manual recovery required")
+    return outbox
+
+
+def queue_live_notification(live):
+    """Persist alert intent before advancing live_state; delivery runs off-poll."""
+    key = live_event_key(live)
+    from discord_event_dedup import get_status
+    with _live_outbox_lock:
+        outbox = _read_live_outbox()
+        if key in outbox:
+            return key
+        previous = get_status(key)
+        if previous is not None:
+            # Never retry an already-sent or potentially accepted Discord event.
+            logging.warning("CHZZK_EVENT_ALREADY_CLAIMED key=%s status=%s", key, previous)
+            return key
+        fields = ("channel_id", "live_id", "name", "avatar", "status",
+                  "title", "category", "thumbnail", "open_date", "url")
+        outbox[key] = {
+            "live": {name: live.get(name, "") for name in fields},
+            "status": "queued", "retries": 0, "retry_at": 0,
+        }
+        save_json(LIVE_OUTBOX_FILE, outbox)
+    logging.info("CHZZK_LIVE_QUEUED key=%s source_open=%s", key, live.get("open_date", ""))
+    return key
+
+
+def _deliver_live_notification(key):
+    """A failed/slow Discord webhook must never block status polling."""
+    try:
+        with _live_outbox_lock:
+            item = _read_live_outbox().get(key)
+            if not isinstance(item, dict) or item.get("status") != "queued":
+                return
+            live = dict(item["live"])
+        try:
+            send_discord_notification(live)
+        except Exception as exc:
+            logging.warning("CHZZK_DELIVERY_ERROR key=%s reason=%s", key, type(exc).__name__)
+        from discord_event_dedup import get_status
+        status = get_status(key)
+        with _live_outbox_lock:
+            outbox = _read_live_outbox()
+            item = outbox.get(key)
+            if not isinstance(item, dict):
+                return
+            if status == "sent":
+                outbox.pop(key)
+                logging.info("CHZZK_OUTBOX_DELIVERED key=%s", key)
+            elif status in ("pending", "uncertain"):
+                # A crash/read timeout/5xx may already have pinged Discord.
+                # Freeze for human reconciliation instead of duplicate sending.
+                item["status"] = "needs_review"
+                logging.error("CHZZK_OUTBOX_NEEDS_REVIEW key=%s ledger=%s", key, status)
+            else:
+                retries = max(0, min(int(item.get("retries", 0)), 30)) + 1
+                item["retries"] = retries
+                item["retry_at"] = time.time() + min(60, 2 ** min(retries + 1, 6))
+                logging.warning("CHZZK_OUTBOX_SAFE_RETRY key=%s attempt=%s", key, retries)
+            save_json(LIVE_OUTBOX_FILE, outbox)
+    except Exception:
+        logging.exception("CHZZK_OUTBOX_DELIVERY_WORKER_FAILURE key=%s", key)
+    finally:
+        with _live_outbox_lock:
+            _live_delivery_inflight.discard(key)
+
+
+def run_chzzk_delivery():
+    """Bounded independent delivery workers, with durable restart recovery."""
+    while True:
+        try:
+            with _live_outbox_lock:
+                outbox = _read_live_outbox()
+                for key, item in outbox.items():
+                    if len(_live_delivery_inflight) >= 4:
+                        break
+                    if (key in _live_delivery_inflight
+                            or not isinstance(item, dict)
+                            or item.get("status") != "queued"
+                            or float(item.get("retry_at", 0)) > time.time()):
+                        continue
+                    _live_delivery_inflight.add(key)
+                    threading.Thread(target=_deliver_live_notification, args=(key,),
+                                     name="chzzk-discord-delivery", daemon=True).start()
+        except Exception:
+            logging.exception("CHZZK_OUTBOX_DISPATCH_FAILURE")
+        time.sleep(1)
+
+
+
 def check_chzzk_once(state):
-    """Fetch channels concurrently; serialize session state and Discord dedup."""
+    """Poll channels concurrently; never wait for Discord notification delivery."""
     channels = load_channels()
     if not channels:
         return
@@ -143,7 +251,7 @@ def check_chzzk_once(state):
                 should_notify = (status == "OPEN" and bool(previous)
                                  and (not previously_open or changed_session))
                 if should_notify:
-                    send_discord_notification(live)
+                    queue_live_notification(live)
                 state[channel_id] = {
                     "status": status,
                     "live_id": live_id if status == "OPEN" else "",
@@ -216,6 +324,8 @@ def main():
     state = load_json(LIVE_STATE_FILE, {})
     if not isinstance(state, dict):
         raise SystemExit("live_state.json 형식이 올바르지 않습니다.")
+    threading.Thread(target=run_chzzk_delivery, name="chzzk-delivery-outbox",
+                     daemon=True).start()
     # Each checker retains its own internal polling interval.
     workers = [
         ("네이버 카페", check_cafe),
