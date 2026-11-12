@@ -56,7 +56,7 @@ class FreeSourceTests(unittest.TestCase):
         # hiyori Bing, verified status, hiyori Google, huya Bing, huya Google
         session.get.side_effect = [
             response(rss_data), response(json_value=post("1234567890", "hiyoriart_")),
-            response(rss_data), response(rss_data), response(rss([])), response(rss([]))]
+            response(rss_data), response(rss_data), response(rss([])), response(rss([])), response(rss([]))]
         result = free.discover(session=session)
         queue = json.loads(free.QUEUE.read_text())
         self.assertEqual(len(queue), 1)
@@ -65,7 +65,7 @@ class FreeSourceTests(unittest.TestCase):
                          ["https://pbs.twimg.com/media/test.jpg"])
         self.assertEqual(result["groups"]["hanayo"]["bing_index"]["added"], 1)
         self.assertEqual(result["groups"]["hanayo"]["google_news_index"]["added"], 0)
-        self.assertEqual(session.get.call_count, 6)
+        self.assertEqual(session.get.call_count, 7)
         self.assertEqual(result['new_artists'], {'hanayo': 1, 'sakihane': 0})
         self.assertFalse(result["coverage_verified"])
 
@@ -75,7 +75,7 @@ class FreeSourceTests(unittest.TestCase):
         session.get.side_effect = [
             response(rss([link])),
             response(json_value=post("1234567890", "unrelated")),
-            response(rss([])), response(rss([])), response(rss([])), response(rss([]))]
+            response(rss([])), response(rss([])), response(rss([])), response(rss([])), response(rss([]))]
         free.discover(session=session)
         self.assertFalse(free.QUEUE.exists())
 
