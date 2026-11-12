@@ -44,10 +44,10 @@ class CrossPlatformTitleLinkTests(unittest.TestCase):
                 "open_date": "2026-11-05"}
         with patch.object(main, "load_channels", return_value=[cid]), \
              patch.object(main, "get_live_info", return_value=live), \
-             patch.object(main, "send_discord_notification") as sent, \
+             patch.object(main, "queue_live_notification") as queued, \
              patch.object(main, "save_json"):
             main.check_chzzk_once(state)
-        sent.assert_called_once()
+        queued.assert_called_once()
         self.assertEqual(state[cid]["live_id"], "102")
 
     def test_link_destinations_all_platform_titles_and_footer(self):
@@ -1016,3 +1016,111 @@ class CrossPlatformLowLatencyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChzzkDurableOutboxTests(unittest.TestCase):
+    """Offline: slow Discord must not pause CHZZK polling or lose an enqueued event."""
+
+    @staticmethod
+    def live():
+        return {"channel_id": "36ddb9bb4f17593b60f1b63cec86611d",
+                "live_id": "live-20261112", "open_date": "2026-11-12T16:00:00+09:00",
+                "status": "OPEN", "name": "후야", "title": "생방송",
+                "url": "https://chzzk.naver.com/live/36ddb9bb4f17593b60f1b63cec86611d"}
+
+    def test_poll_persists_alert_intent_but_does_not_send_inline(self):
+        import json
+        live = self.live()
+        cid = live["channel_id"]
+        state = {cid: {"status": "CLOSE"}}
+        with TemporaryDirectory() as temp, \
+             patch.object(main, "LIVE_OUTBOX_FILE", Path(temp) / "outbox.json"), \
+             patch("discord_event_dedup.get_status", return_value=None), \
+             patch.object(main, "load_channels", return_value=[cid]), \
+             patch.object(main, "get_live_info", return_value=live), \
+             patch.object(main, "send_discord_notification") as sent, \
+             patch.object(main, "save_json", wraps=main.save_json):
+            # State file writes are diverted; the outbox must be truly durable.
+            with patch.object(main, "LIVE_STATE_FILE", Path(temp) / "live_state.json"):
+                main.check_chzzk_once(state)
+            saved = json.loads((Path(temp) / "outbox.json").read_text(encoding="utf-8"))
+        sent.assert_not_called()
+        self.assertEqual(state[cid]["status"], "OPEN")
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(next(iter(saved.values()))["status"], "queued")
+
+    def test_delivery_stall_cannot_block_next_poll(self):
+        import threading
+        live = self.live()
+        cid = live["channel_id"]
+        state = {cid: {"status": "CLOSE"}}
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_send(_):
+            entered.set()
+            release.wait(timeout=2)
+
+        with TemporaryDirectory() as temp, \
+             patch.object(main, "LIVE_OUTBOX_FILE", Path(temp) / "outbox.json"), \
+             patch.object(main, "LIVE_STATE_FILE", Path(temp) / "state.json"), \
+             patch("discord_event_dedup.get_status",
+                   side_effect=lambda _: "sent" if release.is_set() else None), \
+             patch.object(main, "load_channels", return_value=[cid]), \
+             patch.object(main, "get_live_info", return_value=live), \
+             patch.object(main, "send_discord_notification", side_effect=slow_send):
+            main.check_chzzk_once(state)
+            key = main.live_event_key(live)
+            worker = threading.Thread(target=main._deliver_live_notification, args=(key,))
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(1))
+                begin = time.monotonic()
+                main.check_chzzk_once(state)
+                self.assertLess(time.monotonic() - begin, 0.5)
+            finally:
+                release.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(main._read_live_outbox(), {})
+
+    def test_failed_before_connection_is_retried_without_losing_event(self):
+        import requests
+        live = self.live()
+        with TemporaryDirectory() as temp, \
+             patch.object(main, "LIVE_OUTBOX_FILE", Path(temp) / "outbox.json"), \
+             patch("discord_event_dedup.get_status", return_value=None), \
+             patch.object(main, "send_discord_notification",
+                          side_effect=requests.ConnectTimeout("disconnected")):
+            key = main.queue_live_notification(live)
+            main._deliver_live_notification(key)
+            item = main._read_live_outbox()[key]
+        self.assertEqual(item["status"], "queued")
+        self.assertEqual(item["retries"], 1)
+        self.assertGreater(item["retry_at"], time.time())
+
+    def test_ambiguous_discord_result_never_auto_retries(self):
+        live = self.live()
+        confirmed = False
+        with TemporaryDirectory() as temp, \
+             patch.object(main, "LIVE_OUTBOX_FILE", Path(temp) / "outbox.json"), \
+             patch("discord_event_dedup.get_status",
+                   side_effect=lambda _: "uncertain" if confirmed else None), \
+             patch.object(main, "send_discord_notification",
+                          side_effect=RuntimeError("read timeout")):
+            key = main.queue_live_notification(live)
+            confirmed = True
+            main._deliver_live_notification(key)
+            item = main._read_live_outbox()[key]
+        self.assertEqual(item["status"], "needs_review")
+
+    def test_same_stream_session_is_enqueued_once(self):
+        live = self.live()
+        with TemporaryDirectory() as temp, \
+             patch.object(main, "LIVE_OUTBOX_FILE", Path(temp) / "outbox.json"), \
+             patch("discord_event_dedup.get_status", return_value=None):
+            self.assertEqual(main.queue_live_notification(live),
+                             main.queue_live_notification(live))
+            self.assertEqual(len(main._read_live_outbox()), 1)
+
+
