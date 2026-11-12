@@ -293,7 +293,8 @@ class RoutingTests(unittest.TestCase):
                 "category": "게임", "thumbnail": "https://example.com/live.png", "avatar": "",
                 "open_date": "2026-10-29"}
         with patch.object(main, "get_banner", return_value="https://yt3.googleusercontent.com/test"), \
-             patch.object(main, "send_webhook") as sent:
+             patch.object(main, "send_webhook") as sent, \
+             patch("discord_event_dedup.get_status", return_value="sent"):
             main.send_discord_notification(live)
         payload = sent.call_args.args[1]
         self.assertEqual(payload["flags"], 32768)
