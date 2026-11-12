@@ -103,3 +103,10 @@ def update(key, status, now=None):
         history[key] = {"at": now.isoformat(), "status": status}
         _write(history)
     _locked(action)
+
+
+def get_status(key):
+    """Read one event's durable receipt without exposing its message body."""
+    if not isinstance(key, str) or not PATTERN.fullmatch(key):
+        raise ValueError("Invalid notification event identity")
+    return _locked(lambda: _read().get(key, {}).get("status"))
