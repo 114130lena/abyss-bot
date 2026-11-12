@@ -1,6 +1,7 @@
 """Offline regression tests: never post to a live Discord webhook."""
 import os
 import sys
+import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
