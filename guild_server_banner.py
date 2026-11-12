@@ -13,6 +13,7 @@ import os
 import random
 import shutil
 import time
+from functools import lru_cache
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -125,6 +126,33 @@ def kind(width, height):
     return None
 
 
+
+def _display_size_without_decoding(image):
+    """Read EXIF orientation without decoding every pixel of a cached artwork."""
+    width, height = image.size
+    # EXIF transpose swaps width and height only for orientations 5-8.
+    if image.getexif().get(274, 1) in (5, 6, 7, 8):
+        return height, width
+    return width, height
+
+
+@lru_cache(maxsize=2048)
+def _cached_art_sha256(path_text, device, inode, size, mtime_ns, ctime_ns):
+    """Cache hashes for unchanged local artwork, not usage/eligibility decisions."""
+    digest = hashlib.sha256()
+    with open(path_text, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _art_sha256(path):
+    # stat-based invalidation detects atomic replacements and normal in-place edits.
+    stat = path.stat()
+    return _cached_art_sha256(str(path), stat.st_dev, stat.st_ino,
+                              stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
 def approved_hanayo_art():
     """Reject every other creator, unapproved candidate, and path traversal."""
     base = media_base()
@@ -154,12 +182,12 @@ def approved_hanayo_art():
         if entry["sha256"] in seen:
             continue
         try:
-            if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+            if _art_sha256(path) != entry["sha256"]:
                 continue
             with Image.open(path) as img:
                 if getattr(img, "is_animated", False):
                     continue
-                framing = kind(*ImageOps.exif_transpose(img).size)
+                framing = kind(*_display_size_without_decoding(img))
                 if framing not in ("16:9", "16:10", "landscape_fit",
                                    "square_fit", "portrait_fit"):
                     continue
@@ -216,7 +244,7 @@ def collected_hanayo_art():
                 with Image.open(path) as img:
                     if getattr(img, "is_animated", False):
                         continue
-                    dimensions = ImageOps.exif_transpose(img).size
+                    dimensions = _display_size_without_decoding(img)
                     framing = kind(*dimensions)
                     # Fit wider-ranging artwork without cutting out the
                     # character. Exclude only highly vertical legacy fits.
@@ -227,7 +255,7 @@ def collected_hanayo_art():
                     visual = vision_classification(path)
                     if not visual or not visual.get("banner_eligible"):
                         continue
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                digest = _art_sha256(path)
             except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
                 continue
             if digest in seen:
@@ -292,14 +320,14 @@ def collected_huya_art():
                 with Image.open(path) as img:
                     if getattr(img, "is_animated", False):
                         continue
-                    width, height = ImageOps.exif_transpose(img).size
+                    width, height = _display_size_without_decoding(img)
                     framing = kind(width, height)
                     # Explicitly require long horizontal Huya images.
                     if framing not in ("16:9", "16:10", "landscape_fit"):
                         continue
                     if width / height < 1.25:
                         continue
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                digest = _art_sha256(path)
             except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
                 continue
             if digest in seen:
