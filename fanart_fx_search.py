@@ -68,41 +68,78 @@ def _record(group, tag, post):
 
 
 def discover(session=None):
+    """Collect validated fanart and record whether the search returned usable art.
+
+    A successful HTTP 200 or FX code=200 is only API availability.  A usable
+    hashtag result must also have an original post, matching tag, artist and
+    a safe Twitter photo URL.  Empty results are NOT proof of X-wide coverage.
+    """
     session = session or requests.Session()
     queue = read(QUEUE)
+    previous_state = read(STATE)
+    previous_groups = previous_state.get("groups", {})
+    checked_at = datetime.now(timezone.utc).isoformat()
     added = 0
     results = {}
     for group, tag in TAGS.items():
         count = 0
         matched = 0
+        returned = 0
+        duplicates = 0
+        pages = 0
         cursor = None
         seen_cursors = set()
+        new_artists = set()
+        existing_artists = {
+            str(item.get("artist") or "").casefold()
+            for item in queue.values()
+            if isinstance(item, dict) and item.get("group") == group
+        }
+        earlier = previous_groups.get(group, {}) if isinstance(previous_groups, dict) else {}
+        earlier = earlier if isinstance(earlier, dict) else {}
+        last_nonempty_at = earlier.get("last_nonempty_at")
+        last_new_artist_at = earlier.get("last_new_artist_at")
+        last_http_status = None
+        last_api_code = None
+        error = None
         try:
             for _ in range(MAX_PAGES):
                 params = {"q": "#" + tag, "feed": "media", "count": 50}
                 if cursor:
                     params["cursor"] = cursor
-                response = session.get(ENDPOINT, params=params, timeout=(3, 12),
-                                       headers={"Accept": "application/json",
-                                                "User-Agent": "abyss-bot/1.0 (fanart)"})
+                response = session.get(
+                    ENDPOINT, params=params, timeout=(3, 12),
+                    headers={"Accept": "application/json",
+                             "User-Agent": "abyss-bot/1.0 (fanart)"})
+                if isinstance(response.status_code, int):
+                    last_http_status = response.status_code
                 response.raise_for_status()
                 body = response.json()
-                if not isinstance(body, dict) or body.get("code") != 200:
+                last_api_code = body.get("code") if isinstance(body, dict) else None
+                if not isinstance(body, dict) or last_api_code != 200:
                     raise ValueError("Search provider rejected response")
                 posts = body.get("results")
                 if not isinstance(posts, list):
                     raise ValueError("Search provider omitted results")
+                pages += 1
+                returned += len(posts)
                 for post in posts:
                     item = _record(group, tag, post)
                     if item is None:
                         continue
                     matched += 1
                     key = group + ":" + item["post_id"]
-                    if key not in queue:
-                        queue[key] = item
-                        count += 1
-                # Persist every page so a later provider outage loses no entries.
+                    if key in queue:
+                        duplicates += 1
+                        continue
+                    if item["artist"].casefold() not in existing_artists:
+                        new_artists.add(item["artist"].casefold())
+                        existing_artists.add(item["artist"].casefold())
+                    queue[key] = item
+                    count += 1
                 if count:
+                    # Atomic persistence after every page preserves collected
+                    # posts even when the next provider page fails.
                     write(QUEUE, queue)
                 bottom = body.get("cursor")
                 bottom = bottom.get("bottom") if isinstance(bottom, dict) else None
@@ -110,13 +147,46 @@ def discover(session=None):
                     break
                 seen_cursors.add(bottom)
                 cursor = bottom
-            results[group] = {"matched": matched, "added": count, "status": "ok"}
         except (requests.RequestException, ValueError, TypeError) as exc:
-            logging.warning("FANART_FX_SEARCH_FAILED group=%s reason=%s", group, type(exc).__name__)
-            results[group] = {"matched": matched, "added": count,
-                              "status": "unavailable", "error": type(exc).__name__}
+            error = type(exc).__name__
+            logging.warning("FANART_FX_SEARCH_FAILED group=%s reason=%s", group, error)
+
+        if matched:
+            last_nonempty_at = checked_at
+        if new_artists:
+            last_new_artist_at = checked_at
+        status = ("partial" if error and pages else "unavailable" if error
+                  else "ok" if matched else "empty")
+        result = {
+            "status": status,
+            "pages_fetched": pages,
+            "http_status": last_http_status,
+            "api_code": last_api_code,
+            "returned_posts": returned,
+            "matched": matched,
+            "duplicate_posts": duplicates,
+            "added": count,
+            "new_artists": len(new_artists),
+            "rejected_without_valid_photo_or_tag": max(0, returned - matched),
+            "last_checked_at": checked_at,
+            "last_nonempty_at": last_nonempty_at,
+            "last_new_artist_at": last_new_artist_at,
+            "coverage_verified": False,
+        }
+        if error:
+            result["error"] = error
+        results[group] = result
         added += count
-    write(STATE, {"checked_at": datetime.now(timezone.utc).isoformat(), "groups": results})
-    logging.info("FANART_FX_SEARCH total_added=%d result=%s", added, results)
-    return {"status": "ok" if all(x["status"] == "ok" for x in results.values())
-            else "partial", "added": added, "groups": results}
+    write(STATE, {
+        "checked_at": checked_at,
+        "groups": results,
+        "coverage_verified": False,
+        "total_added": added,
+        "total_new_artists": sum(v["new_artists"] for v in results.values()),
+    })
+    logging.info("FANART_FX_SEARCH total_added=%d summary=%s", added, results)
+    return {
+        "status": "ok" if all(v["status"] in ("ok", "empty") for v in results.values())
+                  else "partial",
+        "added": added, "coverage_verified": False, "groups": results,
+    }
