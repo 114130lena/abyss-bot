@@ -117,7 +117,7 @@ class BannerMetadataRecoveryTests(unittest.TestCase):
         state = save.call_args.args[0]
         self.assertEqual(state["banner_change_method"], audit["banner_change_method"])
         self.assertEqual(state["banner_changed_at"], audit["banner_changed_at"])
-        self.assertEqual(state["banner_info_layout_version"], 10)
+        self.assertEqual(state["banner_info_layout_version"], 11)
 
     def test_first_observed_is_not_falsely_labeled_exact_change_time(self):
         state = {"banner_first_observed_at": "2026-11-08 20:00 KST"}
