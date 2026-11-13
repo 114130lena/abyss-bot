@@ -54,6 +54,10 @@ jobs:
           python -m unittest discover -s tests -p 'test_free_fanart_refresh.py' -v
       - name: Check global hashtag search sources and brand-new artist discovery (mocked)
         run: python -m unittest discover -s tests -p 'test_fanart_global_sources.py' -v
+      - name: Check Fx search evidence and safe production probe (mocked, no network)
+        run: |
+          python -m unittest discover -s tests -p 'test_fanart_fx_search.py' -v
+          python -m unittest discover -s tests -p 'test_fanart_hashtag_live_probe.py' -v
       - name: Check visual character classification (mocked API)
         run: python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
       - name: Check guild banner, schedule and dry-run
