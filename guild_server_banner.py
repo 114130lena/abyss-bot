@@ -688,6 +688,9 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
     source = str(state.get("post_url") or "").strip()
     artist = str(state.get("artist") or "").strip()
     known_source = bool(banner_hash and _valid_banner_source(artist, source))
+    # Discord text-display components parse Markdown. Escape underscores in
+    # the visible handle while preserving the original URL byte-for-byte.
+    displayed_artist = artist.replace("_", "\\_")
     method = str(state.get("banner_change_method") or "").strip()
     # Display one user-facing policy for both scheduled and one-off bot edits.
     # Keep the precise provenance in state/history for diagnostics and auditing.
@@ -722,7 +725,7 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
         "**현재 적용된 서버 배너**\n"
         f"**변경 방식** · {method}\n"
         f"**변경 시각** · {changed_at or '기록 없음'}\n"
-        f"**원본 작가** · {artist if known_source else '확인되지 않음'}\n"
+        f"**원본 작가** · {displayed_artist if known_source else '확인되지 않음'}\n"
         "**원본 게시물** · " +
         (f"[X에서 보기]({source})" if known_source else "확인되지 않음")
     )})
@@ -869,7 +872,7 @@ def sync_banner_info(force=False):
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
             and state.get("banner_info_stats_checksum") == stats_checksum
-            and state.get("banner_info_layout_version") == 10):
+            and state.get("banner_info_layout_version") == 11):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state, fanart_stats=fanart_stats)
     from discord_message_sync import update_original
@@ -882,7 +885,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 10
+    state["banner_info_layout_version"] = 11
     state["banner_info_stats_checksum"] = stats_checksum
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",
