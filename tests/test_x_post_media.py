@@ -126,6 +126,25 @@ class FxMediaTests(unittest.TestCase):
         self.assertEqual(label, "🔗 X 링크 게시물")
         self.assertNotIn("nitter.gq", body)
 
+    def test_shortener_head_rejection_tries_one_safe_get(self):
+        class Response:
+            def __init__(self, status, destination=""):
+                self.status_code = status
+                self.headers = {"Location": destination}
+            def close(self):
+                pass
+        with patch("x_post_media.requests.head",
+                   return_value=Response(405)) as head, \
+             patch("x_post_media.requests.get",
+                   return_value=Response(301, "https://x.com/i/spaces/1qKVmyYgzgLxB")) as get:
+            label, body = x_post_media.describe_x_link_post("https://t.co/abcde12345")
+        self.assertIn("스페이스", label)
+        self.assertIn("https://x.com/i/spaces/1qKVmyYgzgLxB", body)
+        self.assertEqual(head.call_count, 1)
+        self.assertEqual(get.call_count, 1)
+        self.assertFalse(get.call_args.kwargs["allow_redirects"])
+        self.assertTrue(get.call_args.kwargs["stream"])
+
     def test_non_space_redirect_does_not_follow_arbitrary_url(self):
         class Redirect:
             status_code = 302
