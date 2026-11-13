@@ -89,7 +89,7 @@ class DeliverySmokeTests(unittest.TestCase):
         for module in (twitter_notifier, twitter_huya_notifier):
             with self.subTest(module=module.__name__):
                 post = {"id": "2121241811914195289", "text": text,
-                        "url": "https://x.com/HanayoHiyori/status/2121241811914195289",
+                        "url": "https://x.com/" + module.USERNAME + "/status/2121241811914195289",
                         "images": [], "source": "bluebird-twscraper"}
                 with patch("x_post_media.resolve_media",
                            return_value=([], "", False, True)), \
