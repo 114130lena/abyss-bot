@@ -93,5 +93,77 @@ class FxMediaTests(unittest.TestCase):
         self.assertFalse(known)
 
 
+    def test_direct_space_url_is_classified_without_network(self):
+        value = "https://x.com/i/spaces/1qKVmyYgzgLxB"
+        with patch("x_post_media.requests.head",
+                   side_effect=AssertionError("direct Space needs no network")):
+            label, body = x_post_media.describe_x_link_post(value)
+        self.assertIn("스페이스", label)
+        self.assertIn(value, body)
+
+    def test_nitter_short_link_reconstructs_real_tco_and_expands_space(self):
+        source = ("[https://nitter.gq/t.co/iKf8fwZuyb]"
+                  "(https://x.com/HanayoHiyori/status/2121241811914195289)")
+        class Redirect:
+            status_code = 302
+            headers = {"Location": "https://x.com/i/spaces/1qKVmyYgzgLxB"}
+            def close(self):
+                pass
+        with patch("x_post_media.requests.head", return_value=Redirect()) as head:
+            label, body = x_post_media.describe_x_link_post(source)
+        self.assertIn("스페이스", label)
+        self.assertIn("https://x.com/i/spaces/1qKVmyYgzgLxB", body)
+        self.assertNotIn("nitter.gq", body)
+        self.assertEqual(head.call_args.args[0], "https://t.co/iKf8fwZuyb")
+        self.assertFalse(head.call_args.kwargs["allow_redirects"])
+
+    def test_unresolved_short_link_is_not_falsely_labeled_space(self):
+        source = ("[https://nitter.gq/t.co/iKf8fwZuyb]"
+                  "(https://x.com/HanayoHiyori/status/2121241811914195289)")
+        with patch("x_post_media.requests.head",
+                   side_effect=__import__("requests").Timeout):
+            label, body = x_post_media.describe_x_link_post(source)
+        self.assertEqual(label, "🔗 X 링크 게시물")
+        self.assertNotIn("nitter.gq", body)
+
+    def test_shortener_head_rejection_tries_one_safe_get(self):
+        class Response:
+            def __init__(self, status, destination=""):
+                self.status_code = status
+                self.headers = {"Location": destination}
+            def close(self):
+                pass
+        with patch("x_post_media.requests.head",
+                   return_value=Response(405)) as head, \
+             patch("x_post_media.requests.get",
+                   return_value=Response(301, "https://x.com/i/spaces/1qKVmyYgzgLxB")) as get:
+            label, body = x_post_media.describe_x_link_post("https://t.co/abcde12345")
+        self.assertIn("스페이스", label)
+        self.assertIn("https://x.com/i/spaces/1qKVmyYgzgLxB", body)
+        self.assertEqual(head.call_count, 1)
+        self.assertEqual(get.call_count, 1)
+        self.assertFalse(get.call_args.kwargs["allow_redirects"])
+        self.assertTrue(get.call_args.kwargs["stream"])
+
+    def test_non_space_redirect_does_not_follow_arbitrary_url(self):
+        class Redirect:
+            status_code = 302
+            headers = {"Location": "http://169.254.169.254/latest/meta-data/"}
+            def close(self):
+                pass
+        with patch("x_post_media.requests.head", return_value=Redirect()) as head:
+            label, _ = x_post_media.describe_x_link_post("https://t.co/abcde12345")
+        self.assertEqual(label, "🔗 X 링크 게시물")
+        self.assertEqual(head.call_count, 1)
+
+    def test_normal_text_with_link_is_not_modified(self):
+        with patch("x_post_media.requests.head",
+                   side_effect=AssertionError("not link-only")):
+            value = x_post_media.describe_x_link_post(
+                "오늘 방송합니다! https://t.co/abcde12345")
+        self.assertIsNone(value)
+
+
+
 if __name__ == "__main__":
     unittest.main()

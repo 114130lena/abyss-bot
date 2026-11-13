@@ -175,17 +175,21 @@ def _notify(post):
     from x_repost_notifier import is_repost_post
     if is_repost_post(post, USERNAME):
         raise ValueError("Repost cannot be sent via ordinary X notification")
-    from x_post_media import resolve_media
+    from x_post_media import resolve_media, describe_x_link_post
     photo_urls, video_preview, has_video, media_known = resolve_media(post, USERNAME)
+    link_post = describe_x_link_post(post.get("text", ""))
     if photo_urls:
         post = dict(post, images=photo_urls)
     # Preserve safety if metadata is unavailable: never mislabel a potentially
     # illustrated X post as confirmed text-only and display unrelated fanart.
-    uncertain_photo = not media_known
+    # Space links and unresolved shortlinks are never plain-text-only
+    # confirmations; unrelated fanart would misrepresent the linked content.
+    uncertain_photo = not media_known or link_post is not None
     banner = get_banner(X_GROUP) if X_GROUP else ""
     payload = unified_alert(
         "x", "하나요 히요리", banner, "",
-        body=(post["text"] or "새 게시글")[:2500],
+        title=link_post[0] if link_post else "",
+        body=(link_post[1] if link_post else (post["text"] or "새 게시글"))[:2500],
         url=post["url"], date=post.get("pub_date", ""),
         images=post.get("images", []), media_url=video_preview,
         handle=creator_handle(X_GROUP), avatar=creator_avatar(X_GROUP))
@@ -202,7 +206,7 @@ def _notify(post):
                         break
     if uncertain_photo:
         payload["_abyss_photo_unknown"] = True
-    if media_known and not photo_urls and not has_video and not video_preview:
+    if not link_post and media_known and not photo_urls and not has_video and not video_preview:
         payload["_abyss_verified_text_only"] = True
     logging.info("X_SEND_MEDIA_GUARD creator=%s post=%s photos=%d video=%s known=%s text_only=%s",
                  USERNAME,post.get("id"),len(photo_urls),has_video,media_known,

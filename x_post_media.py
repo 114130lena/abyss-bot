@@ -3,6 +3,84 @@ import logging
 from urllib.parse import urlsplit
 import requests
 
+import re
+
+_SPACE_LINK = re.compile(
+    r"https?://(?:www\.)?(?:x|twitter)\.com/i/spaces/([A-Za-z0-9]{8,32})(?=$|[/?#\s\]\)])",
+    re.I)
+_TCO_LINK = re.compile(r"(?:https?://[^/\s\]\)]+/)?t\.co/([A-Za-z0-9]{5,32})", re.I)
+_MARKDOWN_URL = re.compile(r"\[\s*https?://[^\]\s]+\s*\]\(\s*https?://[^\s\)]+\s*\)")
+_ANY_URL = re.compile(r"https?://[^\s]+")
+
+
+def _space_url(value):
+    """Canonicalize only explicitly identified X Space links."""
+    match = _SPACE_LINK.search(str(value or ""))
+    return "https://x.com/i/spaces/" + match.group(1) if match else ""
+
+
+def _shortened_link_url(body):
+    # Some Nitter mirrors turn https://t.co/CODE into
+    # https://nitter.example/t.co/CODE inside an existing Markdown link.
+    match = _TCO_LINK.search(str(body or ""))
+    return "https://t.co/" + match.group(1) if match else ""
+
+
+def _expand_space_shortlink(short_url):
+    """Inspect a trusted t.co redirect without following arbitrary destinations."""
+    if not re.fullmatch(r"https://t\.co/[A-Za-z0-9]{5,32}", str(short_url)):
+        return ""
+    try:
+        response = requests.head(
+            short_url, timeout=(1, 2), allow_redirects=False,
+            headers={"User-Agent": "abyss-bot/1.0"})
+        try:
+            if 300 <= response.status_code < 400:
+                return _space_url(response.headers.get("Location", ""))
+            retry_get = response.status_code in (403, 405, 501)
+        finally:
+            response.close()
+        if retry_get:
+            # Some shorteners reject HEAD. Inspect one GET without following
+            # redirects or downloading a potentially large response body.
+            response = requests.get(
+                short_url, timeout=(1, 2), allow_redirects=False, stream=True,
+                headers={"User-Agent": "abyss-bot/1.0"})
+            try:
+                if 300 <= response.status_code < 400:
+                    return _space_url(response.headers.get("Location", ""))
+            finally:
+                response.close()
+    except (requests.RequestException, ValueError, TypeError):
+        return ""
+    return ""
+
+
+def describe_x_link_post(body):
+    """Return a safe title/body for confirmed Spaces or ambiguous link-only posts.
+
+    Space status is never inferred from the presence of t.co alone.
+    """
+    original = str(body or "").strip()
+    if not original:
+        return None
+    space = _space_url(original)
+    remaining = _MARKDOWN_URL.sub("", original)
+    remaining = _ANY_URL.sub("", remaining).strip(" \t\r\n[]()<>")
+    link_only = not remaining
+    if not space and not link_only:
+        return None
+    if not space:
+        short = _shortened_link_url(original)
+        if short:
+            space = _expand_space_shortlink(short)
+    if space:
+        return "🎙️ X 스페이스 공유", "🎙️ [스페이스 입장하기](" + space + ")"
+    if link_only:
+        return "🔗 X 링크 게시물", "링크의 내용을 확인하지 못했습니다. X 원본 게시물에서 확인해 주세요."
+    return None
+
+
 def _media_url(value):
     url=str(value or "")
     p=urlsplit(url)
