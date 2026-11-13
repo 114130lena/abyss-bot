@@ -136,6 +136,37 @@ class BannerInfoTests(unittest.TestCase):
                                 "원본 작가" in p.get("content", "")),
                            next(i for i,p in enumerate(parts) if p.get("type")==12))
 
+    def test_x_handle_underscore_is_visible_without_changing_link(self):
+        source = "https://x.com/_WasaB/status/2117384807877689560"
+        card = banner._banner_card("123456", "livehash", {
+            "artist": "@_WasaB", "post_url": source,
+            "banner_change_method": "봇 자동 교체"})
+        parts = card["components"][0]["components"]
+        full = "\n".join(p.get("content", "") for p in parts)
+        self.assertIn(r"**원본 작가** · @\_WasaB", full)
+        self.assertIn("[X에서 보기](" + source + ")", full)
+        buttons = [p for p in parts if p.get("type") == 1]
+        self.assertEqual(buttons[0]["components"][0]["url"], source)
+
+    def test_existing_card_layout_is_refreshed_after_markdown_fix(self):
+        state = {"guild_banner_hash": "samehash",
+                 "banner_info_updated_hash": "samehash",
+                 "banner_info_message_id": "789",
+                 "banner_info_layout_version": 10,
+                 "banner_info_stats_checksum": "unchanged",
+                 "artist": "@_WasaB",
+                 "post_url": "https://x.com/_WasaB/status/2117384807877689560"}
+        with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
+             patch.object(banner, "read_state", return_value=state), \
+             patch("fanart_public_stats.snapshot", return_value={"available": False}), \
+             patch("fanart_public_stats.checksum", return_value="unchanged"), \
+             patch.object(banner, "write_state") as save, \
+             patch.object(banner.requests, "patch", return_value=response({"id": "789"})) as edit:
+            result = banner.sync_banner_info()
+        self.assertEqual(result["status"], "updated")
+        self.assertIn(r"@\_WasaB", str(edit.call_args.kwargs["json"]))
+        self.assertEqual(save.call_args.args[0]["banner_info_layout_version"], 11)
+
     def test_one_off_manual_update_uses_same_public_policy_without_losing_provenance(self):
         for method in ("봇 수동 명령 교체", "봇 자동 교체"):
             with self.subTest(method=method):
