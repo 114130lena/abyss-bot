@@ -61,6 +61,8 @@ jobs:
       - name: Check visual character classification (mocked API)
         run: python -m unittest discover -s tests -p 'test_fanart_vision.py' -v
       - name: Check guild banner, schedule and dry-run
+        env:
+          BOT_DATA_DIR: ${{ runner.temp }}/abyss-ci-banner-data
         run: python -m unittest -v test_guild_server_banner.py
       - name: Check persisted banner retries and superseded slots
         run: python -m unittest discover -s tests -p 'test_banner_persistent_retry.py' -v
