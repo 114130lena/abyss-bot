@@ -37,11 +37,23 @@ def _expand_space_shortlink(short_url):
         try:
             if 300 <= response.status_code < 400:
                 return _space_url(response.headers.get("Location", ""))
-            return ""
+            retry_get = response.status_code in (403, 405, 501)
         finally:
             response.close()
+        if retry_get:
+            # Some shorteners reject HEAD. Inspect one GET without following
+            # redirects or downloading a potentially large response body.
+            response = requests.get(
+                short_url, timeout=(1, 2), allow_redirects=False, stream=True,
+                headers={"User-Agent": "abyss-bot/1.0"})
+            try:
+                if 300 <= response.status_code < 400:
+                    return _space_url(response.headers.get("Location", ""))
+            finally:
+                response.close()
     except (requests.RequestException, ValueError, TypeError):
         return ""
+    return ""
 
 
 def describe_x_link_post(body):
