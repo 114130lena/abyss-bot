@@ -77,6 +77,16 @@ def snapshot(*, quick=False):
     fx_path = ROOT / "creator_media" / "fanart_fx_search_state.json"
     fx_state = _read(fx_path, {})
     result["fanart"]["hashtag_search"] = fx_state.get("groups", {})
+    # Privacy-safe real search observability: no artist handles, post IDs or URLs.
+    for group in ("hanayo", "sakihane"):
+        state = result["fanart"]["hashtag_search"].get(group, {})
+        if not isinstance(state, dict):
+            state = {}
+        result["fanart"][group]["search_status"] = str(state.get("status") or "unverified")
+        result["fanart"][group]["search_returned_posts"] = state.get("returned_posts")
+        result["fanart"][group]["search_valid_photo_posts"] = state.get("matched")
+        result["fanart"][group]["search_new_artists"] = state.get("new_artists")
+        result["fanart"][group]["search_added_posts"] = state.get("added")
     global_state = _read(ROOT / "creator_media" / "fanart_global_sources.json", {})
     # Source health is separate from artist-only fallback and cannot imply full
     # hashtag coverage without a new-artist production verification.

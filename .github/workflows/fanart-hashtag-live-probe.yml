@@ -1,0 +1,41 @@
+name: "진단 · 팬아트 해시태그 실제 검색 검증"
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  probe:
+    if: ${{ github.event.issue.title == '[abyss-probe] fanart-hashtags' && github.event.issue.user.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check probe Python syntax
+        run: python -m py_compile scripts/fanart_hashtag_live_probe.py
+      - name: Read-only live Fx hashtag probe on bot server
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/fanart_probe_key
+          chmod 600 ~/.ssh/fanart_probe_key
+          ssh-keyscan -T 10 -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          scp -i ~/.ssh/fanart_probe_key -o IdentitiesOnly=yes -o ConnectTimeout=12 \
+            scripts/fanart_hashtag_live_probe.py \
+            "$SSH_USER@$SSH_HOST:/tmp/abyss_fanart_hashtag_live_probe.py"
+          ssh -i ~/.ssh/fanart_probe_key -o IdentitiesOnly=yes -o ConnectTimeout=12 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python
+          else PY=.venv-test/bin/python; fi
+          PYTHONPATH="$PWD" "$PY" /tmp/abyss_fanart_hashtag_live_probe.py
+          REMOTE

@@ -144,6 +144,14 @@ def component_check_summary():
             "missing_cached_images": int(item.get("missing_cached_images") or 0),
             "hashtag_source_status": str(src.get("status") or "unverified")
                 if isinstance(src, dict) else "unverified",
+            "hashtag_returned_posts": int(src.get("returned_posts") or 0)
+                if isinstance(src, dict) else 0,
+            "hashtag_valid_photo_posts": int(src.get("matched") or 0)
+                if isinstance(src, dict) else 0,
+            "hashtag_new_artists": int(src.get("new_artists") or 0)
+                if isinstance(src, dict) else 0,
+            "hashtag_added_posts": int(src.get("added") or 0)
+                if isinstance(src, dict) else 0,
             "artist_fallback_status": str(artist.get("status") or "unverified"),
             "artist_fallback_checked": int(artist.get("checked") or 0),
             "artist_fallback_successful": int(artist.get("successful") or 0),

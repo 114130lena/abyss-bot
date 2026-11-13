@@ -41,15 +41,16 @@ def update(provider, result):
     }
     state = {"providers": {p: providers[p] for p in PROVIDERS if p in providers},
              "checked_at": datetime.now(timezone.utc).isoformat()}
-    # Per-group source 'ok' means the API responded, not complete hashtag
-    # coverage.  No amount of known-artist fallback may change this verdict.
+    # Distinguish a responding endpoint with valid photos from an endpoint
+    # returning an empty page. Neither proves complete hashtag coverage.
     state["groups"] = {}
     for group in ("hanayo", "sakihane"):
         available = [p for p in PROVIDERS if p in providers
-                     and providers[p]["groups"][group]["status"] == "ok"]
+                     and providers[p]["groups"][group]["status"] in ("ok", "empty")]
         state["groups"][group] = {
             "status": "source_responding" if available else "global_search_unavailable",
             "responding_sources": available,
+            "verified_photo_results": any(providers[p]["groups"][group]["status"] == "ok" for p in available),
             "coverage_verified": False,
         }
     write(STATE, state)
