@@ -83,5 +83,51 @@ class DeliverySmokeTests(unittest.TestCase):
         self.assertNotIn("_abyss_verified_text_only", payload)
 
 
+    def test_space_link_keeps_original_post_and_blocks_fanart_both_creators(self):
+        text = ("[https://nitter.gq/t.co/iKf8fwZuyb]"
+                "(https://x.com/HanayoHiyori/status/2121241811914195289)")
+        for module in (twitter_notifier, twitter_huya_notifier):
+            with self.subTest(module=module.__name__):
+                post = {"id": "2121241811914195289", "text": text,
+                        "url": "https://x.com/HanayoHiyori/status/2121241811914195289",
+                        "images": [], "source": "bluebird-twscraper"}
+                with patch("x_post_media.resolve_media",
+                           return_value=([], "", False, True)), \
+                     patch("x_post_media.describe_x_link_post",
+                           return_value=("🎙️ X 스페이스 공유",
+                               "🎙️ [스페이스 입장하기](https://x.com/i/spaces/1qKVmyYgzgLxB)")), \
+                     patch.object(module, "send_webhook") as sent, \
+                     patch.object(module, "get_banner", return_value=""):
+                    module._notify(post)
+                destination, payload = sent.call_args.args
+                self.assertNotIn("thread_id=", destination)
+                self.assertTrue(payload["_abyss_photo_unknown"])
+                self.assertNotIn("_abyss_verified_text_only", payload)
+                rendered = str(payload)
+                self.assertIn("스페이스", rendered)
+                self.assertIn("https://x.com/i/spaces/1qKVmyYgzgLxB", rendered)
+                self.assertNotIn("nitter.gq", rendered)
+                self.assertEqual(payload["_abyss_event_key"],
+                    "x-original:" + module.USERNAME.lower() + ":" + post["id"])
+
+    def test_unknown_tco_link_does_not_masquerade_as_plain_text(self):
+        post = {"id": "2121241811914195289",
+                "url": "https://x.com/HanayoHiyori/status/2121241811914195289",
+                "text": "[https://nitter.gq/t.co/iKf8fwZuyb]"
+                        "(https://x.com/HanayoHiyori/status/2121241811914195289)",
+                "images": []}
+        with patch("x_post_media.resolve_media", return_value=([], "", False, True)), \
+             patch("x_post_media.requests.head",
+                   side_effect=__import__("requests").Timeout), \
+             patch.object(twitter_notifier, "send_webhook") as sent, \
+             patch.object(twitter_notifier, "get_banner", return_value=""):
+            twitter_notifier._notify(post)
+        payload = sent.call_args.args[1]
+        self.assertTrue(payload["_abyss_photo_unknown"])
+        self.assertIn("X 링크 게시물", str(payload))
+        self.assertNotIn("nitter.gq", str(payload))
+
+
+
 if __name__ == "__main__":
     unittest.main()
