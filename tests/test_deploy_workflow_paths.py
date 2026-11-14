@@ -1,38 +1,35 @@
-"""Guard against remote deployment using non-staged Python files.
-
-The bot runs on an Ubuntu host without git pull: new files must be
-scp-uploaded, compiled from staging, then copied into production.
-"""
+"""운영 배포 파일 목록을 단일 기준으로 관리하는지 검사합니다."""
 import unittest
 from pathlib import Path
 
-WORKFLOW = (Path(__file__).resolve().parents[1] /
-            ".github" / "workflows" / "deploy.yml")
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
+MANIFEST = ROOT / "runtime_files.txt"
 
 
 class DeployWorkflowTests(unittest.TestCase):
-    def test_every_uploaded_runtime_module_is_compiled_and_activated_from_staging(self):
+    def test_manifest_covers_required_runtime_files(self):
+        files = [x.strip() for x in MANIFEST.read_text(encoding="utf-8").splitlines() if x.strip()]
+        self.assertEqual(len(files), len(set(files)))
+        self.assertGreater(len(files), 40)
+        for name in files:
+            self.assertRegex(name, r"^[a-z][a-z0-9_]*\.(?:py|txt)$")
+            self.assertTrue((ROOT / name).is_file(), name)
+        for name in ("main.py", "discord_event_dedup.py", "x_repost_delivery_ledger.py",
+                     "guild_server_banner.py", "chzzk_clip_digest.py",
+                     "discord_message_sync.py", "requirements.txt", "youtube_channels.txt"):
+            self.assertIn(name, files)
+
+    def test_all_deployment_phases_use_manifest(self):
         source = WORKFLOW.read_text(encoding="utf-8")
-        lines = source.splitlines()
-        uploaded = next(line.strip() for line in lines
-                        if line.strip().startswith("main.py chzzk_replay_notifier.py "))
-        remote_check = next(line.strip() for line in lines
-                            if line.strip().startswith('"$BOT_PY" -m py_compile .deploy-staging/main.py'))
-        copied = next(line.strip() for line in lines
-                      if line.strip().startswith("cp .deploy-staging/main.py"))
-        modules = [item for item in uploaded.split()
-                   if item.endswith(".py")]
-        self.assertGreater(len(modules), 20)
-        for module in modules:
-            with self.subTest(module=module):
-                self.assertIn(".deploy-staging/" + module, remote_check.split())
-                self.assertIn(".deploy-staging/" + module, copied.split())
-        # A command referencing unprefixed *.py runs against the previous live
-        # version, which can fail when that module is new.
-        self.assertFalse([x for x in remote_check.split()
-                          if x.endswith(".py") and not x.startswith(".deploy-staging/")])
-        self.assertFalse([x for x in copied.split()
-                          if x.endswith(".py") and not x.startswith(".deploy-staging/")])
+        self.assertIn("mapfile -t runtime_files < runtime_files.txt", source)
+        self.assertIn("mapfile -t runtime_files < .deploy-staging/runtime_files.txt", source)
+        self.assertIn('"\u0024{runtime_files[@]}" runtime_files.txt', source)
+        self.assertIn('"\u0024{staged_py[@]}"', source)
+        self.assertIn('cp ".deploy-staging/\u0024file" .', source)
+        self.assertIn('cp "\u0024backup_dir/\u0024file" .', source)
+        self.assertIn("rollback_on_error", source)
+        self.assertIn('test -f ".deploy-staging/\u0024file"', source)
 
     def test_shell_run_blocks_never_escape_yaml_indentation(self):
         source = WORKFLOW.read_text(encoding="utf-8")
@@ -43,22 +40,20 @@ class DeployWorkflowTests(unittest.TestCase):
                 continue
             if inside and line.startswith("      - name:"):
                 inside = False
-            if not inside or not line.strip():
-                continue
-            self.assertTrue(line.startswith("          "),
-                            "Workflow shell escaped YAML block at line %d: %r" % (index, line))
+            if inside and line.strip():
+                self.assertTrue(line.startswith("          "),
+                                "Workflow shell escaped YAML block at line %d: %r" % (index, line))
 
     def test_search_regression_is_actually_discovered(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("-p 'test_fanart_fx_search.py' -v", source)
-        self.assertNotIn("test_fanart_fx_search.py fanart_weekly_cleanup.py", source)
 
     def test_production_result_is_published_as_commit_status(self):
         source = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("statuses: write", source)
         self.assertIn("if: always()", source)
         self.assertIn('context="abyss/production-banner"', source)
-        self.assertIn('context="abyss/banner-provenance/$provenance_status"', source)
+        self.assertIn('context="abyss/banner-provenance/\u0024provenance_status"', source)
 
     def test_production_health_probe_uses_actual_dotenv_settings(self):
         source = WORKFLOW.read_text(encoding="utf-8")
