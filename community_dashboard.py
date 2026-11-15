@@ -227,15 +227,24 @@ def _stats(now):
     rows = _read(SESSIONS).get("sessions")
     rows = rows if isinstance(rows, list) else []
     start_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    result = {key: {"count": 0, "seconds": 0} for key in NAMES}
+    result = {key: {"count": 0, "seconds": 0, "seconds_min": 0,
+                    "seconds_max": 0, "recent": []} for key in NAMES}
     for row in rows:
         if not isinstance(row, dict) or row.get("group") not in result:
             continue
         started = _when(row.get("started"))
         if started is None or not (start_month <= started <= now):
             continue
-        result[row["group"]]["count"] += 1
-        result[row["group"]]["seconds"] += max(0, min(int(row.get("seconds") or 0), 86400))
+        bucket = result[row["group"]]
+        bucket["count"] += 1
+        seconds = max(0, min(int(row.get("seconds") or 0), 172800))
+        bucket["seconds"] += seconds
+        bucket["seconds_min"] += max(0, int(row.get("seconds_min", seconds)))
+        bucket["seconds_max"] += max(0, int(row.get("seconds_max", seconds)))
+        bucket["recent"].append(row)
+    for bucket in result.values():
+        bucket["recent"].sort(key=lambda x: str(x.get("started") or ""), reverse=True)
+        bucket["recent"] = bucket["recent"][:3]
     return result
 
 
@@ -290,7 +299,22 @@ def render(now=None):
         data = stats[group]
         mins = data["seconds"] // 60
         statlines.append("**" + name + "** · " + str(data["count"]) +
-                         "회 · " + str(mins // 60) + "시간 " + str(mins % 60) + "분")
+                         "회 · 약 " + str(mins // 60) + "시간 " + str(mins % 60) + "분")
+        if data["count"] and data["seconds_max"] != data["seconds_min"]:
+            uncertainty = data["seconds_max"] - data["seconds_min"]
+            statlines.append("-# 종료 감지 오차 범위 · 최대 " +
+                             str((uncertainty + 59) // 60) + "분")
+        for session in data["recent"]:
+            started = _when(session.get("started"))
+            last_live = _when(session.get("ended_after"))
+            off = _when(session.get("ended_before") or session.get("ended"))
+            if not started or not off:
+                continue
+            start_note = "치지직 시작시각" if session.get("start_source") == "api_open_date" else "최초 관측"
+            end = (last_live.strftime("%H:%M:%S") + " ~ " if last_live else "") + off.strftime("%H:%M:%S")
+            statlines.append("-# " + started.strftime("%m/%d %H:%M:%S") +
+                             " 시작(" + start_note + ") · 종료 " + end +
+                             " KST · 약 " + str((int(session.get("seconds") or 0) + 30) // 60) + "분")
     parts.append({"type": 10, "content": (
         "### 📊 방송 활동 통계 · " + month_label + "\n" +
         "\n".join(statlines) +
