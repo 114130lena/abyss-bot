@@ -490,6 +490,57 @@ jobs:
           PY
           REMOTE
 
+      - name: Verify community information card and paused clip feature
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then BOT_PY=.venv/bin/python
+          else BOT_PY=.venv-test/bin/python; fi
+          "$BOT_PY" - <<'PY'
+          import json
+          import os
+          import time
+          import requests
+          from dotenv import load_dotenv
+          load_dotenv("/home/ubuntu/chzzk-bot/.env")
+          from community_dashboard import STATE, MARKER
+          from resilience import load_json
+          if os.getenv("CHZZK_CLIP_ENABLED") != "0":
+              raise SystemExit("Clip collector was not disabled")
+          if os.getenv("COMMUNITY_DASHBOARD_ENABLED") != "1":
+              raise SystemExit("Community dashboard was not enabled")
+          state = {}
+          for _ in range(5):
+              state = load_json(STATE, {})
+              if str(state.get("message_id") or "").isdigit():
+                  break
+              time.sleep(2)
+          message_id = str(state.get("message_id") or "")
+          if not message_id.isdigit():
+              raise SystemExit("Community dashboard message ID is missing")
+          channel = os.environ["COMMUNITY_DASHBOARD_CHANNEL_ID"]
+          response = requests.get(
+              f"https://discord.com/api/v10/channels/{channel}/messages/{message_id}",
+              headers={"Authorization": "Bot " + os.environ["DISCORD_BOT_TOKEN"]},
+              timeout=12)
+          response.raise_for_status()
+          data = response.json()
+          visual = json.dumps(data.get("components") or [], ensure_ascii=False)
+          if str(data.get("id")) != message_id or not int(data.get("flags") or 0) & 32768:
+              raise SystemExit("Community dashboard message or Components V2 flag missing")
+          required = (MARKER, "하나요 히요리", "사키하네 후야", "방송 일정",
+                      "기념일", "방송 활동 통계")
+          if not all(label in visual for label in required):
+              raise SystemExit("Community dashboard sections missing")
+          print("COMMUNITY_DASHBOARD_VERIFIED message_id=%s sections=3 clip_enabled=false" % message_id)
+          PY
+          REMOTE
+
       - name: Consolidate guild banner writes into the main bot
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
