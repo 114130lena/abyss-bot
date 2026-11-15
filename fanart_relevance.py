@@ -54,6 +54,9 @@ def assess_post_metadata(group, item):
     own = _HIYORI if group == "hanayo" else _HUYA
     if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not own.search(caption):
         return False, "background_or_group_only"
+    other_creator = _HUYA if group == "hanayo" else _HIYORI
+    if other_creator.search(caption) and not own.search(caption):
+        return False, "other_creator_named"
     if _OTHER_CHARACTER_NAMES.search(caption) and not own.search(caption):
         return False, "other_character_named"
     return True, "metadata_only"
