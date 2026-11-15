@@ -25,6 +25,8 @@ ALLOWED = {
     "SERVER_BANNER_INFO_POLL_SECONDS",
     "SERVER_BANNER_AUDIT_LOOKUP",
     "SERVER_BANNER_SOURCE_IMAGE_MATCH",
+    "COMMUNITY_DASHBOARD_ENABLED",
+    "COMMUNITY_DASHBOARD_CHANNEL_ID",
     "CHZZK_CLIP_ENABLED",
     "CHZZK_CLIP_CHANNEL_ID",
     "CHZZK_CLIP_MESSAGE_ID",
@@ -46,6 +48,10 @@ def update_env(values, path=ENV_FILE):
         raise ValueError("Banner info message ID must contain digits")
     if not values["CHZZK_CLIP_CHANNEL_ID"].isdigit() or not values["CHZZK_CLIP_MESSAGE_ID"].isdigit():
         raise ValueError("Clip channel/message IDs must contain digits")
+    if values["COMMUNITY_DASHBOARD_ENABLED"] not in ("0", "1"):
+        raise ValueError("Dashboard feature flag must be 0 or 1")
+    if not values["COMMUNITY_DASHBOARD_CHANNEL_ID"].isdigit():
+        raise ValueError("Dashboard channel ID must be numeric")
     if values["CHZZK_CLIP_ENABLED"] not in ("0", "1"):
         raise ValueError("Clip feature flag must be 0 or 1")
     if values["SERVER_BANNER_ENABLED"] != "1":
