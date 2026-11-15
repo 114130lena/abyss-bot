@@ -248,11 +248,16 @@ def _render(clips, history, now=None, collected_at=None):
         short_title = title[:48] + ("…" if len(title) > 48 else "")
         original = "https://chzzk.naver.com/clips/" + uid
         numbered_titles.append("**%02d** [%s](%s)" % (index, short_title, original))
-        media = str(clip.get("video_url") or clip.get("thumbnail") or "")
+        # Public gallery cards persist for hours, while CHZZK playback URLs
+        # are short-lived signed URLs and can disappear after publication.
+        # Prefer stable thumbnails. Original clip links remain clickable.
+        media = str(clip.get("thumbnail") or "")
         parsed = urlsplit(media)
         if parsed.scheme == "https" and parsed.hostname and len(media) <= 2048:
             items.append({"media": {"url": media},
                           "description": "%02d. %s" % (index, title[:110])})
+    if not items:
+        logging.warning("CHZZK_CLIP_GALLERY_NO_VALID_THUMBNAILS total=%d", len(selected))
     if items:
         # One adaptive Discord gallery instead of ten vertically stacked
         # media players. Each item remains associated with its title by
@@ -329,24 +334,15 @@ def publish_once(now=None, get=None, patch=None):
     updated = dict(history)
     updated[day] = {"id": clips[0]["id"], "title": clips[0]["title"]}
     updated = dict(sorted(updated.items(), reverse=True)[:14])
-    # Signed playback URLs are intentionally looked up only on the display slot.
-    for clip in clips:
-        clip["video_url"] = clip_video_url(clip, get=get)
-    logging.info("CHZZK_CLIP_INLINE_VIDEO resolved=%d total=%d",
-                 sum(bool(c["video_url"]) for c in clips), len(clips))
+    # Do not resolve temporary MP4 URLs for a persistent message:
+    # they expire and leave broken gallery tiles before the next update.
+    logging.info("CHZZK_CLIP_GALLERY_THUMBNAILS available=%d total=%d",
+                 sum(bool(c.get("thumbnail")) for c in clips), len(clips))
     payload = _render(clips, {k: v for k, v in updated.items() if k != day},
                       now=now, collected_at=state.get("collected_at"))
     from discord_message_sync import update_original
     status = update_original(channel, message, payload, token,
                              get=get or requests.get, patch=patch or requests.patch)
-    if status.startswith("discord_rejected_") and any(c.get("video_url") for c in clips):
-        for clip in clips:
-            clip.pop("video_url", None)
-        fallback = _render(clips, {k: v for k, v in updated.items() if k != day},
-                      now=now, collected_at=state.get("collected_at"))
-        status = update_original(channel, message, fallback, token,
-                                 get=get or requests.get, patch=patch or requests.patch)
-        logging.warning("CHZZK_CLIP_INLINE_VIDEO_FALLBACK status=%s", status)
     if status != "updated":
         logging.warning("CHZZK_CLIP_ORIGINAL_UNEDITABLE message=%s reason=%s; no replacement sent",
                         message, status)
