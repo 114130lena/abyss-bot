@@ -129,20 +129,20 @@ def _milestones(now):
         raw = str(item.get("date") or "")
         try:
             day = datetime.strptime(raw, "%Y-%m-%d").date()
-            next_day = day.replace(year=now.year)
-            if next_day < now.date():
-                next_day = day.replace(year=now.year + 1)
         except ValueError:
-            # Leap-day milestones use Feb 28 in non-leap years.
-            if raw.endswith("-02-29"):
-                year = now.year if now.date().isoformat()[5:] <= "02-28" else now.year + 1
-                next_day = datetime(year, 2, 28).date()
-            else:
-                continue
+            continue
         if not title:
             continue
+        # Compute a yearly recurrence without inventing the original date.
+        for year in (now.year, now.year + 1, now.year + 2):
+            try:
+                next_day = day.replace(year=year)
+            except ValueError:
+                next_day = datetime(year, 2, 28).date()
+            if next_day >= now.date():
+                break
         result.append(((next_day - now.date()).days, item["group"], title[:90],
-                       day.year if "day" in locals() else None))
+                       day.year))
     return sorted(result)[:8]
 
 
