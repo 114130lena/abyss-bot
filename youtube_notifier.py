@@ -78,7 +78,7 @@ def _load_handle_cache():
     try:
         value = json.loads(HANDLE_CACHE_FILE.read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
-    except (FileNotFoundError, ValueError):
+    except (OSError, ValueError):
         return {}
 
 
