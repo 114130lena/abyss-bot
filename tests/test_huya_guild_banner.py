@@ -90,7 +90,7 @@ class HuyaGuildBannerTests(unittest.TestCase):
             pool = banner.banner_inventory(state={
                 "all_used_post_ids": ["101"],
                 "all_used_sha256": [selected[1]["sha256"]]})
-            self.assertEqual(pool["unused"], 1 if selected[1]["post_url"].endswith("/101") else 2)
+            self.assertEqual(pool["unused"], 2 if selected[1]["post_url"].endswith("/101") else 1)
         # Future eligible guild artwork remains available to notifications;
         # only posts actually used for guild banners are prohibited there.
         self.assertEqual(fanart_usage.server_reserved_post_ids("sakihane"),
