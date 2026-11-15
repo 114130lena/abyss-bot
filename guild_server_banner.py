@@ -209,7 +209,10 @@ def collected_hanayo_art():
     from fanart_discovery import QUEUE, read, classify
     base = media_base().resolve()
     root = (base / "fanart_candidates" / "hanayo").resolve()
-    if not root.is_dir():
+    try:
+        if not root.is_dir():
+            return []
+    except OSError:
         return []
     result = []
     seen = set()
@@ -290,7 +293,10 @@ def collected_huya_art():
     from fanart_usage import canonical_post
     base = media_base().resolve()
     root = (base / "fanart_candidates" / "sakihane").resolve()
-    if not root.is_dir():
+    try:
+        if not root.is_dir():
+            return []
+    except OSError:
         return []
     result = []
     seen = set()
