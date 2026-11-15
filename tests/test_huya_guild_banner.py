@@ -59,9 +59,9 @@ class HuyaGuildBannerTests(unittest.TestCase):
 
     def test_huya_is_wide_only_and_uses_correct_group(self):
         pool = banner.collected_huya_art()
-        self.assertEqual(len(pool), 2)
+        self.assertEqual(len(pool), 3)
         self.assertEqual({x[1]["post_url"].rsplit("/", 1)[-1] for x in pool},
-                         {"101", "102"})
+                         {"101", "102", "104"})
         self.assertEqual({x[1]["group"] for x in pool}, {"sakihane"})
         self.assertEqual({x[1]["banner_format"] for x in pool},
                          {"16:9", "landscape_fit"})
@@ -71,7 +71,7 @@ class HuyaGuildBannerTests(unittest.TestCase):
             {"text": "#huyart"}))
         self.assertFalse(fanart_relevance.eligible_huya_banner(
             {"text": "RT by @any: #huyart"}))
-        self.assertFalse(fanart_relevance.eligible_huya_banner(
+        self.assertTrue(fanart_relevance.eligible_huya_banner(
             {"text": "#huyart #hiyoriart_"}))
         self.assertFalse(fanart_relevance.eligible_huya_banner(
             {"text": "풍경 일러스트 #huyart"}))
@@ -82,19 +82,19 @@ class HuyaGuildBannerTests(unittest.TestCase):
         with patch.object(banner, "approved_hanayo_art", return_value=[]), \
              patch.object(banner, "collected_hanayo_art", return_value=[]):
             pool = banner.banner_inventory(state={})
-            self.assertEqual(pool["total_by_group"]["sakihane"], 2)
-            self.assertEqual(pool["unused_by_group"]["sakihane"], 2)
+            self.assertEqual(pool["total_by_group"]["sakihane"], 3)
+            self.assertEqual(pool["unused_by_group"]["sakihane"], 3)
             selected, _history, count, _remaining = banner.rotation_selection(state={})
-            self.assertEqual(count, 2)
+            self.assertEqual(count, 3)
             self.assertEqual(selected[1]["group"], "sakihane")
             pool = banner.banner_inventory(state={
                 "all_used_post_ids": ["101"],
                 "all_used_sha256": [selected[1]["sha256"]]})
-            self.assertEqual(pool["unused"], 0 if selected[1]["post_url"].endswith("/102") else 1)
+            self.assertEqual(pool["unused"], 1 if selected[1]["post_url"].endswith("/101") else 2)
         # Future eligible guild artwork remains available to notifications;
         # only posts actually used for guild banners are prohibited there.
         self.assertEqual(fanart_usage.server_reserved_post_ids("sakihane"),
-                         {"101", "102"})
+                         {"101", "102", "104"})
         self.assertTrue(fanart_usage.notification_allowed(
             "sakihane", self.queue["sakihane:101"]))
         self.assertTrue(fanart_usage.notification_allowed(
