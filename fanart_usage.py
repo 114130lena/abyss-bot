@@ -192,6 +192,12 @@ def notification_allowed(group, entry, exclusions=None):
         return False
     if character_mismatch_post(entry.get("post_url")):
         return False
+    # Both Discord notification fanart and guild banners use the same
+    # metadata triage. Missing captions on legacy curated art remain supported.
+    if entry.get("text") is not None:
+        from fanart_relevance import assess_post_metadata
+        if not assess_post_metadata(group, entry)[0]:
+            return False
     if entry.get("use_for_notification_banner") is False:
         return False
     if entry.get("use_for_server_banner") is True or entry.get("server_banner_only") is True:
