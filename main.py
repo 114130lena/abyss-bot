@@ -296,7 +296,8 @@ def main():
     start_websub()
     start_health_monitor()
     # Existing clip card only; never creates a new Discord message.
-    if (os.getenv("CHZZK_CLIP_CHANNEL_ID", "").isdigit()
+    if (os.getenv("CHZZK_CLIP_ENABLED", "0") == "1"
+            and os.getenv("CHZZK_CLIP_CHANNEL_ID", "").isdigit()
             and os.getenv("CHZZK_CLIP_MESSAGE_ID", "").isdigit()):
         from chzzk_clip_digest import run_clip_scheduler
         threading.Thread(target=run_clip_scheduler,
