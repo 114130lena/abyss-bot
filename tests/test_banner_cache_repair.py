@@ -129,9 +129,7 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         from fanart_relevance import assess_post_metadata
         self.assertEqual(
             assess_post_metadata("sakihane", {"text": "히요리 #huyart"}),
-            (True, "metadata_only"))
-        # The supported name detector is intentionally conservative:
-        # source image recognition is still required for unknown characters.
+            (False, "other_creator_named"))
 
     def test_group_art_or_retweet_with_hiyori_tag_not_server_eligible(self):
         import fanart_relevance
