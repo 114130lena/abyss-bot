@@ -30,6 +30,19 @@ SCHEDULE = ROOT / "notice_schedule_state.json"
 LOCK = threading.RLock()
 MARKER = "ABYSS · COMMUNITY HUB"
 NAMES = {"hanayo": "하나요 히요리", "sakihane": "사키하네 후야"}
+# Checked against official STELLIVE profiles and debut announcement.
+# Huya debut additionally cross-checked against independent member archives.
+VERIFIED_MILESTONES = (
+    {"group": "hanayo", "title": "생일", "month_day": "03-31",
+     "source": "https://stellive.me/hiyori/"},
+    {"group": "hanayo", "title": "데뷔", "date": "2026-10-18",
+     "source": "https://stellive.me/news/14633"},
+    {"group": "sakihane", "title": "생일", "month_day": "07-07",
+     "source": "https://stellive.me/huya"},
+    {"group": "sakihane", "title": "데뷔", "date": "2025-09-20",
+     "source": "https://recal.kr/ko/e/vt/stellive/UC0YQnenKBCu5sGb7H61n6HA"},
+)
+
 
 
 def _read(path):
@@ -50,45 +63,94 @@ def _when(value):
         return None
 
 
+def _api_start(value, now):
+    """Parse CHZZK live openDate (naive times are KST), never publication time."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        dt = dt.replace(tzinfo=KST) if dt.tzinfo is None else dt.astimezone(KST)
+        return dt if now - timedelta(days=2) <= dt <= now else None
+    except (ValueError, OverflowError):
+        return None
+
+
 def record_transition(channel_id, previous, current, now=None):
-    """Record only observed live transitions; do not infer missing history."""
-    if not isinstance(previous, dict) or not previous:
-        return
+    """Track real API start time and bounded end observation, not fake exact end.
+
+    End time is between last confirmed-live poll and first confirmed-offline
+    poll. Suppress sessions after prolonged blind spots; never infer downtime.
+    """
     now = (now or datetime.now(KST)).astimezone(KST)
+    if not isinstance(current, dict):
+        return
     group = chzzk_group(channel_id)
-    previous_open = previous.get("status") == "OPEN"
     current_open = current.get("status") == "OPEN"
-    prev_id = str(previous.get("live_id") or previous.get("open_date") or "")
-    curr_id = str(current.get("live_id") or current.get("open_date") or "")
-    if previous_open == current_open and (not current_open or prev_id == curr_id):
+    if current.get("status") not in ("OPEN", "CLOSE"):
+        # Unknown status must not end a confirmed broadcast.
         return
     with LOCK:
         state = _read(SESSIONS)
         sessions = state.get("sessions")
-        if not isinstance(sessions, list):
-            sessions = []
+        sessions = sessions if isinstance(sessions, list) else []
         active = state.get("active")
-        if not isinstance(active, dict):
-            active = {}
+        active = active if isinstance(active, dict) else {}
         key = str(channel_id)
-        # Close an observed session when it ends or a new session begins.
-        existing = active.pop(key, None) if previous_open else None
-        if isinstance(existing, dict) and existing.get("id"):
-            started = _when(existing.get("started"))
-            if started and now >= started:
-                elapsed = min(int((now - started).total_seconds()), 86400)
-                if elapsed > 0 and not any(row.get("id") == existing["id"] and row.get("channel") == key
-                                            for row in sessions if isinstance(row, dict)):
-                    sessions.append({"id": existing["id"], "channel": key,
-                                     "group": group, "started": started.isoformat(),
-                                     "ended": now.isoformat(), "seconds": elapsed})
+        existing = active.get(key) if isinstance(active.get(key), dict) else None
+        current_id = str(current.get("live_id") or current.get("open_date") or "")
+        start_at = _api_start(current.get("open_date"), now) if current_open else None
         if current_open:
-            # Use the first observed timestamp, not an unverified start time.
-            # Restart can lose active state; do not invent prior duration.
-            active[key] = {"id": curr_id or now.isoformat(), "started": now.isoformat()}
+            if not current_id:
+                return
+            if existing and str(existing.get("id")) == current_id:
+                existing["last_live_seen"] = now.isoformat()
+                if start_at and existing.get("source") != "api_open_date":
+                    existing["started"] = start_at.isoformat()
+                    existing["source"] = "api_open_date"
+            else:
+                # On restart, use CHZZK's original live opening timestamp.
+                # If unavailable, mark first observation as approximate.
+                if existing:
+                    logging.warning("COMMUNITY_LIVE_SESSION_SWITCH_UNCERTAIN channel=%s", key)
+                active[key] = {
+                    "id": current_id,
+                    "started": (start_at or now).isoformat(),
+                    "source": "api_open_date" if start_at else "first_live_poll",
+                    "last_live_seen": now.isoformat(),
+                }
+        else:
+            if existing:
+                active.pop(key, None)
+                started = _when(existing.get("started"))
+                last_live = _when(existing.get("last_live_seen"))
+                # Don't turn a long outage into fictitious streaming time.
+                gap = (now - last_live).total_seconds() if last_live else float("inf")
+                if (started and last_live and started <= last_live <= now
+                        and 0 <= gap <= 300 and (now - started).total_seconds() <= 172800):
+                    lower = max(0, int((last_live - started).total_seconds()))
+                    upper = max(lower, int((now - started).total_seconds()))
+                    if upper > 0 and not any(
+                        row.get("id") == existing["id"] and row.get("channel") == key
+                        for row in sessions if isinstance(row, dict)
+                    ):
+                        sessions.append({
+                            "id": existing["id"], "channel": key, "group": group,
+                            "started": started.isoformat(),
+                            "start_source": existing.get("source", "first_live_poll"),
+                            "ended_after": last_live.isoformat(),
+                            "ended_before": now.isoformat(),
+                            "seconds_min": lower,
+                            "seconds_max": upper,
+                            "seconds": (lower + upper) // 2,
+                            "uncertainty_seconds": (upper - lower + 1) // 2,
+                        })
+                else:
+                    logging.warning("COMMUNITY_LIVE_DURATION_UNVERIFIED channel=%s", key)
         cutoff = now - timedelta(days=400)
-        state["sessions"] = [row for row in sessions if isinstance(row, dict)
-                             and (_when(row.get("ended")) or cutoff) >= cutoff][-2500:]
+        state["sessions"] = [
+            row for row in sessions if isinstance(row, dict)
+            and (_when(row.get("ended_before") or row.get("ended")) or cutoff) >= cutoff
+        ][-2500:]
         state["active"] = active
         save_json(SESSIONS, state)
 
@@ -120,30 +182,45 @@ def _events(now):
 
 
 def _milestones(now):
-    result = []
-    entries = _read(MILESTONES).get("events")
-    for item in entries if isinstance(entries, list) else []:
-        if not isinstance(item, dict) or item.get("group") not in NAMES:
-            continue
+    """Combine verified built-ins with optional manually validated records."""
+    entries = list(VERIFIED_MILESTONES)
+    custom = _read(MILESTONES).get("events")
+    if isinstance(custom, list):
+        entries.extend(item for item in custom if isinstance(item, dict))
+    result, seen = [], set()
+    for item in entries:
+        group = item.get("group")
         title = str(item.get("title") or "").strip()
-        raw = str(item.get("date") or "")
+        if group not in NAMES or not title or (group, title) in seen:
+            continue
+        source = str(item.get("source") or "")
+        if source and not source.startswith("https://"):
+            source = ""
         try:
-            day = datetime.strptime(raw, "%Y-%m-%d").date()
-        except ValueError:
+            if item.get("month_day"):
+                month, day_value = map(int, str(item["month_day"]).split("-"))
+                first_year = None
+            else:
+                born = datetime.strptime(str(item.get("date") or ""), "%Y-%m-%d").date()
+                month, day_value, first_year = born.month, born.day, born.year
+            for year in (now.year, now.year + 1, now.year + 2):
+                try:
+                    next_day = datetime(year, month, day_value).date()
+                except ValueError:
+                    if (month, day_value) != (2, 29):
+                        raise
+                    next_day = datetime(year, 2, 28).date()
+                if next_day >= now.date():
+                    break
+            if first_year is not None and next_day.year < first_year:
+                continue
+        except (ValueError, TypeError):
             continue
-        if not title:
-            continue
-        # Compute a yearly recurrence without inventing the original date.
-        for year in (now.year, now.year + 1, now.year + 2):
-            try:
-                next_day = day.replace(year=year)
-            except ValueError:
-                next_day = datetime(year, 2, 28).date()
-            if next_day >= now.date():
-                break
-        result.append(((next_day - now.date()).days, item["group"], title[:90],
-                       day.year))
-    return sorted(result)[:8]
+        seen.add((group, title))
+        years = next_day.year - first_year if first_year else None
+        result.append(((next_day - now.date()).days, group, title[:90],
+                       next_day.strftime("%m/%d"), years, source))
+    return sorted(result)[:10]
 
 
 def _stats(now):
@@ -192,15 +269,20 @@ def render(now=None):
             "### " + name + " · 방송 일정\n" +
             ("\n".join(lines) if lines else "-# 확인된 향후 일정이 없습니다. (공지 기반)"))})
     anniversary_lines = []
-    for days, group, title, year in milestones:
-        anniversary_lines.append("**" + NAMES[group] + "** · " + _clean(title) +
-                                 " · " + ("오늘" if days == 0 else "D-" + str(days)))
+    for days, group, title, month_day, years, source in milestones:
+        label = "**" + NAMES[group] + "** · " + _clean(title)
+        if years is not None:
+            label += " " + str(years) + "주년"
+        label += " (" + month_day + ") · " + ("오늘" if days == 0 else "D-" + str(days))
+        if source:
+            label += " · [출처](" + source + ")"
+        anniversary_lines.append(label)
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content": (
         "### 🎉 기념일 · 주요 기록\n" +
         ("\n".join(anniversary_lines) if anniversary_lines else
-         "-# 검증된 기념일을 등록하면 이곳에 표시됩니다.") +
-        "\n-# 기념일 데이터는 확인된 날짜만 수동 등록")})
+         "-# 확인된 기념일이 없습니다.") +
+        "\n-# 공식 프로필·데뷔 공지 및 검증된 자료 기준")})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     month_label = now.strftime("%Y년 %m월")
     statlines = []
