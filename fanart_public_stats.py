@@ -30,8 +30,11 @@ def _latest(*values):
 
 def snapshot():
     """Return no tokens, no unpublished titles and no original creator names."""
-    queue_exists = QUEUE.is_file()
-    queue = read(QUEUE)
+    try:
+        queue_exists = QUEUE.is_file()
+    except OSError:
+        queue_exists = False
+    queue = read(QUEUE) if queue_exists else {}
     result = {"available": queue_exists, "groups": {}, "checked_at": "",
               "last_new_post_at": "", "server_banner_images": None, "server_banner_total": None,
               "server_banner_used": None, "server_banner_by_group": {}}
