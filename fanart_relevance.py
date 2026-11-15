@@ -8,7 +8,7 @@ other members' tags alone do not disqualify collaboration fanart.
 import re
 
 _HIYORI = re.compile(r"(?<![\w#])(?:하나요\s*히요리|히요리|花陽\s*ひより|ひより|ヒヨリ|hanayo\s*hiyori|hanayohiyori|hiyori)(?![A-Za-z0-9_])", re.I)
-_TAGS = re.compile(r"(?<![\w])#[a-zA-Z0-9_]+", re.I)
+_TAGS = re.compile(r"(?<![\w#])#[\w]+", re.I)
 _GROUP_ONLY = re.compile(r"(?:어비스\s*(?:첫|오리지널|신곡|곡)|abyss\s*(?:original|song))", re.I)
 _BACKGROUND_ONLY = re.compile(
     r"(?:풍경|배경\s*(?:그림|사진|이미지)?|캐릭터\s*(?:없음|없는)|"
