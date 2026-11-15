@@ -169,16 +169,28 @@ class ClipTests(unittest.TestCase):
         self.assertIn("**01** [미리보기 없음]", parts[2]["content"])
         self.assertIn("**02** [정상 영상]", parts[2]["content"])
 
-    def test_inline_video_media_url_overrides_thumbnail(self):
+    def test_expiring_video_url_never_overrides_durable_thumbnail(self):
         clip = {"id": "clip1234", "title": "영상",
                 "url": "https://chzzk.naver.com/clips/clip1234",
                 "thumbnail": "https://example.com/image.jpg",
-                "video_url": "https://example.com/clip.mp4",
+                "video_url": "https://example.com/clip.mp4?expires=1",
                 "views": 1, "date": NOW.isoformat()}
         payload = clips._render([clip], {})
         gallery = next(p for p in payload["components"][0]["components"]
                        if p["type"] == 12)
-        self.assertEqual(gallery["items"][0]["media"]["url"], "https://example.com/clip.mp4")
+        self.assertEqual(gallery["items"][0]["media"]["url"], "https://example.com/image.jpg")
+        self.assertIn("https://chzzk.naver.com/clips/clip1234",
+                      payload["components"][0]["components"][-1]["content"])
+
+    def test_expiring_video_without_thumbnail_keeps_link_only(self):
+        clip = {"id": "clip1234", "title": "영상",
+                "thumbnail": "", "video_url": "https://example.com/clip.mp4?expires=1",
+                "date": NOW.isoformat()}
+        payload = clips._render([clip], {})
+        parts = payload["components"][0]["components"]
+        self.assertFalse(any(part["type"] == 12 for part in parts))
+        self.assertIn("https://chzzk.naver.com/clips/clip1234",
+                      parts[-1]["content"])
 
     def test_playback_resolution_from_videohub(self):
         detail = fake_response({"code": 200, "content": {
