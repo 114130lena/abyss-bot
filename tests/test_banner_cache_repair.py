@@ -127,6 +127,29 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.assertEqual(len(fanart_url_media.candidates("hanayo")), 1)
         self.assertEqual(len(guild_server_banner.collected_hanayo_art()), 1)
 
+    def test_unrelated_fandom_tag_blocks_both_displays_not_collection(self):
+        from fanart_relevance import assess_post_metadata
+        self.queue["hanayo:12345"]["text"] = "오늘의 그림 #hiyoriart_ #블루아카이브"
+        self.save_queue()
+        self.assertEqual(assess_post_metadata(
+            "hanayo", self.queue["hanayo:12345"]),
+            (False, "unrelated_franchise_tag"))
+        self.assertFalse(fanart_usage.notification_allowed(
+            "hanayo", self.queue["hanayo:12345"]))
+        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
+        self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+        self.assertIn("hanayo:12345", json.loads(
+            (self.base / "fanart_discovery.json").read_text()))
+
+    def test_target_named_crossover_and_generic_tags_stay_eligible(self):
+        from fanart_relevance import assess_post_metadata
+        self.assertEqual(assess_post_metadata("hanayo", {
+            "text": "히요리 크로스오버 #hiyoriart_ #원신"}), (True, "metadata_only"))
+        self.assertEqual(assess_post_metadata("sakihane", {
+            "text": "#huyart #hiyoriart_ #fanart #일러스트"}), (True, "metadata_only"))
+        self.assertEqual(assess_post_metadata("hanayo", {
+            "text": "#hiyoriart_ #some_unknown_tag"}), (True, "metadata_only"))
+
     def test_multiple_member_tags_without_caption_are_metadata_eligible(self):
         from fanart_relevance import assess_post_metadata
         self.assertEqual(
