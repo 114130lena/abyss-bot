@@ -959,7 +959,7 @@ def prepare_next_banner(now=None):
 
 def _load_prepared_banner(current_slot, state):
     """Fast-path prepared JPEG, refusing stale or consumed artwork."""
-    from fanart_usage import canonical_post
+    from fanart_usage import canonical_post, character_mismatch_post
     from fanart_discovery import BASE as fanart_base, read as read_fanart
     manifest, image_path = _prepared_banner_paths()
     try:
@@ -967,6 +967,8 @@ def _load_prepared_banner(current_slot, state):
         if not isinstance(record, dict) or record.get("slot") != current_slot:
             return None
         sha = record.get("sha256")
+        if character_mismatch_post(record.get("post_url")):
+            return None
         post_id = canonical_post(record.get("post_url"))
         if not isinstance(sha, str) or not sha or not post_id:
             return None
