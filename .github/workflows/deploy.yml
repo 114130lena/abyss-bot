@@ -137,7 +137,8 @@ jobs:
               "SERVER_BANNER_AUDIT_LOOKUP": "1",
               "SERVER_BANNER_SOURCE_IMAGE_MATCH": "1",
               "COMMUNITY_DASHBOARD_ENABLED": "1",
-              "COMMUNITY_DASHBOARD_CHANNEL_ID": "1567561255764500551",
+              "COMMUNITY_DASHBOARD_CHANNEL_ID": "1567760518977167501",
+              "COMMUNITY_DASHBOARD_MESSAGE_ID": "1567763296151539875",
               "CHZZK_CLIP_ENABLED": "0",
               "CHZZK_CLIP_CHANNEL_ID": "1567760518977167501",
               "CHZZK_CLIP_MESSAGE_ID": "1567763296151539875",
@@ -524,6 +525,8 @@ jobs:
           if not message_id.isdigit():
               raise SystemExit("Community dashboard message ID is missing")
           channel = os.environ["COMMUNITY_DASHBOARD_CHANNEL_ID"]
+          if message_id != os.environ["CHZZK_CLIP_MESSAGE_ID"] or channel != os.environ["CHZZK_CLIP_CHANNEL_ID"]:
+              raise SystemExit("Community card must reuse original clip message")
           response = requests.get(
               f"https://discord.com/api/v10/channels/{channel}/messages/{message_id}",
               headers={"Authorization": "Bot " + os.environ["DISCORD_BOT_TOKEN"]},

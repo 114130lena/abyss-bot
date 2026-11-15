@@ -27,6 +27,7 @@ ALLOWED = {
     "SERVER_BANNER_SOURCE_IMAGE_MATCH",
     "COMMUNITY_DASHBOARD_ENABLED",
     "COMMUNITY_DASHBOARD_CHANNEL_ID",
+    "COMMUNITY_DASHBOARD_MESSAGE_ID",
     "CHZZK_CLIP_ENABLED",
     "CHZZK_CLIP_CHANNEL_ID",
     "CHZZK_CLIP_MESSAGE_ID",
@@ -48,6 +49,10 @@ def update_env(values, path=ENV_FILE):
         raise ValueError("Banner info message ID must contain digits")
     if not values["CHZZK_CLIP_CHANNEL_ID"].isdigit() or not values["CHZZK_CLIP_MESSAGE_ID"].isdigit():
         raise ValueError("Clip channel/message IDs must contain digits")
+    if values["COMMUNITY_DASHBOARD_CHANNEL_ID"] != values["CHZZK_CLIP_CHANNEL_ID"] or (values["COMMUNITY_DASHBOARD_MESSAGE_ID"] != values["CHZZK_CLIP_MESSAGE_ID"]):
+        raise ValueError("Dashboard must reuse the original clip message")
+    if values["CHZZK_CLIP_ENABLED"] != "0":
+        raise ValueError("Clip scheduler must remain paused")
     if values["COMMUNITY_DASHBOARD_ENABLED"] not in ("0", "1"):
         raise ValueError("Dashboard feature flag must be 0 or 1")
     if not values["COMMUNITY_DASHBOARD_CHANNEL_ID"].isdigit():

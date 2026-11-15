@@ -225,52 +225,25 @@ def render(now=None):
 
 
 def sync_once(now=None, get=None, post=None, patch=None):
-    """Reconcile one stable dashboard message; refuse blind duplicate posts."""
+    """Edit only the already-existing clip card, never create a new post."""
     token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
     channel = os.getenv("COMMUNITY_DASHBOARD_CHANNEL_ID", "").strip()
-    if not channel:
-        channel = os.getenv("SERVER_BANNER_INFO_CHANNEL_ID", "").strip()
-    if not token or not channel.isdigit():
-        return {"status": "not_configured"}
-    get = get or requests.get
-    post = post or requests.post
-    patch = patch or requests.patch
-    headers = {"Authorization": "Bot " + token}
-    base = "https://discord.com/api/v10/channels/" + channel + "/messages"
-    body = render(now)
+    message_id = os.getenv("COMMUNITY_DASHBOARD_MESSAGE_ID", "").strip()
+    clip_channel = os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip()
+    clip_message = os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip()
+    # Hard guard: the hub must target the exact paused clip message.
+    if (not token or not channel.isdigit() or not message_id.isdigit()
+            or channel != clip_channel or message_id != clip_message
+            or os.getenv("CHZZK_CLIP_ENABLED", "0") != "0"):
+        return {"status": "not_configured_or_clip_active"}
     with LOCK:
-        state = _read(STATE)
-        message_id = str(state.get("message_id") or
-                         os.getenv("COMMUNITY_DASHBOARD_MESSAGE_ID", "")).strip()
-        if not message_id:
-            # Detect a previously posted card before creating one.
-            response = get(base, params={"limit": 100}, headers=headers, timeout=12)
-            if response.status_code != 200 or not isinstance(response.json(), list):
-                return {"status": "discovery_unavailable"}
-            found = [str(msg.get("id")) for msg in response.json()
-                     if isinstance(msg, dict) and MARKER in json.dumps(msg.get("components") or [],
-                                                                         ensure_ascii=False)]
-            if len(found) > 1:
-                return {"status": "multiple_existing_cards"}
-            if found:
-                message_id = found[0]
-        if message_id:
-            result = update_original(channel, message_id, body, token,
-                                     get=get, patch=patch)
-            if result != "updated":
-                return {"status": "update_failed", "reason": result}
-        else:
-            # A new card is created only when read-back discovery succeeds.
-            # Ambiguous post failures are reconciled by discovery next hour.
-            try:
-                response = post(base, headers=headers, json=body, timeout=12)
-                if response.status_code not in (200, 201):
-                    return {"status": "create_failed", "http": response.status_code}
-                message_id = str(response.json().get("id") or "")
-                if not message_id.isdigit():
-                    return {"status": "create_uncertain"}
-            except requests.RequestException:
-                return {"status": "create_uncertain"}
+        status = update_original(channel, message_id, render(now), token,
+                                 get=get or requests.get,
+                                 patch=patch or requests.patch)
+        if status != "updated":
+            logging.warning("COMMUNITY_DASHBOARD_CLIP_MESSAGE_UNEDITABLE id=%s reason=%s",
+                            message_id, status)
+            return {"status": "update_failed", "reason": status}
         save_json(STATE, {"message_id": message_id,
                           "updated_at": (now or datetime.now(KST)).isoformat()})
         return {"status": "updated", "message_id": message_id}
