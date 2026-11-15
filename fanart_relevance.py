@@ -27,6 +27,29 @@ _OTHER_CHARACTER_NAMES = re.compile(
     r"tavi|hina|yuni|kanna|shibuki|riko|rize)(?![\\w])", re.I)
 
 
+# Explicit unrelated franchises/characters are suspicion signals, not blanket
+# rejection of unknown tags. Keep these entries narrow and auditable.
+# Another Stellive member's art tag, #sketch, #fanart, etc. are NOT suspicious.
+_UNRELATED_FANDOM_TAGS = frozenset({
+    "#원신", "#genshin", "#genshinimpact",
+    "#블루아카이브", "#블아", "#bluearchive",
+    "#명일방주", "#arknights",
+    "#붕괴스타레일", "#honkaistarrail", "#hsr",
+    "#니케", "#nikke", "#승리의여신니케",
+    "#프로세카", "#projectsekai",
+    "#동방프로젝트", "#touhou",
+    "#hololive", "#홀로라이브",
+    "#우마무스메", "#umamusume",
+})
+# A confirmed target name in caption makes a possible crossover legitimate;
+# a generic tag or another Stellive member tag must not be classified as off-topic.
+def suspicious_tags(group, item):
+    if group not in ("hanayo", "sakihane") or not isinstance(item, dict):
+        return set()
+    tags = {x.casefold() for x in _TAGS.findall(str(item.get("text") or ""))}
+    return tags & _UNRELATED_FANDOM_TAGS
+
+
 def assess_post_metadata(group, item):
     """Return (eligible, reason), without deleting or mutating source records.
 
@@ -48,6 +71,8 @@ def assess_post_metadata(group, item):
         return False, "missing_official_tag"
     caption = _TAGS.sub(" ", text)
     own = _HIYORI if group == "hanayo" else _HUYA
+    if suspicious_tags(group, item) and not own.search(caption):
+        return False, "unrelated_franchise_tag"
     if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not own.search(caption):
         return False, "background_or_group_only"
     other_creator = _HUYA if group == "hanayo" else _HIYORI
