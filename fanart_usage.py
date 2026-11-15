@@ -21,6 +21,18 @@ def canonical_post(url):
     return match.group(1) if match else ""
 
 
+# Known hashtag-mismatched X posts. A tag is not evidence that the intended
+# character is depicted. Keep the source for audit but exclude it from both
+# notification fanart and scheduled guild-banner selection.
+KNOWN_CHARACTER_MISMATCH_POST_IDS = frozenset({
+    "2121389082907754938",  # Reported other character under #hiyoriart_.
+})
+
+
+def character_mismatch_post(url):
+    return canonical_post(url) in KNOWN_CHARACTER_MISMATCH_POST_IDS
+
+
 def preferred_server_banner(width, height):
     """Preferred Discord server-banner aspect ratios (kept separate from notifications)."""
     if not width or not height or width < 960 or height < 540:
@@ -177,6 +189,8 @@ def excluded_notification_art(group):
 
 def notification_allowed(group, entry, exclusions=None):
     if not isinstance(entry, dict):
+        return False
+    if character_mismatch_post(entry.get("post_url")):
         return False
     if entry.get("use_for_notification_banner") is False:
         return False
