@@ -7,7 +7,7 @@ other members' tags alone do not disqualify collaboration fanart.
 """
 import re
 
-_HIYORI = re.compile(r"(?<![\w#])(?:하나요\s*히요리|히요리|花陽\s*ひより|ひより|ヒヨリ|hanayo\s*hiyori|hanayohiyori|hiyori)(?![\w])", re.I)
+_HIYORI = re.compile(r"(?<![\w#])(?:하나요\s*히요리|히요리|花陽\s*ひより|ひより|ヒヨリ|hanayo\s*hiyori|hanayohiyori|hiyori)(?![A-Za-z0-9_])", re.I)
 _TAGS = re.compile(r"(?<![\w])#[a-zA-Z0-9_]+", re.I)
 _GROUP_ONLY = re.compile(r"(?:어비스\s*(?:첫|오리지널|신곡|곡)|abyss\s*(?:original|song))", re.I)
 _BACKGROUND_ONLY = re.compile(
@@ -16,7 +16,7 @@ _BACKGROUND_ONLY = re.compile(
 _REPOST = re.compile(r"^\s*(?:RT by |RT @|repost by )", re.I)
 _HUYA = re.compile(
     r"(?<![\w#])(?:사키하네\s*후야|후야|さきはね\s*ふや|ふや|フヤ|"
-    r"sakihane\s*huya|sakihanehuya|huya)(?![\w])", re.I)
+    r"sakihane\s*huya|sakihanehuya|huya)(?![A-Za-z0-9_])", re.I)
 
 
 # Shared, free text/hashtag triage. This is a metadata screen, not an image
