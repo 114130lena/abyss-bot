@@ -119,11 +119,22 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.assertEqual(fanart_url_media.candidates("hanayo"), [])
         self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
 
-    def test_other_member_fanart_tag_cannot_enter_notification(self):
-        self.queue["hanayo:12345"]["text"] = "#hiyoriart_ #huyart"
+    def test_other_member_tags_do_not_exclude_collaboration_fanart(self):
+        self.queue["hanayo:12345"]["text"] = "히요리와 후야 합동 그림 #hiyoriart_ #huyart"
         self.save_queue()
-        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
-        self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+        self.assertTrue(fanart_usage.notification_allowed(
+            "hanayo", self.queue["hanayo:12345"]))
+        self.assertEqual(len(fanart_url_media.candidates("hanayo")), 1)
+        self.assertEqual(len(guild_server_banner.collected_hanayo_art()), 1)
+
+    def test_multiple_member_tags_without_caption_are_metadata_eligible(self):
+        from fanart_relevance import assess_post_metadata
+        self.assertEqual(
+            assess_post_metadata("hanayo", {"text": "#hiyoriart_ #huyart #toart_"}),
+            (True, "metadata_only"))
+        self.assertEqual(
+            assess_post_metadata("sakihane", {"text": "#huyart #hiyoriart_"}),
+            (True, "metadata_only"))
 
     def test_huya_caption_with_hiyori_name_not_huya_is_rejected(self):
         from fanart_relevance import assess_post_metadata
