@@ -252,6 +252,14 @@ def check_chzzk_once(state):
                                  and (not previously_open or changed_session))
                 if should_notify:
                     queue_live_notification(live)
+                # Analytics is an independent, best-effort observer; its failures
+                # must never interrupt live status updates or notifications.
+                if os.getenv("COMMUNITY_DASHBOARD_ENABLED", "0") == "1":
+                    try:
+                        from community_dashboard import record_transition
+                        record_transition(channel_id, previous, live)
+                    except Exception:
+                        logging.exception("방송 활동 통계 기록 실패 (알림은 계속)")
                 state[channel_id] = {
                     "status": status,
                     "live_id": live_id if status == "OPEN" else "",
@@ -295,6 +303,10 @@ def main():
                          name="guild-banner-rotation", daemon=True).start()
     start_websub()
     start_health_monitor()
+    if os.getenv("COMMUNITY_DASHBOARD_ENABLED", "0") == "1":
+        from community_dashboard import run_scheduler as run_community_dashboard
+        threading.Thread(target=run_community_dashboard,
+                         name="community-dashboard", daemon=True).start()
     # Existing clip card only; never creates a new Discord message.
     if (os.getenv("CHZZK_CLIP_ENABLED", "0") == "1"
             and os.getenv("CHZZK_CLIP_CHANNEL_ID", "").isdigit()
