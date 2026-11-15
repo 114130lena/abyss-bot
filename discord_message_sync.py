@@ -3,6 +3,7 @@
 Bot-owned messages use the channel PATCH API. Webhook-owned messages require
 a matching webhook token; reject credentials for a different webhook.
 """
+import json
 import logging
 import os
 from urllib.parse import urlsplit
@@ -93,7 +94,7 @@ def _safe_discord_error(result, message_id):
 
 
 def update_original(channel, message_id, payload, bot_token, *,
-                    get=requests.get, patch=requests.patch):
+                    get=requests.get, patch=requests.patch, files=None):
     """Return status only, never credentials; do not create Discord messages."""
     if not channel.isdigit() or not message_id.isdigit() or not bot_token:
         return "not_configured"
@@ -103,7 +104,24 @@ def update_original(channel, message_id, payload, bot_token, *,
     if payload.get("components") and not payload.get("content") and not payload.get("embeds"):
         payload = {**payload, "flags": int(payload.get("flags", 0)) | 32768,
                    "content": None, "embeds": []}
-    result = patch(url, headers=headers, json=payload, timeout=12)
+    def send_patch(target, *, auth_headers=None):
+        if not files:
+            return patch(target, headers=auth_headers, json=payload, timeout=12) if auth_headers else patch(target, json=payload, timeout=12)
+        # A media gallery references each uploaded MP4 as attachment://name.mp4.
+        # On retry, rewind every stream to avoid empty/partial uploads.
+        upload = {}
+        for i, (filename, stream) in enumerate(files):
+            stream.seek(0)
+            upload[f"files[{i}]"] = (filename, stream, "video/mp4")
+        body = {**payload, "attachments": [
+            {"id": i, "filename": name} for i, (name, _) in enumerate(files)]}
+        kwargs = {"data": {"payload_json": json.dumps(body)},
+                  "files": upload, "timeout": 45}
+        if auth_headers:
+            kwargs["headers"] = auth_headers
+        return patch(target, **kwargs)
+
+    result = send_patch(url, auth_headers=headers)
     if result.status_code in (200, 204):
         return "updated"
     if result.status_code == 400:
@@ -133,7 +151,7 @@ def update_original(channel, message_id, payload, bot_token, *,
     # Webhook edits require component opt-in just like webhook creates.
     if payload.get("components"):
         webhook_url += ("&" if "?" in webhook_url else "?") + "with_components=true"
-    result = patch(webhook_url, json=payload, timeout=12)
+    result = send_patch(webhook_url)
     if result.status_code in (403, 404):
         logging.warning("DISCORD_ORIGINAL_WEBHOOK_EDIT_BLOCKED message=%s http=%s",
                         message_id, result.status_code)
