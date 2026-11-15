@@ -21,43 +21,48 @@ _HUYA = re.compile(
 _OTHER_HUYA_TAGS = {"#hiyoriart_", "#toart_", "#rangart_", "#maryart_"}
 
 
-def eligible_hanayo_banner(item):
-    """Fail closed for ambiguous multi-character artwork; no manual approval required."""
-    if not isinstance(item, dict):
-        return False
+# Shared, free text/hashtag triage. This is a metadata screen, not an image
+# recognition claim; caption-free posts remain unverified by visual content.
+_OTHER_CHARACTER_NAMES = re.compile(
+    r"(?<![\\w#])(?:타비|시라유키\\s*히나|히나|유니|아야츠노\\s*유니|"
+    r"칸나|아이리\\s*칸나|시부키|리코|아카네\\s*리제|"
+    r"tavi|hina|yuni|kanna|shibuki|riko|rize)(?![\\w])", re.I)
+
+
+def assess_post_metadata(group, item):
+    """Return (eligible, reason), without deleting or mutating source records.
+
+    A known other member tag, explicit background-only caption, or another
+    named character without the intended character is insufficient for output.
+    A hashtag-only match is permitted as metadata, never visually verified.
+    """
+    if group not in ("hanayo", "sakihane") or not isinstance(item, dict):
+        return False, "invalid"
     if item.get("server_banner_excluded") is True:
-        return False
+        return False, "excluded"
     text = str(item.get("text") or "")
     if _REPOST.search(text):
-        return False
-    tags = {x.lower() for x in _TAGS.findall(text)}
-    if "#hiyoriart_" not in tags or tags & _OTHER_MEMBER_TAGS:
-        return False
-    # Artists often use only the official hashtag and no text. That should
-    # not prevent a suitable wide illustration from entering the pool.
-    # Explicitly background-only or group-only captions still require
-    # a separate positive Hiyori mention. When vision scoring is enabled,
-    # it provides an independent character-in-image check.
+        return False, "repost"
+    tags = {x.casefold() for x in _TAGS.findall(text)}
+    tag = "#hiyoriart_" if group == "hanayo" else "#huyart"
+    if tag not in tags:
+        return False, "missing_official_tag"
+    others = _OTHER_MEMBER_TAGS if group == "hanayo" else _OTHER_HUYA_TAGS
+    if tags & others:
+        return False, "other_member_tag"
     caption = _TAGS.sub(" ", text)
-    if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not _HIYORI.search(caption):
-        return False
-    return True
+    own = _HIYORI if group == "hanayo" else _HUYA
+    if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not own.search(caption):
+        return False, "background_or_group_only"
+    if _OTHER_CHARACTER_NAMES.search(caption) and not own.search(caption):
+        return False, "other_character_named"
+    return True, "metadata_only"
+
+
+
+def eligible_hanayo_banner(item):
+    return assess_post_metadata("hanayo", item)[0]
 
 
 def eligible_huya_banner(item):
-    """Only unambiguous original #huyart posts; image must also be wide.
-
-    The Huya rule never relies on the Hiyori-only vision reference image.
-    """
-    if not isinstance(item, dict) or item.get("server_banner_excluded") is True:
-        return False
-    text = str(item.get("text") or "")
-    if _REPOST.search(text):
-        return False
-    tags = {x.lower() for x in _TAGS.findall(text)}
-    if "#huyart" not in tags or tags & _OTHER_HUYA_TAGS:
-        return False
-    caption = _TAGS.sub(" ", text)
-    if (_GROUP_ONLY.search(caption) or _BACKGROUND_ONLY.search(caption)) and not _HUYA.search(caption):
-        return False
-    return True
+    return assess_post_metadata("sakihane", item)[0]
