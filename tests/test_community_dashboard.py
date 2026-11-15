@@ -73,39 +73,42 @@ class CommunityDashboardTests(unittest.TestCase):
         self.assertEqual(stats["hanayo"]["count"], 1)
         self.assertEqual(stats["hanayo"]["seconds"], 5400)
 
-    def test_explicit_existing_message_is_edited_not_posted(self):
-        with patch.dict("os.environ", {
-                "DISCORD_BOT_TOKEN": "dummy", "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
-                "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}), \
+    def test_reuses_original_clip_message_even_if_old_state_points_elsewhere(self):
+        hub.save_json(hub.STATE, {"message_id": "999"})
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), \
              patch.object(hub, "update_original", return_value="updated") as edit:
             post = Mock()
             result = hub.sync_once(NOW, post=post)
-            self.assertEqual(result["message_id"], "222")
-            post.assert_not_called()
-            edit.assert_called_once()
+        self.assertEqual(result["message_id"], "222")
+        self.assertEqual(hub._read(hub.STATE)["message_id"], "222")
+        self.assertEqual(edit.call_args.args[:2], ("111", "222"))
+        post.assert_not_called()
 
-    def test_failed_discovery_never_creates_duplicate(self):
-        with patch.dict("os.environ", {
-                "DISCORD_BOT_TOKEN": "dummy", "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
-                "COMMUNITY_DASHBOARD_MESSAGE_ID": ""}):
+    def test_cannot_create_or_edit_if_original_message_not_configured(self):
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": ""}
+        with patch.dict("os.environ", env), patch.object(hub, "update_original") as edit:
             post = Mock()
-            result = hub.sync_once(NOW, get=Mock(return_value=response(403, {})),
-                                   post=post)
-            self.assertEqual(result["status"], "discovery_unavailable")
-            post.assert_not_called()
+            result = hub.sync_once(NOW, post=post)
+        self.assertEqual(result["status"], "not_configured_or_clip_active")
+        post.assert_not_called()
+        edit.assert_not_called()
 
-    def test_reuses_discovered_message(self):
-        stored = {"id": "333", "components": [{"type": 10,
-                  "content": hub.MARKER}]}
-        with patch.dict("os.environ", {
-                "DISCORD_BOT_TOKEN": "dummy", "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
-                "COMMUNITY_DASHBOARD_MESSAGE_ID": ""}), \
-             patch.object(hub, "update_original", return_value="updated"):
-            post = Mock()
-            result = hub.sync_once(NOW, get=Mock(return_value=response(200, [stored])),
-                                   post=post)
-            self.assertEqual(result["message_id"], "333")
-            post.assert_not_called()
+    def test_clip_worker_must_be_paused(self):
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "1",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), patch.object(hub, "update_original") as edit:
+            result = hub.sync_once(NOW)
+        self.assertEqual(result["status"], "not_configured_or_clip_active")
+        edit.assert_not_called()
 
 
 if __name__ == "__main__":
