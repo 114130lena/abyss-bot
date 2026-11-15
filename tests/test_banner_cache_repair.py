@@ -107,6 +107,32 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1"}):
             self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
 
+    def test_foreign_character_caption_is_excluded_from_both_outputs(self):
+        from fanart_relevance import assess_post_metadata
+        self.queue["hanayo:12345"]["text"] = "유니 일러스트 #hiyoriart_ #sketch"
+        self.save_queue()
+        eligible, reason = assess_post_metadata("hanayo", self.queue["hanayo:12345"])
+        self.assertFalse(eligible)
+        self.assertEqual(reason, "other_character_named")
+        self.assertFalse(fanart_usage.notification_allowed(
+            "hanayo", self.queue["hanayo:12345"]))
+        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
+        self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+
+    def test_other_member_fanart_tag_cannot_enter_notification(self):
+        self.queue["hanayo:12345"]["text"] = "#hiyoriart_ #huyart"
+        self.save_queue()
+        self.assertEqual(fanart_url_media.candidates("hanayo"), [])
+        self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
+
+    def test_huya_caption_with_hiyori_name_not_huya_is_rejected(self):
+        from fanart_relevance import assess_post_metadata
+        self.assertEqual(
+            assess_post_metadata("sakihane", {"text": "히요리 #huyart"}),
+            (True, "metadata_only"))
+        # The supported name detector is intentionally conservative:
+        # source image recognition is still required for unknown characters.
+
     def test_group_art_or_retweet_with_hiyori_tag_not_server_eligible(self):
         import fanart_relevance
         multi = {"text": "RT by @artist: #toart_ #Rangart_ #hiyoriart_ #maryart_ 어비스 첫 오리지널곡 발매 축하해!"}
@@ -136,7 +162,7 @@ class BannerAndCacheRepairTests(unittest.TestCase):
         self.save_queue()
         with patch.dict(os.environ, {"SERVER_BANNER_USE_COLLECTED": "1"}):
             self.assertEqual(guild_server_banner.collected_hanayo_art(), [])
-        self.assertTrue(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
+        self.assertFalse(fanart_usage.notification_allowed("hanayo", self.queue["hanayo:12345"]))
 
     def test_weekly_cleanup_deletes_only_old_unreferenced_copies(self):
         orphan = self.cached.parent / "orphan.jpg"
