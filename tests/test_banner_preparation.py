@@ -68,6 +68,30 @@ class BannerPreparationTests(unittest.TestCase):
                 "hanayo": {"https://x.com/artist/status/123456": "used"}}):
             self.assertIsNone(banner._load_prepared_banner("2026-11-11 08:00", {}))
 
+    def test_reported_wrong_character_post_is_excluded_from_all_outputs(self):
+        from fanart_usage import notification_allowed, character_mismatch_post
+        url = "https://x.com/Sallyf4cel3ss/status/2121389082907754938"
+        item = {"post_url": url, "sha256": "wrong_art",
+                "group": "hanayo", "banner_format": "16:9"}
+        self.assertTrue(character_mismatch_post(url))
+        self.assertFalse(notification_allowed("hanayo", item, (set(), set())))
+        with patch.object(banner, "approved_hanayo_art", return_value=[("wrong.jpg", item)]), \
+             patch.object(banner, "collected_hanayo_art", return_value=[]), \
+             patch.object(banner, "collected_huya_art", return_value=[]), \
+             patch("fanart_discovery.read", return_value={}):
+            inventory = banner.banner_inventory(state={})
+        self.assertEqual(inventory["unused"], 0)
+
+    def test_prepared_wrong_character_post_cannot_be_applied(self):
+        from hashlib import sha256
+        url = "https://x.com/Sallyf4cel3ss/status/2121389082907754938"
+        manifest, image = banner._prepared_banner_paths()
+        image.write_bytes(b"jpeg")
+        manifest.write_text(json.dumps({
+            "slot": "2026-11-15 18:00", "sha256": "wrong_art",
+            "post_url": url, "jpeg_sha256": sha256(b"jpeg").hexdigest()}))
+        self.assertIsNone(banner._load_prepared_banner("2026-11-15 18:00", {}))
+
     def test_manual_rotation_does_not_consume_prepared_slot(self):
         selected = ("source.jpg", {"sha256": "fresh_sha", "artist": "@artist",
                                    "post_url": "https://x.com/artist/status/123456"})
