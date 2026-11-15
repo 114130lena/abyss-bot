@@ -368,10 +368,12 @@ def banner_inventory(state=None):
     Never silently reset historic usage after the last artwork was selected.
     New art becomes eligible automatically as soon as it enters the real pool.
     """
-    from fanart_usage import canonical_post
+    from fanart_usage import canonical_post, character_mismatch_post
     state = state if isinstance(state, dict) else read_state()
     unique = {}
     for path, info in approved_hanayo_art() + collected_hanayo_art() + collected_huya_art():
+        if character_mismatch_post(info.get("post_url")):
+            continue
         digest = info.get("sha256")
         if isinstance(digest, str) and digest:
             unique.setdefault(digest, (path, info))
