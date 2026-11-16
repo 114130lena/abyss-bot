@@ -125,7 +125,14 @@ def _clock_key(source):
             m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
             uncertain.add(f"{int(hour)}시" + (f" {m:02d}분" if m else ""))
     if len(clocks) == 1:
-        return next(iter(clocks)), ""
+        exact = next(iter(clocks))
+        # "오후 8시 혹은 9시" is a choice, not a confirmed 20:00.
+        numeric_hour = int(exact[:2]) % 12 or 12
+        for bare in uncertain:
+            matched = re.match(r"(1[0-2]|[1-9])시", bare)
+            if matched and int(matched.group(1)) != numeric_hour:
+                return None, ""
+        return exact, ""
     if len(clocks) > 1:
         return None, ""
     if len(uncertain) == 1:
