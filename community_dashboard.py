@@ -360,6 +360,13 @@ def run_scheduler():
     """Hourly refresh, separate from the disabled clip system."""
     while True:
         try:
+            # Repair schedules from already-seen Cafe posts before rendering.
+            # This is independent of delivery and never reposts alerts.
+            try:
+                from notice_intelligence import reconcile_recent_cafe_schedules
+                reconcile_recent_cafe_schedules()
+            except Exception:
+                logging.exception("COMMUNITY_DASHBOARD_CAFE_RECONCILE_FAILED")
             result = sync_once()
             logging.info("COMMUNITY_DASHBOARD %s", result)
         except (OSError, ValueError, TypeError, requests.RequestException):
