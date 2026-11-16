@@ -177,7 +177,8 @@ def _events(now):
         url = str(data.get("source") or "")
         if not url.startswith("https://"):
             url = ""
-        rows.append((dt, pieces[0], status, url, pieces[2], bool(clock)))
+        note = str(data.get("time_note") or "").strip()[:60]
+        rows.append((dt, pieces[0], status, url, pieces[2], bool(clock), note))
     return sorted(rows, key=lambda x: x[0])[:12]
 
 
@@ -264,11 +265,11 @@ def render(now=None):
     for group, name in NAMES.items():
         events = [e for e in calendar if e[1] == group][:6]
         lines = []
-        for dt, _, status, url, topic, precise in events:
+        for dt, _, status, url, topic, precise, note in events:
             status_label = {"scheduled": "📺 방송", "break": "🌙 휴방", "cancelled": "🚫 취소"}[status]
             day = dt.strftime("%m/%d")
-            hour = dt.strftime("%H:%M") if precise else "시간 미정"
-            label = status_label + " · " + day + " " + hour
+            hour = dt.strftime("%H:%M") if precise else (note or "시간 미정")
+            label = status_label + " · " + day + " " + hour + " KST"
             if topic != "unspecified":
                 label += " · " + _clean(topic).replace("|", ", ")
             if url:
@@ -322,7 +323,7 @@ def render(now=None):
         "\n-# 수집 중단·재시작 구간의 누락 가능성이 있어 전체 방송 기록은 아닙니다.")})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content": (
-        "-# 일정 출처: 카페 공지의 명확한 날짜·시간"
+        "-# 방송 예정 시간은 카페 공지 기준이며 실제 방송 시작 시간과 다를 수 있습니다."
         "\n-# 기념일: 수동 검증 자료 · 방송: 치지직 상태 변화 기록"
         "\n-# 클립 기능은 비활성 상태로 유지")})
     return {"flags": 32768, "components": [
@@ -359,6 +360,13 @@ def run_scheduler():
     """Hourly refresh, separate from the disabled clip system."""
     while True:
         try:
+            # Repair schedules from already-seen Cafe posts before rendering.
+            # This is independent of delivery and never reposts alerts.
+            try:
+                from notice_intelligence import reconcile_recent_cafe_schedules
+                reconcile_recent_cafe_schedules()
+            except Exception:
+                logging.exception("COMMUNITY_DASHBOARD_CAFE_RECONCILE_FAILED")
             result = sync_once()
             logging.info("COMMUNITY_DASHBOARD %s", result)
         except (OSError, ValueError, TypeError, requests.RequestException):

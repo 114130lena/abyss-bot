@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -56,41 +56,94 @@ def _save(path, state):
 
 
 def _event_key(title, body, published):
-    """Only an unambiguous future date may identify an event."""
+    """Resolve an explicit event date relative to the *post*, not current time.
+
+    Supports yyyy-mm-dd, mm/dd, mm월dd일, today/tomorrow.
+    Refuse conflicting dates and references to a past/cancelled schedule.
+    """
     source = str(title or "") + "\n" + str(body or "")
     from discord_v2 import _parse_korean_datetime
     posted = _parse_korean_datetime(published)
     if posted is None:
         return None
+    posted_day = posted.date()
     full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", source))
-    short = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
-    if len(full) > 1 or len(short) > 1:
-        return None
+    korean = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
+    # Full dates must not also be read as short month/day dates.
+    without_full = re.sub(r"(?<!\d)20\d{2}[./-]\d{1,2}[./-]\d{1,2}(?!\d)", " ", source)
+    numeric = set(re.findall(r"(?<![\d/])(1[0-2]|[1-9])[./-](3[01]|[12]\d|[1-9])(?!\d)", without_full))
+    short = korean | numeric
+    dates = set()
     try:
-        explicit = {datetime(int(y), int(m), int(d), tzinfo=KST).date() for y, m, d in full}
-        relative = set()
+        for y, m, d in full:
+            dates.add(datetime(int(y), int(m), int(d)).date())
         for m, d in short:
-            relative.update(datetime(y, int(m), int(d), tzinfo=KST).date()
-                            for y in (posted.year, posted.year + 1))
-        future = lambda d: 0 <= (d - posted.date()).days <= 30
-        if explicit and relative and not any(d in relative for d in explicit):
-            return None
-        valid = {d for d in (explicit or relative) if future(d)}
-        return next(iter(valid)).isoformat() if len(valid) == 1 else None
+            candidates = [datetime(year, int(m), int(d)).date()
+                          for year in (posted.year, posted.year + 1)]
+            dates.update(day for day in candidates if 0 <= (day - posted_day).days <= 30)
     except (ValueError, TypeError):
         return None
+    if not dates:
+        # Only infer relative dates when the reference is explicit and there
+        # are no contradictory absolute calendar dates in the text.
+        if re.search(r"모레", source):
+            dates.add(posted_day + timedelta(days=2))
+        elif re.search(r"내일", source):
+            dates.add(posted_day + timedelta(days=1))
+        elif re.search(r"오늘|금일|이따(?:가|가요)?", source):
+            dates.add(posted_day)
+    valid = {day for day in dates if 0 <= (day - posted_day).days <= 30}
+    return next(iter(valid)).isoformat() if len(valid) == 1 else None
+
+
+def _clock_result(source):
+    """Pick an explicit KST clock. A bare '9시' has unknown AM/PM."""
+    source = str(source or "")
+    # Do not let old/cancelled values in change announcements override new time.
+    lines = [line.strip() for line in source.splitlines() if line.strip()
+             and not any(term in line for term in
+                         ("변경 전", "기존 시간", "원래 시간", "이전 시간", "예정이었"))]
+    clocks = set()
+    uncertain = set()
+    for line in lines:
+        for h, minute in re.findall(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", line):
+            clocks.add(f"{int(h):02d}:{int(minute):02d}")
+        for period, hour, minute in re.findall(
+                r"(오전|오후|아침|저녁|밤)\s*(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
+            h = int(hour) % 12 + (12 if period in ("오후", "저녁", "밤") else 0)
+            m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
+            clocks.add(f"{h:02d}:{m:02d}")
+        # Explicit 24-hour notation such as '21시' is unambiguous.
+        for hour, minute in re.findall(
+                r"(?<!\d)([01]?\d|2[0-3])시\s*(반|[0-5]?\d분)?", line):
+            if 13 <= int(hour) <= 23:
+                m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
+                clocks.add(f"{int(hour):02d}:{m:02d}")
+        # Bare Korean clock notation should never silently become 09:00.
+        for hour, minute in re.findall(
+                r"(?<!\d)(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
+            m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
+            uncertain.add(f"{int(hour)}시" + (f" {m:02d}분" if m else ""))
+    if len(clocks) == 1:
+        exact = next(iter(clocks))
+        # "오후 8시 혹은 9시" is a choice, not a confirmed 20:00.
+        numeric_hour = int(exact[:2]) % 12 or 12
+        for bare in uncertain:
+            matched = re.match(r"(1[0-2]|[1-9])시", bare)
+            if matched and int(matched.group(1)) != numeric_hour:
+                return None, ""
+        return exact, ""
+    if len(clocks) > 1:
+        return None, ""
+    if len(uncertain) == 1:
+        return "", next(iter(uncertain)) + " (오전/오후 미확인)"
+    return None, ""
 
 
 def _clock_key(source):
-    """Normalize 20:00 and 오후 8시 to the same stable value."""
-    values = set()
-    for h, m in re.findall(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", source):
-        values.add(f"{int(h):02d}:{int(m):02d}")
-    for period, hour, minute in re.findall(r"(오전|오후)\s*(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", source):
-        h = int(hour) % 12 + (12 if period == "오후" else 0)
-        minute_value = 30 if minute == "반" else int(minute[:-1]) if minute else 0
-        values.add(f"{h:02d}:{minute_value:02d}")
-    return next(iter(values)) if len(values) == 1 else None
+    """Legacy helper: exact normalized clock or None (never a tuple)."""
+    clock, _ = _clock_result(source)
+    return clock or None
 
 
 def _event_topic(title, body):
@@ -111,22 +164,42 @@ def record_schedule(group, title, body, published, url):
     """
     from discord_v2 import _notice_type
     kind = _notice_type(title, body)
+    # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
+    # Classification can be conservative but must not suppress this pattern.
+    source = str(title or "") + "\n" + str(body or "")
+    if re.search(r"휴방(?:은|이|은요)?\s*(?:아닌|아니고|아닙니다|아니에요)", source) and re.search(r"방송|라이브", source):
+        kind = "📺 방송 예고"
+    if not kind and re.search(r"방송|생방|라이브|합방", source):
+        if not re.search(r"방송\s*(?:종료|없음)|방송\s*안\s*(?:해요|합니다)|지난\s*방송", source):
+            kind = "📺 방송 예고"
     if not kind:
         return None
     key = _event_key(title, body, published)
     if key is None:
         return None
-    source = str(title or "") + "\n" + str(body or "")
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
-    clock = _clock_key(source)
+    clock, time_note = _clock_result(source)
+    # For an explicit same-day announcement posted after noon, "9시" cannot
+    # mean 09:00 if that hour already passed. Do not infer otherwise.
+    from discord_v2 import _parse_korean_datetime
+    posted = _parse_korean_datetime(published)
+    if (status == "scheduled" and clock == "" and time_note
+            and posted and key == posted.date().isoformat()
+            and re.search(r"오늘|금일|이따", source)):
+        h = re.match(r"(1[0-2]|[1-9])시", time_note)
+        if h and int(h.group(1)) < 12 and 12 <= posted.hour < int(h.group(1)) + 12:
+            minute_match = re.search(r"\s(\d{2})분", time_note)
+            minute = int(minute_match.group(1)) if minute_match else 0
+            clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
+            time_note = ""
     if clock is None and status == "scheduled":
         return None
     topic = _event_topic(title, body)
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, status, clock, topic, url)
+        return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note)
 
 
-def _record_schedule_state(group, key, kind, status, clock, topic, url):
+def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=""):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key + ":" + topic
     previous = state.get(identifier) or {}
@@ -135,7 +208,8 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url):
             k.startswith(str(group) + ":" + key + ":") and k != identifier
             for k in state):
         return None
-    new = {"status": status, "time": clock or "", "source": url, "kind": kind,
+    new = {"status": status, "time": clock or "", "time_note": time_note,
+           "source": url, "kind": kind,
            "topic": topic}
     if previous and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
@@ -144,11 +218,53 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url):
         logging.warning("일정 변경 감지: %s 이전=%s 현재=%s 원문=%s",
                         identifier, previous.get("time") or previous.get("status"),
                         new["time"] or status, url)
+    if previous == new:
+        return previous
     state[identifier] = new
     if len(state) > 300:
         state = dict(sorted(state.items())[-300:])
     _save(SCHEDULE_FILE, state)
     return new
+
+
+def reconcile_recent_cafe_schedules(now=None):
+    """Read recent public Cafe notices only; never send Discord alerts.
+
+    Existing entries can be repaired even when the notifier already marked an
+    article as seen. Limit detail requests to avoid affecting live polling.
+    """
+    from cafe_notifier import BOARDS, article_detail, get_articles
+    from discord_v2 import _parse_korean_datetime
+    now = (now or datetime.now(KST)).astimezone(KST)
+    inserted = 0
+    for board in BOARDS:
+        try:
+            articles = get_articles(board["menu_id"])
+        except Exception as exc:
+            logging.warning("COMMUNITY_CAFE_SCHEDULE_LIST_FAILURE board=%s error=%s",
+                            board["menu_id"], type(exc).__name__)
+            continue
+        examined = 0
+        for article in articles[:12]:
+            published = _parse_korean_datetime(article.get("date"))
+            if (published is None or published > now + timedelta(minutes=5)
+                    or now - published > timedelta(days=7)):
+                continue
+            # Public details are fetched for no more than six recent posts.
+            if examined >= 6:
+                break
+            examined += 1
+            try:
+                summary, _ = article_detail(article)
+                result = record_schedule(board["group"], article.get("title", ""),
+                                         summary, article.get("date"), article.get("url", ""))
+                if result is not None:
+                    inserted += 1
+            except Exception as exc:
+                logging.warning("COMMUNITY_CAFE_SCHEDULE_PARSE_FAILURE board=%s error=%s",
+                                board["menu_id"], type(exc).__name__)
+    logging.info("COMMUNITY_CAFE_SCHEDULE_RECONCILED records=%d", inserted)
+    return inserted
 
 
 def report_source(name, ok, reason=""):
