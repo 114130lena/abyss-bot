@@ -58,7 +58,7 @@ def _save(path, state):
 def _event_key(title, body, published):
     """Resolve an explicit event date relative to the *post*, not current time.
 
-    Supports yyyy-mm-dd, mm/dd, mm월dd일, today/tomorrow and 'this weekday'.
+    Supports yyyy-mm-dd, mm/dd, mm월dd일, today/tomorrow.
     Refuse conflicting dates and references to a past/cancelled schedule.
     """
     source = str(title or "") + "\n" + str(body or "")
