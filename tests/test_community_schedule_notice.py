@@ -65,9 +65,8 @@ class CafeScheduleTimeTests(unittest.TestCase):
         result = notice.record_schedule(
             "hanayo", "오늘 방송 공지", "오늘 오후 8시 혹은 9시 방송",
             POST, URL)
-        self.assertIsNotNone(result)
-        # Explicit 20:00 does not authorize silently rewriting to 21:00.
-        self.assertEqual(result["time"], "20:00")
+        self.assertIsNone(result)
+        # A conflicting 20:00 / 9시 announcement must not be guessed.
 
     def test_changed_old_time_ignored(self):
         result = notice.record_schedule(
