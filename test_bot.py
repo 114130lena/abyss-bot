@@ -465,9 +465,11 @@ class RoutingTests(unittest.TestCase):
                     "2026-11-02T08:00:00Z", "https://example.com/other"))
                 self.assertEqual(ni._read(schedule)["hanayo:2026-11-03:unspecified"]["time"], "21:00")
                 self.assertEqual(ni._event_key("11월 3일 방송", "", "2026-11-02T08:00:00Z"), "2026-11-03")
-                self.assertIsNone(ni.record_schedule(
+                same_day = ni.record_schedule(
                     "hanayo", "오늘 방송", "오후 9시 방송 예정",
-                    "2026-11-02T08:00:00Z", "https://example.com/3"))
+                    "2026-11-02T08:00:00Z", "https://example.com/3")
+                self.assertEqual(same_day["time"], "21:00")
+                self.assertIn("hanayo:2026-11-02:unspecified", ni._read(schedule))
                 ni.report_source("히요리 X", False, "RSS unavailable")
                 self.assertEqual(ni._read(health)["히요리 X"]["consecutive_failures"], 1)
                 ni.report_source("히요리 X", True)
