@@ -156,6 +156,9 @@ def record_schedule(group, title, body, published, url):
     source = str(title or "") + "\n" + str(body or "")
     if re.search(r"휴방(?:은|이|은요)?\s*(?:아닌|아니고|아닙니다|아니에요)", source) and re.search(r"방송|라이브", source):
         kind = "📺 방송 예고"
+    if not kind and re.search(r"방송|생방|라이브|합방", source):
+        if not re.search(r"방송\s*(?:종료|없음)|방송\s*안\s*(?:해요|합니다)|지난\s*방송", source):
+            kind = "📺 방송 예고"
     if not kind:
         return None
     key = _event_key(title, body, published)
@@ -163,6 +166,19 @@ def record_schedule(group, title, body, published, url):
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
     clock, time_note = _clock_key(source)
+    # For an explicit same-day announcement posted after noon, "9시" cannot
+    # mean 09:00 if that hour already passed. Do not infer otherwise.
+    from discord_v2 import _parse_korean_datetime
+    posted = _parse_korean_datetime(published)
+    if (status == "scheduled" and clock == "" and time_note
+            and posted and key == posted.date().isoformat()
+            and re.search(r"오늘|금일|이따", source)):
+        h = re.match(r"(1[0-2]|[1-9])시", time_note)
+        if h and 12 <= posted.hour < int(h.group(1)) + 12:
+            minute_match = re.search(r"\s(\d{2})분", time_note)
+            minute = int(minute_match.group(1)) if minute_match else 0
+            clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
+            time_note = ""
     if clock is None and status == "scheduled":
         return None
     topic = _event_topic(title, body)
