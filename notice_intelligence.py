@@ -67,12 +67,11 @@ def _event_key(title, body, published):
     if posted is None:
         return None
     posted_day = posted.date()
-    full = set(re.findall(r"(?<!\\d)(20\\d{2})[./-](\\d{1,2})[./-](\\d{1,2})(?!\\d)", source))
-    month_day = set(re.findall(r"(?<![\\d/])(?:1[0-2]|[1-9])[./-](?:3[01]|[12]\\d|[1-9])(?!\\d)", source))
-    korean = set(re.findall(r"(?<!\\d)(1[0-2]|[1-9])월\\s*(3[01]|[12]\\d|[1-9])일", source))
+    full = set(re.findall(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", source))
+    korean = set(re.findall(r"(?<!\d)(1[0-2]|[1-9])월\s*(3[01]|[12]\d|[1-9])일", source))
     # Full dates must not also be read as short month/day dates.
-    without_full = re.sub(r"(?<!\\d)20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}(?!\\d)", " ", source)
-    numeric = set(re.findall(r"(?<![\\d/])(1[0-2]|[1-9])[./-](3[01]|[12]\\d|[1-9])(?!\\d)", without_full))
+    without_full = re.sub(r"(?<!\d)20\d{2}[./-]\d{1,2}[./-]\d{1,2}(?!\d)", " ", source)
+    numeric = set(re.findall(r"(?<![\d/])(1[0-2]|[1-9])[./-](3[01]|[12]\d|[1-9])(?!\d)", without_full))
     short = korean | numeric
     dates = set()
     try:
@@ -107,22 +106,22 @@ def _clock_key(source):
     clocks = set()
     uncertain = set()
     for line in lines:
-        for h, minute in re.findall(r"(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)(?!\\d)", line):
+        for h, minute in re.findall(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", line):
             clocks.add(f"{int(h):02d}:{int(minute):02d}")
         for period, hour, minute in re.findall(
-                r"(오전|오후|아침|저녁|밤)\\s*(1[0-2]|[1-9])시\\s*(반|[0-5]?\\d분)?", line):
+                r"(오전|오후|아침|저녁|밤)\s*(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
             h = int(hour) % 12 + (12 if period in ("오후", "저녁", "밤") else 0)
             m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
             clocks.add(f"{h:02d}:{m:02d}")
         # Explicit 24-hour notation such as '21시' is unambiguous.
         for hour, minute in re.findall(
-                r"(?<![\\d가-힣])([01]?\\d|2[0-3])시\\s*(반|[0-5]?\\d분)?", line):
+                r"(?<![\d가-힣])([01]?\d|2[0-3])시\s*(반|[0-5]?\d분)?", line):
             if 13 <= int(hour) <= 23:
                 m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
                 clocks.add(f"{int(hour):02d}:{m:02d}")
         # Bare Korean clock notation should never silently become 09:00.
         for hour, minute in re.findall(
-                r"(?<![\\d가-힣])(1[0-2]|[1-9])시\\s*(반|[0-5]?\\d분)?", line):
+                r"(?<![\d가-힣])(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
             m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
             uncertain.add(f"{int(hour)}시" + (f" {m:02d}분" if m else ""))
     if len(clocks) == 1:
@@ -155,7 +154,7 @@ def record_schedule(group, title, body, published, url):
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
     # Classification can be conservative but must not suppress this pattern.
     source = str(title or "") + "\n" + str(body or "")
-    if re.search(r"휴방(?:은|이|은요)?\\s*(?:아닌|아니고|아닙니다|아니에요)", source) and re.search(r"방송|라이브", source):
+    if re.search(r"휴방(?:은|이|은요)?\s*(?:아닌|아니고|아닙니다|아니에요)", source) and re.search(r"방송|라이브", source):
         kind = "📺 방송 예고"
     if not kind:
         return None
