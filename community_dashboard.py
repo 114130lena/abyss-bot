@@ -223,25 +223,69 @@ def _milestones(now):
     return sorted(result)[:10]
 
 
+def _overlap_seconds(started, ended, month_start, now):
+    """Count only elapsed seconds within the current month."""
+    left = max(started, month_start)
+    right = min(ended, now)
+    return max(0, int((right - left).total_seconds()))
+
+
 def _stats(now):
-    rows = _read(SESSIONS).get("sessions")
+    state = _read(SESSIONS)
+    rows = state.get("sessions")
     rows = rows if isinstance(rows, list) else []
+    active = state.get("active")
+    active = active if isinstance(active, dict) else {}
     start_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    result = {key: {"count": 0, "seconds": 0, "seconds_min": 0,
-                    "seconds_max": 0, "recent": []} for key in NAMES}
+    result = {key: {"count": 0, "ongoing": 0, "seconds": 0,
+                    "seconds_min": 0, "seconds_max": 0,
+                    "recent": [], "live": []} for key in NAMES}
     for row in rows:
         if not isinstance(row, dict) or row.get("group") not in result:
             continue
         started = _when(row.get("started"))
-        if started is None or not (start_month <= started <= now):
+        ended = _when(row.get("ended_before") or row.get("ended"))
+        if not started or not ended or ended < start_month or started > now:
             continue
         bucket = result[row["group"]]
-        bucket["count"] += 1
-        seconds = max(0, min(int(row.get("seconds") or 0), 172800))
-        bucket["seconds"] += seconds
-        bucket["seconds_min"] += max(0, int(row.get("seconds_min", seconds)))
-        bucket["seconds_max"] += max(0, int(row.get("seconds_max", seconds)))
+        if start_month <= started <= now:
+            bucket["count"] += 1
+        lower = _when(row.get("ended_after")) or ended
+        minimum = _overlap_seconds(started, lower, start_month, now)
+        maximum = _overlap_seconds(started, ended, start_month, now)
+        bucket["seconds_min"] += minimum
+        bucket["seconds_max"] += maximum
+        bucket["seconds"] += (minimum + maximum) // 2
         bucket["recent"].append(row)
+    # Never claim an active session is finished. Refresh its observed time while
+    # CHZZK is online and cap stale data at the last confirmed-live poll.
+    for channel, session in active.items():
+        if not isinstance(session, dict) or not session.get("id"):
+            continue
+        group = chzzk_group(channel)
+        if group not in result:
+            continue
+        started = _when(session.get("started"))
+        last_seen = _when(session.get("last_live_seen"))
+        if not started or not last_seen or started > now or last_seen < start_month:
+            continue
+        bucket = result[group]
+        bucket["ongoing"] += 1
+        if start_month <= started <= now:
+            bucket["count"] += 1
+        # Latest confirmed live observation is a defensible lower bound.
+        observed = min(last_seen, now)
+        elapsed = _overlap_seconds(started, observed, start_month, now)
+        bucket["seconds_min"] += elapsed
+        bucket["seconds"] += elapsed
+        bucket["seconds_max"] += elapsed
+        bucket["live"].append({
+            "started": started.isoformat(),
+            "last_live_seen": observed.isoformat(),
+            "stale": (now - last_seen).total_seconds() > 120,
+            "source": str(session.get("source") or "first_live_poll"),
+            "seconds": elapsed,
+        })
     for bucket in result.values():
         bucket["recent"].sort(key=lambda x: str(x.get("started") or ""), reverse=True)
         bucket["recent"] = bucket["recent"][:3]
@@ -260,7 +304,7 @@ def render(now=None):
     parts = [{"type": 10, "content": (
         "**" + MARKER + "**\n## 방송 일정 · 기념일 · 활동 통계\n"
         "-# 히요리 / 후야 · 한눈에 보는 통합 정보\n"
-        "-# 마지막 갱신 <t:" + str(int(now.timestamp())) + ":f> · 1시간 간격 갱신")}]
+        "-# 마지막 갱신 <t:" + str(int(now.timestamp())) + ":f> · 5분 간격 갱신")}]
     for group, name in NAMES.items():
         events = [e for e in calendar if e[1] == group][:6]
         lines = []
@@ -299,11 +343,22 @@ def render(now=None):
         data = stats[group]
         mins = data["seconds"] // 60
         statlines.append("**" + name + "** · " + str(data["count"]) +
-                         "회 · 약 " + str(mins // 60) + "시간 " + str(mins % 60) + "분")
-        if data["count"] and data["seconds_max"] != data["seconds_min"]:
+                         "회 (진행 중 " + str(data["ongoing"]) + "회) · " +
+                         "약 " + str(mins // 60) + "시간 " + str(mins % 60) + "분")
+        if data["seconds_max"] != data["seconds_min"]:
             uncertainty = data["seconds_max"] - data["seconds_min"]
             statlines.append("-# 종료 감지 오차 범위 · 최대 " +
                              str((uncertainty + 59) // 60) + "분")
+        for active in data["live"]:
+            start_at = _when(active["started"])
+            last_seen = _when(active["last_live_seen"])
+            if not start_at or not last_seen:
+                continue
+            stale = " · 수집 지연(마지막 확인 기준)" if active["stale"] else ""
+            statlines.append("-# 🟢 방송 중 · " +
+                             start_at.strftime("%m/%d %H:%M:%S") +
+                             " 시작 · 마지막 확인 " + last_seen.strftime("%H:%M:%S") +
+                             " KST · " + str(active["seconds"] // 60) + "분 경과" + stale)
         for session in data["recent"]:
             started = _when(session.get("started"))
             last_live = _when(session.get("ended_after"))
@@ -356,11 +411,11 @@ def sync_once(now=None, get=None, post=None, patch=None):
 
 
 def run_scheduler():
-    """Hourly refresh, separate from the disabled clip system."""
+    """Five-minute refresh, separate from the disabled clip system."""
     while True:
         try:
             result = sync_once()
             logging.info("COMMUNITY_DASHBOARD %s", result)
         except (OSError, ValueError, TypeError, requests.RequestException):
             logging.exception("COMMUNITY_DASHBOARD_FAILED")
-        time.sleep(3600)
+        time.sleep(300)
