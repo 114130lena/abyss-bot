@@ -74,6 +74,47 @@ class CommunityDashboardTests(unittest.TestCase):
         self.assertEqual(stats["hanayo"]["count"], 1)
         self.assertEqual(stats["hanayo"]["seconds"], 5400)
 
+    def test_live_ongoing_is_visible_before_broadcast_ends(self):
+        channel = "49d2c3cf8f0b2843d934ec15e82bb54c"
+        opened = {"status": "OPEN", "live_id": "streaming",
+                  "open_date": "2026-11-16 17:00:00"}
+        hub.record_transition(channel, {}, opened, NOW)
+        hub.record_transition(channel, opened, opened, NOW + timedelta(minutes=4))
+        stats = hub._stats(NOW + timedelta(minutes=4, seconds=30))["hanayo"]
+        self.assertEqual(stats["count"], 1)
+        self.assertEqual(stats["ongoing"], 1)
+        self.assertEqual(stats["seconds"], 3840)
+        text = str(hub.render(NOW + timedelta(minutes=4, seconds=30)))
+        self.assertIn("방송 중", text)
+        self.assertIn("진행 중 1회", text)
+
+    def test_stale_stream_does_not_invent_extra_runtime(self):
+        channel = "49d2c3cf8f0b2843d934ec15e82bb54c"
+        opened = {"status": "OPEN", "live_id": "streaming",
+                  "open_date": "2026-11-16 17:00:00"}
+        hub.record_transition(channel, {}, opened, NOW)
+        stats = hub._stats(NOW + timedelta(hours=3))["hanayo"]
+        self.assertEqual(stats["seconds"], 3600)
+        self.assertTrue(stats["live"][0]["stale"])
+
+    def test_cross_month_session_time_is_split_without_double_count(self):
+        from datetime import timezone
+        start = datetime(2026, 10, 31, 23, 50, tzinfo=KST)
+        end = datetime(2026, 11, 1, 0, 10, tzinfo=KST)
+        hub.save_json(hub.SESSIONS, {"sessions": [{
+            "group": "hanayo", "id": "month-crossing",
+            "started": start.isoformat(),
+            "ended_after": (end - timedelta(seconds=10)).isoformat(),
+            "ended_before": end.isoformat(),
+            "seconds": 1195,
+        }]})
+        nov = hub._stats(datetime(2026, 11, 2, tzinfo=KST))["hanayo"]
+        octo = hub._stats(datetime(2026, 10, 31, 23, 59, tzinfo=KST))["hanayo"]
+        self.assertEqual(nov["count"], 0)
+        self.assertEqual(nov["seconds"], 595)
+        self.assertEqual(octo["count"], 1)
+        self.assertEqual(octo["seconds"], 540)
+
     def test_verified_anniversaries_and_annual_rollover(self):
         upcoming = hub._milestones(NOW)
         labels = [(group, title, years) for days, group, title, md, years, source in upcoming]
