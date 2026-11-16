@@ -174,7 +174,7 @@ def record_schedule(group, title, body, published, url):
             and posted and key == posted.date().isoformat()
             and re.search(r"오늘|금일|이따", source)):
         h = re.match(r"(1[0-2]|[1-9])시", time_note)
-        if h and 12 <= posted.hour < int(h.group(1)) + 12:
+        if h and int(h.group(1)) < 12 and 12 <= posted.hour < int(h.group(1)) + 12:
             minute_match = re.search(r"\s(\d{2})분", time_note)
             minute = int(minute_match.group(1)) if minute_match else 0
             clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
