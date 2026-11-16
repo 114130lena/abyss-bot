@@ -115,13 +115,13 @@ def _clock_result(source):
             clocks.add(f"{h:02d}:{m:02d}")
         # Explicit 24-hour notation such as '21시' is unambiguous.
         for hour, minute in re.findall(
-                r"(?<![\d가-힣])([01]?\d|2[0-3])시\s*(반|[0-5]?\d분)?", line):
+                r"(?<!\d)([01]?\d|2[0-3])시\s*(반|[0-5]?\d분)?", line):
             if 13 <= int(hour) <= 23:
                 m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
                 clocks.add(f"{int(hour):02d}:{m:02d}")
         # Bare Korean clock notation should never silently become 09:00.
         for hour, minute in re.findall(
-                r"(?<![\d가-힣])(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
+                r"(?<!\d)(1[0-2]|[1-9])시\s*(반|[0-5]?\d분)?", line):
             m = 30 if minute == "반" else int(minute[:-1]) if minute else 0
             uncertain.add(f"{int(hour)}시" + (f" {m:02d}분" if m else ""))
     if len(clocks) == 1:
