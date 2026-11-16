@@ -205,11 +205,53 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
         logging.warning("일정 변경 감지: %s 이전=%s 현재=%s 원문=%s",
                         identifier, previous.get("time") or previous.get("status"),
                         new["time"] or status, url)
+    if previous == new:
+        return previous
     state[identifier] = new
     if len(state) > 300:
         state = dict(sorted(state.items())[-300:])
     _save(SCHEDULE_FILE, state)
     return new
+
+
+def reconcile_recent_cafe_schedules(now=None):
+    """Read recent public Cafe notices only; never send Discord alerts.
+
+    Existing entries can be repaired even when the notifier already marked an
+    article as seen. Limit detail requests to avoid affecting live polling.
+    """
+    from cafe_notifier import BOARDS, article_detail, get_articles
+    from discord_v2 import _parse_korean_datetime
+    now = (now or datetime.now(KST)).astimezone(KST)
+    inserted = 0
+    for board in BOARDS:
+        try:
+            articles = get_articles(board["menu_id"])
+        except Exception as exc:
+            logging.warning("COMMUNITY_CAFE_SCHEDULE_LIST_FAILURE board=%s error=%s",
+                            board["menu_id"], type(exc).__name__)
+            continue
+        examined = 0
+        for article in articles[:12]:
+            published = _parse_korean_datetime(article.get("date"))
+            if (published is None or published > now + timedelta(minutes=5)
+                    or now - published > timedelta(days=7)):
+                continue
+            # Public details are fetched for no more than six recent posts.
+            if examined >= 6:
+                break
+            examined += 1
+            try:
+                summary, _ = article_detail(article)
+                result = record_schedule(board["group"], article.get("title", ""),
+                                         summary, article.get("date"), article.get("url", ""))
+                if result is not None:
+                    inserted += 1
+            except Exception as exc:
+                logging.warning("COMMUNITY_CAFE_SCHEDULE_PARSE_FAILURE board=%s error=%s",
+                                board["menu_id"], type(exc).__name__)
+    logging.info("COMMUNITY_CAFE_SCHEDULE_RECONCILED records=%d", inserted)
+    return inserted
 
 
 def report_source(name, ok, reason=""):
