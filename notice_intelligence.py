@@ -96,7 +96,7 @@ def _event_key(title, body, published):
     return next(iter(valid)).isoformat() if len(valid) == 1 else None
 
 
-def _clock_key(source):
+def _clock_result(source):
     """Pick an explicit KST clock. A bare '9시' has unknown AM/PM."""
     source = str(source or "")
     # Do not let old/cancelled values in change announcements override new time.
@@ -140,6 +140,12 @@ def _clock_key(source):
     return None, ""
 
 
+def _clock_key(source):
+    """Legacy helper: exact normalized clock or None (never a tuple)."""
+    clock, _ = _clock_result(source)
+    return clock or None
+
+
 def _event_topic(title, body):
     """Never correlate two broadcasts solely because they share a calendar day."""
     source = str(title or "") + "\n" + str(body or "")
@@ -172,7 +178,7 @@ def record_schedule(group, title, body, published, url):
     if key is None:
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
-    clock, time_note = _clock_key(source)
+    clock, time_note = _clock_result(source)
     # For an explicit same-day announcement posted after noon, "9시" cannot
     # mean 09:00 if that hour already passed. Do not infer otherwise.
     from discord_v2 import _parse_korean_datetime
