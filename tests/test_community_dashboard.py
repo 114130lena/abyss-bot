@@ -83,6 +83,19 @@ class CommunityDashboardTests(unittest.TestCase):
         self.assertIn(("sakihane", "생일", None), labels)
         self.assertTrue(all(source.startswith("https://") for _, _, _, _, _, source in upcoming))
 
+    def test_milestone_groups_and_compact_stats(self):
+        payload = hub.render(NOW)
+        parts = payload["components"][0]["components"]
+        card = next(p["content"] for p in parts if p.get("content", "").startswith("### 🎉"))
+        self.assertIn("**하나요 히요리**", card)
+        self.assertIn("**사키하네 후야**", card)
+        self.assertLess(card.index("첫 커버곡"), card.index("**사키하네 후야**"))
+        self.assertIn("ABYSS 첫 싱글 발매", card)
+        self.assertIn("3D 데뷔", card)
+        stats = next(p["content"] for p in parts if p.get("content", "").startswith("### 📊"))
+        self.assertIn("수집된 종료 방송 기준", stats)
+        self.assertNotIn("종료 감지 오차 범위", stats)
+
     def test_api_start_time_and_bounded_end_are_stored(self):
         channel = "49d2c3cf8f0b2843d934ec15e82bb54c"
         opened = {"status": "OPEN", "live_id": "newstream",
@@ -97,7 +110,7 @@ class CommunityDashboardTests(unittest.TestCase):
         self.assertEqual(rows[0]["start_source"], "api_open_date")
         self.assertEqual(rows[0]["seconds_min"], 3610)
         self.assertEqual(rows[0]["seconds_max"], 3620)
-        self.assertIn("17:00:00", str(hub.render(NOW + timedelta(minutes=1))))
+        self.assertNotIn("17:00:00", str(hub.render(NOW + timedelta(minutes=1))))
 
     def test_network_gap_over_five_minutes_not_counted_as_precise_duration(self):
         channel = "36ddb9bb4f17593b60f1b63cec86611d"
