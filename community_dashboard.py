@@ -33,6 +33,8 @@ LOCK = threading.RLock()
 SYNC_LOCK = threading.Lock()
 MARKER = "ABYSS · COMMUNITY HUB"
 NAMES = {"hanayo": "하나요 히요리", "sakihane": "사키하네 후야"}
+# Only enduring personal anniversaries: birthday, debut and 3D debut.
+# Ordinary releases and content uploads are activity records, not anniversaries.
 # Checked against official STELLIVE profiles and debut announcement.
 # Huya debut additionally cross-checked against independent member archives.
 VERIFIED_MILESTONES = (
@@ -40,10 +42,6 @@ VERIFIED_MILESTONES = (
      "source": "https://stellive.me/hiyori/"},
     {"group": "hanayo", "title": "데뷔", "date": "2026-10-18",
      "source": "https://stellive.me/news/14633"},
-    {"group": "hanayo", "title": "첫 커버곡 공개 · 유령이 되고싶어", "date": "2026-10-16",
-     "source": "https://stellarium.kr/video/ouKcRBeyKbk"},
-    {"group": "hanayo", "title": "ABYSS 첫 싱글 발매", "date": "2026-10-20",
-     "source": "https://stellive.me/news/14642"},
     {"group": "sakihane", "title": "3D 데뷔", "date": "2026-09-18",
      "source": "https://www6.twstalker.com/StelLive_kr"},
     {"group": "sakihane", "title": "생일", "month_day": "07-07",
