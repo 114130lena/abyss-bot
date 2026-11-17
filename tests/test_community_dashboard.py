@@ -116,6 +116,34 @@ class CommunityDashboardTests(unittest.TestCase):
         hub.record_transition(channel, opened, {"status": "UNKNOWN"}, NOW + timedelta(seconds=10))
         self.assertIn(channel, hub._read(hub.SESSIONS)["active"])
 
+    def test_unchanged_content_skips_discord_update(self):
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), patch.object(hub, "update_original", return_value="updated") as edit:
+            self.assertEqual(hub.sync_once(NOW)["status"], "updated")
+            self.assertEqual(hub.sync_once(NOW + timedelta(seconds=30))["status"], "up_to_date")
+            self.assertEqual(edit.call_count, 1)
+            hub.save_json(hub.SCHEDULE, {"hanayo:2026-11-17:unspecified": {
+                "time": "21:00", "status": "scheduled", "source": "https://example.com"}})
+            self.assertEqual(hub.sync_once(NOW + timedelta(seconds=31))["status"], "updated")
+            self.assertEqual(edit.call_count, 2)
+
+    def test_live_start_and_end_wake_panel(self):
+        channel = "49d2c3cf8f0b2843d934ec15e82bb54c"
+        live = {"status": "OPEN", "live_id": "abc", "open_date": "2026-11-16 17:00:00"}
+        hub.REFRESH_EVENT.clear()
+        hub.record_transition(channel, {}, live, NOW)
+        self.assertTrue(hub.REFRESH_EVENT.is_set())
+        self.assertIn("방송 중", str(hub.render(NOW)))
+        hub.REFRESH_EVENT.clear()
+        hub.record_transition(channel, live, live, NOW + timedelta(seconds=10))
+        self.assertFalse(hub.REFRESH_EVENT.is_set())
+        hub.record_transition(channel, live, {"status":"CLOSE"}, NOW + timedelta(seconds=20))
+        self.assertTrue(hub.REFRESH_EVENT.is_set())
+        self.assertNotIn("🟢 방송 중", str(hub.render(NOW + timedelta(seconds=21))))
+
     def test_reuses_original_clip_message_even_if_old_state_points_elsewhere(self):
         hub.save_json(hub.STATE, {"message_id": "999"})
         env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
