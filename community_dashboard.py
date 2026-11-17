@@ -7,6 +7,7 @@ feature was enabled, not all-time historical totals.
 Never edit the banner card or clip card; publish one separate message.
 """
 import json
+import hashlib
 import logging
 import os
 import threading
@@ -28,6 +29,14 @@ SESSIONS = ROOT / "community_live_sessions.json"
 MILESTONES = ROOT / "community_milestones.json"
 SCHEDULE = ROOT / "notice_schedule_state.json"
 LOCK = threading.RLock()
+SYNC_LOCK = threading.Lock()
+REFRESH_EVENT = threading.Event()
+
+
+def request_refresh():
+    """Wake the independent panel worker; never perform HTTP in a collector."""
+    REFRESH_EVENT.set()
+
 MARKER = "ABYSS · COMMUNITY HUB"
 NAMES = {"hanayo": "하나요 히요리", "sakihane": "사키하네 후야"}
 # Checked against official STELLIVE profiles and debut announcement.
@@ -153,6 +162,8 @@ def record_transition(channel_id, previous, current, now=None):
         ][-2500:]
         state["active"] = active
         save_json(SESSIONS, state)
+        if current_open != (isinstance(previous, dict) and previous.get("status") == "OPEN") or (current_open and (not existing or str(existing.get("id")) != current_id)):
+            request_refresh()
 
 
 def _events(now):
@@ -261,7 +272,7 @@ def render(now=None):
     parts = [{"type": 10, "content": (
         "**" + MARKER + "**\n## 방송 일정 · 기념일 · 활동 통계\n"
         "-# 히요리 / 후야 · 한눈에 보는 통합 정보\n"
-        "-# 마지막 갱신 <t:" + str(int(now.timestamp())) + ":f> · 1시간 간격 갱신")}]
+        "-# 마지막 갱신 <t:" + str(int(now.timestamp())) + ":f> · 정보 변경 시 자동 갱신")}]
     for group, name in NAMES.items():
         events = [e for e in calendar if e[1] == group][:6]
         lines = []
@@ -343,32 +354,52 @@ def sync_once(now=None, get=None, post=None, patch=None):
             or channel != clip_channel or message_id != clip_message
             or os.getenv("CHZZK_CLIP_ENABLED", "0") != "0"):
         return {"status": "not_configured_or_clip_active"}
-    with LOCK:
-        status = update_original(channel, message_id, render(now), token,
+    with SYNC_LOCK:
+        now = (now or datetime.now(KST)).astimezone(KST)
+        payload = render(now)
+        # Ignore the display-only refresh timestamp when comparing content.
+        stable = render(now)
+        header = stable["components"][0]["components"][0]
+        header["content"] = header["content"].split("\n-# 마지막 갱신", 1)[0]
+        digest = hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        previous = _read(STATE)
+        if previous.get("message_id") == message_id and previous.get("content_hash") == digest:
+            return {"status": "up_to_date", "message_id": message_id}
+        status = update_original(channel, message_id, payload, token,
                                  get=get or requests.get,
                                  patch=patch or requests.patch)
         if status != "updated":
             logging.warning("COMMUNITY_DASHBOARD_CLIP_MESSAGE_UNEDITABLE id=%s reason=%s",
                             message_id, status)
             return {"status": "update_failed", "reason": status}
-        save_json(STATE, {"message_id": message_id,
-                          "updated_at": (now or datetime.now(KST)).isoformat()})
+        save_json(STATE, {"message_id": message_id, "content_hash": digest,
+                          "updated_at": now.isoformat()})
         return {"status": "updated", "message_id": message_id}
 
 
-def run_scheduler():
-    """Hourly refresh, separate from the disabled clip system."""
+def _reconcile_worker():
+    """Slow backfill is isolated from immediate updates and broadcast polling."""
     while True:
         try:
-            # Repair schedules from already-seen Cafe posts before rendering.
-            # This is independent of delivery and never reposts alerts.
-            try:
-                from notice_intelligence import reconcile_recent_cafe_schedules
-                reconcile_recent_cafe_schedules()
-            except Exception:
-                logging.exception("COMMUNITY_DASHBOARD_CAFE_RECONCILE_FAILED")
-            result = sync_once()
-            logging.info("COMMUNITY_DASHBOARD %s", result)
-        except (OSError, ValueError, TypeError, requests.RequestException):
-            logging.exception("COMMUNITY_DASHBOARD_FAILED")
+            from notice_intelligence import reconcile_recent_cafe_schedules
+            reconcile_recent_cafe_schedules()
+        except Exception:
+            logging.exception("COMMUNITY_DASHBOARD_CAFE_RECONCILE_FAILED")
         time.sleep(3600)
+
+
+def run_scheduler():
+    """Wake on changes; also check clock-driven and manual data every 30s."""
+    threading.Thread(target=_reconcile_worker, daemon=True,
+                     name="community-cafe-reconcile").start()
+    while True:
+        REFRESH_EVENT.clear()
+        try:
+            result = sync_once()
+            if result.get("status") != "up_to_date":
+                logging.info("COMMUNITY_DASHBOARD %s", result)
+        except Exception:
+            logging.exception("COMMUNITY_DASHBOARD_FAILED")
+        # Coalesce simultaneous updates and bound error retry frequency.
+        time.sleep(2)
+        REFRESH_EVENT.wait(timeout=30)
