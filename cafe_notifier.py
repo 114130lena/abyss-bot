@@ -216,12 +216,12 @@ def notify(article, role_id, menu_id, group):
                         menu_id)
     payload["_abyss_source_platform"] = "cafe"
     payload["_abyss_source_time"] = article.get("date", "")
-    send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
         record_schedule(group, title, summary, article.get("date", ""), article["url"])
     except Exception:
-        logging.exception("카페 일정 추적 오류(알림은 정상 전송)")
+        logging.exception("카페 일정 추적 오류(알림 처리 계속)")
+    send_webhook(WEBHOOK_URL, payload)
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])
 
 
