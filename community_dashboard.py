@@ -8,6 +8,7 @@ Never edit the banner card or clip card; publish one separate message.
 """
 import json
 import hashlib
+import copy
 import logging
 import os
 import threading
@@ -162,7 +163,8 @@ def record_transition(channel_id, previous, current, now=None):
         ][-2500:]
         state["active"] = active
         save_json(SESSIONS, state)
-        if current_open != (isinstance(previous, dict) and previous.get("status") == "OPEN") or (current_open and (not existing or str(existing.get("id")) != current_id)):
+        if ((current_open and (not existing or str(existing.get("id")) != current_id))
+                or (not current_open and existing)):
             request_refresh()
 
 
@@ -269,6 +271,14 @@ def render(now=None):
     calendar = _events(now)
     milestones = _milestones(now)
     stats = _stats(now)
+    active = _read(SESSIONS).get("active") or {}
+    live_by_group = {}
+    for channel, session in active.items() if isinstance(active, dict) else []:
+        if isinstance(session, dict):
+            started = _when(session.get("started"))
+            seen = _when(session.get("last_live_seen"))
+            if started and seen and started <= seen <= now:
+                live_by_group[chzzk_group(channel)] = (started, seen)
     parts = [{"type": 10, "content": (
         "**" + MARKER + "**\n## 방송 일정 · 기념일 · 활동 통계\n"
         "-# 히요리 / 후야 · 한눈에 보는 통합 정보\n"
@@ -276,6 +286,12 @@ def render(now=None):
     for group, name in NAMES.items():
         events = [e for e in calendar if e[1] == group][:6]
         lines = []
+        if group in live_by_group:
+            started, seen = live_by_group[group]
+            if (now - seen).total_seconds() <= 120:
+                lines.append("🟢 방송 중 · 시작 <t:" + str(int(started.timestamp())) + ":t> · <t:" + str(int(started.timestamp())) + ":R>")
+            else:
+                lines.append("⚠️ 방송 상태 확인 지연")
         for dt, _, status, url, topic, precise, note in events:
             status_label = {"scheduled": "📺 방송", "break": "🌙 휴방", "cancelled": "🚫 취소"}[status]
             day = dt.strftime("%m/%d")
@@ -342,7 +358,7 @@ def render(now=None):
         "allowed_mentions": {"parse": []}}
 
 
-def sync_once(now=None, get=None, post=None, patch=None):
+def sync_once(now=None, get=None, post=None, patch=None, force=False):
     """Edit only the already-existing clip card, never create a new post."""
     token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
     channel = os.getenv("COMMUNITY_DASHBOARD_CHANNEL_ID", "").strip()
@@ -358,12 +374,12 @@ def sync_once(now=None, get=None, post=None, patch=None):
         now = (now or datetime.now(KST)).astimezone(KST)
         payload = render(now)
         # Ignore the display-only refresh timestamp when comparing content.
-        stable = render(now)
+        stable = copy.deepcopy(payload)
         header = stable["components"][0]["components"][0]
         header["content"] = header["content"].split("\n-# 마지막 갱신", 1)[0]
         digest = hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         previous = _read(STATE)
-        if previous.get("message_id") == message_id and previous.get("content_hash") == digest:
+        if not force and previous.get("message_id") == message_id and previous.get("content_hash") == digest:
             return {"status": "up_to_date", "message_id": message_id}
         status = update_original(channel, message_id, payload, token,
                                  get=get or requests.get,
@@ -392,10 +408,14 @@ def run_scheduler():
     """Wake on changes; also check clock-driven and manual data every 30s."""
     threading.Thread(target=_reconcile_worker, daemon=True,
                      name="community-cafe-reconcile").start()
+    # Force one read/write on process startup even if the last digest matches.
+    force = True
     while True:
         REFRESH_EVENT.clear()
         try:
-            result = sync_once()
+            result = sync_once(force=force)
+            if result.get("status") in ("updated", "up_to_date"):
+                force = False
             if result.get("status") != "up_to_date":
                 logging.info("COMMUNITY_DASHBOARD %s", result)
         except Exception:
