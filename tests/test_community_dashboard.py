@@ -143,6 +143,34 @@ class CommunityDashboardTests(unittest.TestCase):
         post.assert_not_called()
         edit.assert_not_called()
 
+    def test_content_change_refreshes_without_timestamp_only_edits(self):
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), patch.object(
+                hub, "update_original", return_value="updated") as edit:
+            self.assertEqual(hub.sync_once(NOW, force=False)["status"], "updated")
+            self.assertEqual(hub.sync_once(NOW + timedelta(seconds=5),
+                                          force=False)["status"], "up_to_date")
+            self.assertEqual(edit.call_count, 1)
+            hub.save_json(hub.SCHEDULE, {"hanayo:2026-11-17:unspecified": {
+                "time": "21:00", "status": "scheduled", "source": ""}})
+            self.assertEqual(hub.sync_once(NOW + timedelta(seconds=10),
+                                          force=False)["status"], "updated")
+            self.assertEqual(edit.call_count, 2)
+
+    def test_failed_refresh_retries_same_data(self):
+        env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "0",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), patch.object(
+                hub, "update_original", side_effect=["failed", "updated"]) as edit:
+            self.assertEqual(hub.sync_once(NOW, force=False)["status"], "update_failed")
+            self.assertEqual(hub.sync_once(NOW, force=False)["status"], "updated")
+            self.assertEqual(edit.call_count, 2)
+
     def test_clip_worker_must_be_paused(self):
         env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "1",
                "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
