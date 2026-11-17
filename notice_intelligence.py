@@ -224,6 +224,11 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
     if len(state) > 300:
         state = dict(sorted(state.items())[-300:])
     _save(SCHEDULE_FILE, state)
+    try:
+        from community_dashboard import request_refresh
+        request_refresh()
+    except Exception:
+        logging.exception("COMMUNITY_SCHEDULE_WAKE_FAILURE")
     return new
 
 
