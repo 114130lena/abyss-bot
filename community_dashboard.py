@@ -40,6 +40,12 @@ VERIFIED_MILESTONES = (
      "source": "https://stellive.me/hiyori/"},
     {"group": "hanayo", "title": "데뷔", "date": "2026-10-18",
      "source": "https://stellive.me/news/14633"},
+    {"group": "hanayo", "title": "첫 커버곡 공개 · 유령이 되고싶어", "date": "2026-10-16",
+     "source": "https://stellarium.kr/video/ouKcRBeyKbk"},
+    {"group": "hanayo", "title": "ABYSS 첫 싱글 발매", "date": "2026-10-20",
+     "source": "https://stellive.me/news/14642"},
+    {"group": "sakihane", "title": "3D 데뷔", "date": "2026-09-18",
+     "source": "https://www6.twstalker.com/StelLive_kr"},
     {"group": "sakihane", "title": "생일", "month_day": "07-07",
      "source": "https://stellive.me/huya"},
     {"group": "sakihane", "title": "데뷔", "date": "2025-09-20",
@@ -224,7 +230,7 @@ def _milestones(now):
         years = next_day.year - first_year if first_year else None
         result.append(((next_day - now.date()).days, group, title[:90],
                        next_day.strftime("%m/%d"), years, source))
-    return sorted(result)[:10]
+    return sorted(result)
 
 
 def _stats(now):
@@ -282,20 +288,24 @@ def render(now=None):
             "### " + name + " · 방송 일정\n" +
             ("\n".join(lines) if lines else "-# 확인된 향후 일정이 없습니다. (공지 기반)"))})
     anniversary_lines = []
-    for days, group, title, month_day, years, source in milestones:
-        label = "**" + NAMES[group] + "** · " + _clean(title)
-        if years is not None:
-            label += " " + str(years) + "주년"
-        label += " (" + month_day + ") · " + ("오늘" if days == 0 else "D-" + str(days))
-        if source:
-            label += " · [출처](" + source + ")"
-        anniversary_lines.append(label)
+    for group, name in NAMES.items():
+        anniversary_lines.append("**" + name + "**")
+        entries = [item for item in milestones if item[1] == group][:8]
+        if not entries:
+            anniversary_lines.append("-# 확인된 기념일이 없습니다.")
+        for days, _, title, month_day, years, source in entries:
+            label = "· " + _clean(title)
+            if years is not None:
+                label += " " + str(years) + "주년"
+            label += " (" + month_day + ") · **" + ("오늘" if days == 0 else "D-" + str(days)) + "**"
+            if source:
+                label += " · [출처](" + source + ")"
+            anniversary_lines.append(label)
+        anniversary_lines.append("")
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content": (
         "### 🎉 기념일 · 주요 기록\n" +
-        ("\n".join(anniversary_lines) if anniversary_lines else
-         "-# 확인된 기념일이 없습니다.") +
-        "\n-# 공식 프로필·데뷔 공지 및 검증된 자료 기준")})
+        "\n".join(anniversary_lines).strip())})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     month_label = now.strftime("%Y년 %m월")
     statlines = []
@@ -304,26 +314,10 @@ def render(now=None):
         mins = data["seconds"] // 60
         statlines.append("**" + name + "** · " + str(data["count"]) +
                          "회 · 약 " + str(mins // 60) + "시간 " + str(mins % 60) + "분")
-        if data["count"] and data["seconds_max"] != data["seconds_min"]:
-            uncertainty = data["seconds_max"] - data["seconds_min"]
-            statlines.append("-# 종료 감지 오차 범위 · 최대 " +
-                             str((uncertainty + 59) // 60) + "분")
-        for session in data["recent"]:
-            started = _when(session.get("started"))
-            last_live = _when(session.get("ended_after"))
-            off = _when(session.get("ended_before") or session.get("ended"))
-            if not started or not off:
-                continue
-            start_note = "치지직 시작시각" if session.get("start_source") == "api_open_date" else "최초 관측"
-            end = (last_live.strftime("%H:%M:%S") + " ~ " if last_live else "") + off.strftime("%H:%M:%S")
-            statlines.append("-# " + started.strftime("%m/%d %H:%M:%S") +
-                             " 시작(" + start_note + ") · 종료 " + end +
-                             " KST · 약 " + str((int(session.get("seconds") or 0) + 30) // 60) + "분")
     parts.append({"type": 10, "content": (
         "### 📊 방송 활동 통계 · " + month_label + "\n" +
         "\n".join(statlines) +
-        "\n-# 기능 활성화 후 시작·종료가 모두 관측된 방송만 집계합니다."
-        "\n-# 수집 중단·재시작 구간의 누락 가능성이 있어 전체 방송 기록은 아닙니다.")})
+        "\n-# 수집된 종료 방송 기준 · 누적 시간은 추정값")})
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content": (
         "-# 방송 예정 시간은 카페 공지 기준이며 실제 방송 시작 시간과 다를 수 있습니다."
