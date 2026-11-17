@@ -41,6 +41,14 @@ class CafeScheduleTimeTests(unittest.TestCase):
         card = str(dashboard.render(datetime(2026, 11, 16, 17, tzinfo=KST)))
         self.assertIn("11/16 21:00 KST", card)
 
+    def test_notice_changes_wake_panel_but_duplicate_does_not(self):
+        dashboard.REFRESH_EVENT.clear()
+        notice.record_schedule("hanayo", "오늘 방송", "오늘 오후 9시 방송합니다", POST, URL)
+        self.assertTrue(dashboard.REFRESH_EVENT.is_set())
+        dashboard.REFRESH_EVENT.clear()
+        notice.record_schedule("hanayo", "오늘 방송", "오늘 오후 9시 방송합니다", POST, URL)
+        self.assertFalse(dashboard.REFRESH_EVENT.is_set())
+
     def test_tomorrow_with_explicit_evening_clock(self):
         result = notice.record_schedule(
             "sakihane", "내일 방송 공지", "내일 오후 8시 30분 방송 예정",
