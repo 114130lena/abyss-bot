@@ -59,6 +59,6 @@ jobs:
             gh issue create --repo "$REPO" --title "$title" \
               --body "The community information panel could not be verified as recently updated (75-minute tolerance). The normal notification service was left running. Logs: https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
           else
-            echo "CHZZK_CLIP_PUBLISH_HEALTH existing_issue=$existing"
+            echo "COMMUNITY_DASHBOARD_HEALTH existing_issue=$existing"
           fi
           exit 1
