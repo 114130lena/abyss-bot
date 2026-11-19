@@ -32,8 +32,12 @@ class SchedulerCoordinationTests(unittest.TestCase):
         self.assertNotIn("cron: '27,47", backup_source)
         self.assertNotIn(".guild_banner_auth.env", backup_source)
         self.assertIn("guild_banner_healthcheck.py", health_source)
-        self.assertIn("clip_healthcheck.py", clip_source)
-        self.assertIn("25 23,9 * * *", clip_source)
+        self.assertIn("from clip_healthcheck import check_dashboard", clip_source)
+        self.assertIn("check_dashboard(datetime.now(KST))", clip_source)
+        self.assertIn("25 * * * *", clip_source)
+        self.assertIn("clip_not_disabled", clip_source)
+        self.assertNotIn("25 23,9 * * *", clip_source)
+        self.assertNotIn("[chzzk-clip] Scheduled Discord clip message", clip_source)
 
     def test_backup_only_uses_its_current_kst_hour(self):
         self.assertEqual(backup.target_slot(at(8, 8, 4)), at(8, 8, 0))
