@@ -196,7 +196,8 @@ class BannerInfoTests(unittest.TestCase):
         self.assertIn("**원본 작가** · 확인되지 않음", full)
         self.assertIn("**원본 게시물** · 확인되지 않음", full)
         self.assertFalse(any(p.get("type")==12 for p in parts))
-        self.assertFalse(any(p.get("type")==1 for p in parts))
+        buttons = [b for p in parts if p.get("type")==1 for b in p["components"]]
+        self.assertEqual([b["url"] for b in buttons], ["https://114130lena.github.io/abyss-bot/"])
 
     def test_exact_banner_hash_recovers_verified_previous_artist_and_link(self):
         prior = {
