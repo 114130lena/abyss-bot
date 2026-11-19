@@ -163,6 +163,21 @@ def record_schedule(group, title, body, published, url):
     alerts. Original posts always continue through their usual notifiers.
     """
     from discord_v2 import _notice_type
+    # Separate explicitly dated secondary breaks from the primary notice.
+    primary_key = _event_key(title, "", published)
+    if primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or "")):
+        primary_lines, secondary = [], []
+        for line in str(body or "").splitlines():
+            other = _event_key("", line, published)
+            if other and other != primary_key and re.match(r"\s*(?:\d{1,2}월\s*\d{1,2}일|내일|모레)\s*(?:은|는|에)?\s*휴방", line):
+                secondary.append((other, line))
+            else:
+                primary_lines.append(line)
+        if secondary:
+            body = "\n".join(primary_lines)
+            for other, line in secondary:
+                with _STATE_LOCK:
+                    _record_schedule_state(group, other, "🌙 휴방 안내", "break", "", "unspecified", url)
     kind = _notice_type(title, body)
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
     # Classification can be conservative but must not suppress this pattern.
@@ -193,7 +208,11 @@ def record_schedule(group, title, body, published, url):
             clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
             time_note = ""
     if clock is None and status == "scheduled":
-        return None
+        # Only explicit dated broadcast notices with no clock at all may be time-TBD.
+        if not (primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or ""))
+                and not re.search(r"\d{1,2}\s*시|\d{1,2}:\d{2}", source)):
+            return None
+        clock, time_note = "", "시간 미정"
     topic = _event_topic(title, body)
     with _STATE_LOCK:
         return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note)
