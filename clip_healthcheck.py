@@ -1,4 +1,4 @@
-"""Read-only scheduled verification of the original clip Discord message.
+"""Read-only verification of the active clip or replacement dashboard message.
 
 Clip data is collected every two hours, but ONLY the existing message is
 published at 08:00 and 18:00 KST. This health check never edits/posts clips.
@@ -28,10 +28,54 @@ def expected_slot(now=None):
     return day.replace(hour=hour, minute=0, second=0, microsecond=0)
 
 
+def check_dashboard(now, get=None):
+    """Verify the replacement card without publishing or changing bot state."""
+    from community_dashboard import STATE, MARKER
+    result = {"mode": "community_dashboard"}
+    channel = os.getenv("COMMUNITY_DASHBOARD_CHANNEL_ID", "").strip()
+    message = os.getenv("COMMUNITY_DASHBOARD_MESSAGE_ID", "").strip()
+    token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+    if (os.getenv("COMMUNITY_DASHBOARD_ENABLED") != "1" or not token
+            or not channel.isdigit() or not message.isdigit()
+            or channel != os.getenv("CHZZK_CLIP_CHANNEL_ID", "").strip()
+            or message != os.getenv("CHZZK_CLIP_MESSAGE_ID", "").strip()):
+        return {**result, "status": "dashboard_configuration_invalid"}
+    state = load_json(STATE, {})
+    if not isinstance(state, dict) or str(state.get("message_id")) != message:
+        return {**result, "status": "dashboard_state_missing"}
+    # Hourly forced refresh, plus 15 minutes for scheduling/network delays.
+    def fresh(value):
+        try:
+            stamp = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+            return stamp.tzinfo is not None and (
+                -timedelta(minutes=5) <= now - stamp <= timedelta(minutes=75))
+        except (ValueError, TypeError):
+            return False
+    if not fresh(state.get("updated_at")):
+        return {**result, "status": "dashboard_state_stale"}
+    response = (get or requests.get)(
+        f"https://discord.com/api/v10/channels/{channel}/messages/{message}",
+        headers={"Authorization": "Bot " + token}, timeout=12)
+    response.raise_for_status()
+    posted = response.json()
+    if not isinstance(posted, dict) or str(posted.get("id")) != message:
+        return {**result, "status": "dashboard_message_missing"}
+    components = json.dumps(posted.get("components") or [], ensure_ascii=False)
+    if (not int(posted.get("flags") or 0) & 32768
+            or any(label not in components for label in
+                   (MARKER, "방송 일정", "기념일", "활동 통계"))):
+        return {**result, "status": "dashboard_components_invalid"}
+    if not fresh(posted.get("edited_timestamp")):
+        return {**result, "status": "dashboard_message_stale"}
+    return {**result, "status": "ok"}
+
+
 def check(now=None, get=None):
     load_dotenv(Path(os.getenv("BOT_DATA_DIR", "/home/ubuntu/chzzk-bot")) / ".env")
-    from chzzk_clip_digest import STATE_FILE
     now = (now or datetime.now(KST)).astimezone(KST)
+    if os.getenv("CHZZK_CLIP_ENABLED") == "0":
+        return check_dashboard(now, get)
+    from chzzk_clip_digest import STATE_FILE
     expected = expected_slot(now)
     target_slot = expected.strftime("%Y-%m-%d %H")
     state = load_json(STATE_FILE, {})
