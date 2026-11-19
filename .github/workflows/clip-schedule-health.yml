@@ -1,8 +1,8 @@
-name: "클립 · 정기 게시 일정 점검"
+name: "커뮤니티 · 정보 패널 상태 점검"
 on:
   schedule:
-    # KST 08:25 and 18:25; collection continues independently every 2 hours.
-    - cron: '25 23,9 * * *'
+    # Read-only check every hour; dashboard refreshes at least hourly.
+    - cron: '25 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: abyss-clip-publication-health
+  group: abyss-community-dashboard-health
   cancel-in-progress: false
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
           chmod 600 ~/.ssh/clip_health_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Verify original Discord clip publication, open issue only on failure
+      - name: Verify original community dashboard, open issue only on failure
         env:
           SSH_HOST: ${{ secrets.ORACLE_HOST }}
           SSH_USER: ${{ secrets.ORACLE_USER }}
@@ -39,25 +39,25 @@ jobs:
         run: |
           set -euo pipefail
           report="$(mktemp)"
-          title="[chzzk-clip] Scheduled Discord clip message was not updated"
+          title="[community-dashboard] Discord information panel health check failed"
           if ssh -i ~/.ssh/clip_health_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" \
-              'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" clip_healthcheck.py' > "$report" 2>&1; then
+              'cd /home/ubuntu/chzzk-bot && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi; "$PY" -c '\''import json, os; from datetime import datetime; from dotenv import load_dotenv; from clip_healthcheck import check_dashboard, KST; load_dotenv("/home/ubuntu/chzzk-bot/.env", override=True); result = check_dashboard(datetime.now(KST)) if os.getenv("CHZZK_CLIP_ENABLED") == "0" else {"status":"clip_not_disabled"}; print("COMMUNITY_DASHBOARD_HEALTH " + json.dumps(result, ensure_ascii=False)); raise SystemExit(0 if result["status"] == "ok" else 1)'\''' > "$report" 2>&1; then
             cat "$report"
             existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
-              --jq '.[] | select(.title == "[chzzk-clip] Scheduled Discord clip message was not updated") | .number' | head -n 1)"
+              --jq '.[] | select(.title == "[community-dashboard] Discord information panel health check failed") | .number' | head -n 1)"
             if [ -n "$existing" ]; then
-              gh issue comment "$existing" --repo "$REPO" --body "Clip publishing recovered: verified original message and slot in Actions run $GITHUB_RUN_ID."
+              gh issue comment "$existing" --repo "$REPO" --body "Community information panel recovered: verified original message and freshness in Actions run $GITHUB_RUN_ID."
               gh issue close "$existing" --repo "$REPO"
             fi
-            echo "CHZZK_CLIP_PUBLISH_HEALTH=ok"
+            echo "COMMUNITY_DASHBOARD_HEALTH=ok"
             exit 0
           fi
           cat "$report"
           existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json title,number \
-              --jq '.[] | select(.title == "[chzzk-clip] Scheduled Discord clip message was not updated") | .number' | head -n 1)"
+              --jq '.[] | select(.title == "[community-dashboard] Discord information panel health check failed") | .number' | head -n 1)"
           if [ -z "$existing" ]; then
             gh issue create --repo "$REPO" --title "$title" \
-              --body "The existing Discord clip message was not verified for the latest 08:00/18:00 KST slot. The normal notification service was left running. Logs: https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+              --body "The community information panel could not be verified as recently updated (75-minute tolerance). The normal notification service was left running. Logs: https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
           else
             echo "CHZZK_CLIP_PUBLISH_HEALTH existing_issue=$existing"
           fi
