@@ -69,7 +69,10 @@ def describe_x_link_post(body):
     remaining = _ANY_URL.sub("", remaining).strip(" \t\r\n[]()<>")
     link_only = not remaining
     short = _shortened_link_url(original)
-    if not space and not link_only and not short:
+    first_line = original.splitlines()[0].strip()
+    leading_short = bool(_shortened_link_url(first_line) and not
+                         _ANY_URL.sub("", _MARKDOWN_URL.sub("", first_line)).strip(" []()<>\t"))
+    if not space and not link_only and not leading_short:
         return None
     if not space:
         short = _shortened_link_url(original)
