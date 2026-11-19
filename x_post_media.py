@@ -68,16 +68,22 @@ def describe_x_link_post(body):
     remaining = _MARKDOWN_URL.sub("", original)
     remaining = _ANY_URL.sub("", remaining).strip(" \t\r\n[]()<>")
     link_only = not remaining
-    if not space and not link_only:
+    short = _shortened_link_url(original)
+    first_line = original.splitlines()[0].strip()
+    leading_short = bool(_shortened_link_url(first_line) and not
+                         _ANY_URL.sub("", _MARKDOWN_URL.sub("", first_line)).strip(" []()<>\t"))
+    if not space and not link_only and not leading_short:
         return None
     if not space:
         short = _shortened_link_url(original)
         if short:
             space = _expand_space_shortlink(short)
     if space:
-        return "🎙️ X 스페이스 공유", "🎙️ [스페이스 입장하기](" + space + ")"
-    if link_only:
-        return "🔗 X 링크 게시물", "링크의 내용을 확인하지 못했습니다. X 원본 게시물에서 확인해 주세요."
+        caption = ("\n\n" + remaining) if remaining else ""
+        return "🎙️ X 스페이스 공유", "🎙️ [스페이스 입장하기](" + space + ")" + caption
+    if link_only or short:
+        caption = ("\n\n" + remaining) if remaining else ""
+        return "🔗 X 링크 게시물", "링크의 내용을 확인하지 못했습니다. X 원본 게시물에서 확인해 주세요." + caption
     return None
 
 

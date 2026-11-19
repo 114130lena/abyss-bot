@@ -91,9 +91,11 @@ def _x_headline(body):
     import re
     lines = str(body or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for i, line in enumerate(lines):
-        if line.strip():
-            headline = line.strip()[:220]
-            remaining = "\n".join(lines[i + 1:]).strip()
+        plain = re.sub(r"\[\s*https?://[^\]\s]+\s*\]\(\s*https?://[^\s\)]+\s*\)", "", line)
+        plain = re.sub(r"https?://\S+", "", plain).strip(" []()<>\t")
+        if plain:
+            headline = plain[:220]
+            remaining = "\n".join(lines[:i] + lines[i + 1:]).strip()
             return headline, remaining
     return "X 게시글", ""
 
@@ -108,6 +110,18 @@ def _notice_type(title, body):
         r"(?:아닙니다|아니에요|아님|없습니다|없어요)", source)
     if negated:
         return None
+    # A separately dated future break is not the headline event of a current broadcast notice.
+    dated_title = re.search(r"(\d{1,2})월\s*(\d{1,2})일", str(title or ""))
+    if dated_title and re.search(r"방송\s*(?:일정|예정|공지)", str(title or "")):
+        primary = dated_title.groups()
+        secondary = re.compile(r"^\s*(?:(\d{1,2})월\s*(\d{1,2})일|내일|모레)\s*(?:은|는|에)?\s*휴방")
+        filtered = []
+        for line in str(body or "").splitlines():
+            m = secondary.search(line)
+            if m and m.groups() != primary:
+                continue
+            filtered.append(line)
+        source = str(title or "") + "\n" + "\n".join(filtered)
     rules = (
         (r"방송(?:을|이)?\s*취소|방송\s*중단|라이브\s*취소|"
          r"(?:방송|합방)\s*일정\s*취소", "🚫 방송 취소 안내"),

@@ -754,6 +754,8 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
     parts.append({"type": 14, "divider": True, "spacing": 1})
     parts.append({"type": 10, "content":
                   "-# 새 이미지가 없으면 기존 배너를 유지합니다 · 현황은 수집 시 갱신"})
+    parts.append({"type": 1, "components": [{"type": 2, "style": 5,
+        "label": "어비스봇 검증 운영 센터", "url": "https://114130lena.github.io/abyss-bot/"}]})
     return {"flags": 32768, "components": [{
         "type": 17, "accent_color": 0x8391BB, "components": parts
     }], "allowed_mentions": {"parse": []}}
@@ -880,7 +882,7 @@ def sync_banner_info(force=False):
             and str(state.get("banner_info_message_id")) == message_id
             and state.get("banner_info_updated_hash") == actual
             and state.get("banner_info_stats_checksum") == stats_checksum
-            and state.get("banner_info_layout_version") == 11):
+            and state.get("banner_info_layout_version") == 12):
         return {"status": "up_to_date", "message_id": message_id}
     payload = _banner_card(guild_id, actual, state, fanart_stats=fanart_stats)
     from discord_message_sync import update_original
@@ -893,7 +895,7 @@ def sync_banner_info(force=False):
                 "message_id": message_id, "reason": status}
     state["banner_info_message_id"] = message_id
     state["banner_info_updated_hash"] = actual
-    state["banner_info_layout_version"] = 11
+    state["banner_info_layout_version"] = 12
     state["banner_info_stats_checksum"] = stats_checksum
     write_state(state)
     logging.info("SERVER_BANNER_INFO_SYNC channel=%s banner=%s message=%s external=%s",

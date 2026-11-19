@@ -65,7 +65,7 @@ class BannerInfoTests(unittest.TestCase):
 
     def test_unchanged_banner_skips_discord_message_write(self):
         state = {"guild_banner_hash": "samehash", "banner_info_updated_hash": "samehash",
-                 "banner_info_message_id": "789", "banner_info_layout_version": 11,
+                 "banner_info_message_id": "789", "banner_info_layout_version": 12,
                  "banner_info_stats_checksum": "fixed-stats",
                  "banner_first_observed_at": "2026-11-08 18:00 KST"}
         with patch.object(banner, "_current_guild_banner", return_value="samehash"), \
@@ -167,7 +167,8 @@ class BannerInfoTests(unittest.TestCase):
         components = edit.call_args.kwargs["json"]["components"][0]["components"]
         content = "\n".join(p.get("content", "") for p in components)
         self.assertIn(r"@\_WasaB", content)
-        self.assertEqual(save.call_args.args[0]["banner_info_layout_version"], 11)
+        self.assertEqual(save.call_args.args[0]["banner_info_layout_version"], 12)
+        self.assertEqual(components[-1]["components"][0]["url"], "https://114130lena.github.io/abyss-bot/")
 
     def test_one_off_manual_update_uses_same_public_policy_without_losing_provenance(self):
         for method in ("봇 수동 명령 교체", "봇 자동 교체"):
@@ -195,7 +196,8 @@ class BannerInfoTests(unittest.TestCase):
         self.assertIn("**원본 작가** · 확인되지 않음", full)
         self.assertIn("**원본 게시물** · 확인되지 않음", full)
         self.assertFalse(any(p.get("type")==12 for p in parts))
-        self.assertFalse(any(p.get("type")==1 for p in parts))
+        buttons = [b for p in parts if p.get("type")==1 for b in p["components"]]
+        self.assertEqual([b["url"] for b in buttons], ["https://114130lena.github.io/abyss-bot/"])
 
     def test_exact_banner_hash_recovers_verified_previous_artist_and_link(self):
         prior = {
