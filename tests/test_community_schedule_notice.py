@@ -41,6 +41,18 @@ class CafeScheduleTimeTests(unittest.TestCase):
         card = str(dashboard.render(datetime(2026, 11, 16, 17, tzinfo=KST)))
         self.assertIn("11/16 21:00 KST", card)
 
+    def test_same_day_saturday_evening_cafe_notice(self):
+        result = notice.record_schedule(
+            "hanayo", "토요일 ! !",
+            "하요링 ! !\n저녁 먹으면서 일을 끝내구있습니닷\n토요일 방송은\n9:00 이에요 ! ! !\n곧 방송에서 만나요",
+            "2026-11-21T19:38:00+09:00",
+            "https://cafe.naver.com/f-e/cafes/29424353/articles/1143080?menuid=431")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], "scheduled")
+        self.assertEqual(result["time"], "21:00")
+        card = str(dashboard.render(datetime(2026, 11, 21, 20, tzinfo=KST)))
+        self.assertIn("11/21 21:00 KST", card)
+
     def test_tomorrow_with_explicit_evening_clock(self):
         result = notice.record_schedule(
             "sakihane", "내일 방송 공지", "내일 오후 8시 30분 방송 예정",
