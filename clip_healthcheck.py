@@ -67,6 +67,38 @@ def check_dashboard(now, get=None):
         return {**result, "status": "dashboard_components_invalid"}
     if not fresh(posted.get("edited_timestamp")):
         return {**result, "status": "dashboard_message_stale"}
+    # Compare the actual Discord schedule sections with the local, parsed
+    # notice state. Fresh timestamps alone cannot establish correctness.
+    from community_dashboard import render, NAMES
+    expected = render(now)["components"][0]["components"]
+    def schedule_sections(parts):
+        sections = {}
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            content = part.get("content")
+            if not isinstance(content, str):
+                continue
+            for name in NAMES.values():
+                heading = "### " + name + " · 방송 일정"
+                if content.startswith(heading):
+                    sections[name] = content
+        return sections
+    actual = posted.get("components") or []
+    actual_parts = []
+    def collect(parts):
+        for part in parts:
+            if isinstance(part, dict):
+                actual_parts.append(part)
+                collect(part.get("components") or [])
+    collect(actual)
+    expected_sections = schedule_sections(expected)
+    actual_sections = schedule_sections(actual_parts)
+    if actual_sections != expected_sections:
+        return {**result, "status": "dashboard_schedule_mismatch",
+                "expected_sections": len(expected_sections),
+                "matched_sections": sum(
+                    actual_sections.get(k) == v for k, v in expected_sections.items())}
     return {**result, "status": "ok"}
 
 
