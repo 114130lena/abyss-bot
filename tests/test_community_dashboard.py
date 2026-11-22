@@ -60,6 +60,22 @@ class CommunityDashboardTests(unittest.TestCase):
         self.assertIn("11/17 21:00", text)
         self.assertIn("11/18 시간 미정", text)
 
+    def test_past_calendar_dates_disappear_automatically(self):
+        hub.save_json(hub.SCHEDULE, {
+            "hanayo:2026-11-15:unspecified": {
+                "time": "21:00", "status": "scheduled", "source": ""},
+            "hanayo:2026-11-16:unspecified": {
+                "time": "09:00", "status": "scheduled", "source": ""},
+            "hanayo:2026-11-17:unspecified": {
+                "time": "21:00", "status": "scheduled", "source": ""}})
+        text = str(hub.render(NOW))
+        self.assertNotIn("11/15 21:00", text)
+        self.assertIn("11/16 09:00", text)
+        self.assertIn("11/17 21:00", text)
+        tomorrow = str(hub.render(NOW + timedelta(days=1)))
+        self.assertNotIn("11/16 09:00", tomorrow)
+        self.assertIn("11/17 21:00", tomorrow)
+
     def test_live_session_counted_once(self):
         channel = "49d2c3cf8f0b2843d934ec15e82bb54c"
         old = {"status": "CLOSE"}
