@@ -92,6 +92,12 @@ def _event_key(title, body, published):
             dates.add(posted_day + timedelta(days=1))
         elif re.search(r"오늘|금일|이따(?:가|가요)?", source):
             dates.add(posted_day)
+        else:
+            # A named weekday is safe only when it matches the publication day.
+            weekdays = ("월", "화", "수", "목", "금", "토", "일")
+            mentioned = set(re.findall(r"(?<![가-힣])([월화수목금토일])요일", source))
+            if mentioned == {weekdays[posted_day.weekday()]}:
+                dates.add(posted_day)
     valid = {day for day in dates if 0 <= (day - posted_day).days <= 30}
     return next(iter(valid)).isoformat() if len(valid) == 1 else None
 
@@ -200,13 +206,22 @@ def record_schedule(group, title, body, published, url):
     posted = _parse_korean_datetime(published)
     if (status == "scheduled" and clock == "" and time_note
             and posted and key == posted.date().isoformat()
-            and re.search(r"오늘|금일|이따", source)):
+            and (re.search(r"오늘|금일|이따", source)
+                 or re.search(r"(?<![가-힣])" + ("월화수목금토일"[posted.weekday()]) + r"요일", source))):
         h = re.match(r"(1[0-2]|[1-9])시", time_note)
         if h and int(h.group(1)) < 12 and 12 <= posted.hour < int(h.group(1)) + 12:
             minute_match = re.search(r"\s(\d{2})분", time_note)
             minute = int(minute_match.group(1)) if minute_match else 0
             clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
             time_note = ""
+    # A bare 9:00 in a same-day evening notice is not a confirmed morning time.
+    # Infer PM only if the morning clock is already past and no AM/PM qualifier exists.
+    if (status == "scheduled" and posted and key == posted.date().isoformat()
+            and clock and int(clock[:2]) in range(1, 12)
+            and 12 <= posted.hour < int(clock[:2]) + 12
+            and not re.search(r"오전|아침|새벽|AM|a\\.m\\.", source, re.I)
+            and re.search(r"(?<!\\d)" + re.escape(str(int(clock[:2]))) + r":" + re.escape(clock[3:]) + r"(?!\\d)", source)):
+        clock = f"{int(clock[:2]) + 12:02d}:{clock[3:]}"
     if clock is None and status == "scheduled":
         # Only explicit dated broadcast notices with no clock at all may be time-TBD.
         if not (primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or ""))
