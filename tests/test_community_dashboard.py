@@ -186,6 +186,35 @@ class CommunityDashboardTests(unittest.TestCase):
             self.assertEqual(hub.sync_once(NOW, force=False)["status"], "updated")
             self.assertEqual(edit.call_count, 2)
 
+    def test_health_check_detects_schedule_mismatch(self):
+        import json
+        from unittest.mock import Mock
+        import clip_healthcheck as health
+        now = NOW
+        hub.save_json(hub.STATE, {
+            "message_id": "222", "updated_at": now.isoformat()})
+        hub.save_json(hub.SCHEDULE, {
+            "hanayo:2026-11-17:unspecified": {
+                "time": "21:00", "status": "scheduled",
+                "source": "https://cafe.naver.com/example"}})
+        old_components = hub.render(now)["components"]
+        hub.save_json(hub.SCHEDULE, {
+            "hanayo:2026-11-17:unspecified": {
+                "time": "22:00", "status": "scheduled",
+                "source": "https://cafe.naver.com/example"}})
+        posted = {"id": "222", "flags": 32768,
+                  "components": old_components,
+                  "edited_timestamp": now.isoformat()}
+        env = {"DISCORD_BOT_TOKEN": "dummy", "COMMUNITY_DASHBOARD_ENABLED": "1",
+               "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
+               "COMMUNITY_DASHBOARD_CHANNEL_ID": "111",
+               "COMMUNITY_DASHBOARD_MESSAGE_ID": "222"}
+        with patch.dict("os.environ", env), patch.object(health.requests, "get") as get:
+            get.return_value.json.return_value = posted
+            result = health.check_dashboard(now)
+        self.assertEqual(result["status"], "dashboard_schedule_mismatch")
+        self.assertEqual(result["matched_sections"], 1)
+
     def test_clip_worker_must_be_paused(self):
         env = {"DISCORD_BOT_TOKEN": "dummy", "CHZZK_CLIP_ENABLED": "1",
                "CHZZK_CLIP_CHANNEL_ID": "111", "CHZZK_CLIP_MESSAGE_ID": "222",
