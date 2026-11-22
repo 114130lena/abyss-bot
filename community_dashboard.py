@@ -176,7 +176,9 @@ def _events(now):
             dt = datetime.fromisoformat(day + "T" + (clock if len(clock) == 5 else "00:00")).replace(tzinfo=KST)
         except ValueError:
             continue
-        if not (now - timedelta(days=1) <= dt <= now + timedelta(days=30)):
+        # Hide calendar dates before today; retain today even when its clock
+        # has passed, because an announcement is not proof of broadcast end.
+        if not (now.date() <= dt.date() <= (now + timedelta(days=30)).date()):
             continue
         status = data.get("status")
         if status not in ("scheduled", "break", "cancelled"):
