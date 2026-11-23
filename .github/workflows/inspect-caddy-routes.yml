@@ -1,0 +1,54 @@
+name: "운영 · Caddy 경로 안전 점검"
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up SSH
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/abyss_inspect
+          chmod 600 ~/.ssh/abyss_inspect
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Inspect Caddy and Discord bookmark prerequisites (redacted)
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          ssh -i ~/.ssh/abyss_inspect -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, re, subprocess
+          from pathlib import Path
+          path=Path("/etc/caddy/Caddyfile")
+          if not path.is_file():
+              print("CADDYFILE=missing")
+          else:
+              raw=path.read_text(errors="replace")
+              for domain in ("abyss-youtube.duckdns.org", "abyss-mirroring.duckdns.org"):
+                  print("DOMAIN_"+domain.split(".")[0].upper()+"="+("present" if domain in raw else "not_found"))
+              for route in ("/youtube/websub", "/discord/banner-bookmark"):
+                  print("ROUTE_"+route.strip("/").replace("/","_").upper()+"="+("present" if route in raw else "not_found"))
+              for port in ("8765", "8767"):
+                  print("LOCAL_PROXY_"+port+"="+("present" if "127.0.0.1:"+port in raw else "not_found"))
+          for name in ("caddy", "chzzk-bot"):
+              result=subprocess.run(["systemctl","is-active",name],capture_output=True,text=True)
+              print("SERVICE_"+name.upper().replace("-","_")+"="+("active" if result.stdout.strip()=="active" else "not_active"))
+          env=Path("/home/ubuntu/chzzk-bot/.env")
+          keys=set()
+          if env.is_file():
+              for line in env.read_text(errors="replace").splitlines():
+                  match=re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$",line)
+                  if match and match.group(2).strip():
+                      keys.add(match.group(1))
+          for key in ("DISCORD_APPLICATION_PUBLIC_KEY","BANNER_BOOKMARK_INTERACTIONS_ENABLED","YOUTUBE_WEBSUB_CALLBACK_URL"):
+              print("ENV_"+key+"="+("set" if key in keys else "unset"))
+          PY
