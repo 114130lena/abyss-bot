@@ -740,6 +740,11 @@ def _banner_card(guild_id, banner_hash, state, fanart_stats=None):
     if known_source:
         parts.append({"type": 1, "components": [{
             "type": 2, "style": 5, "label": "원본 게시물", "url": source}]})
+        # Enable only after the signed interaction receiver is configured.
+        if os.getenv("BANNER_BOOKMARK_INTERACTIONS_ENABLED", "0") == "1":
+            parts.append({"type": 1, "components": [{
+                "type": 2, "style": 1, "label": "☆ 배너 킵하기",
+                "custom_id": "abyss:banner:keep:" + str(banner_hash)}]})
 
     from fanart_public_stats import snapshot, card_sections
     if fanart_stats is None:
