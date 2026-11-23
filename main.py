@@ -302,6 +302,10 @@ def main():
         threading.Thread(target=run_server_banner_scheduler,
                          name="guild-banner-rotation", daemon=True).start()
     start_websub()
+    if os.getenv('BANNER_BOOKMARK_INTERACTIONS_ENABLED') == '1':
+        from banner_bookmark_interactions import start as start_banner_bookmark_interactions
+        threading.Thread(target=start_banner_bookmark_interactions,
+                         name='banner-bookmark-interactions', daemon=True).start()
     start_health_monitor()
     if os.getenv("COMMUNITY_DASHBOARD_ENABLED", "0") == "1":
         from community_dashboard import run_scheduler as run_community_dashboard
