@@ -197,14 +197,25 @@ def _analyze_primary(title, body, published, posted):
             minute = int(minute_match.group(1)) if minute_match else 0
             clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
             time_note = ""
-    # A bare 9:00 in a same-day evening notice is not a confirmed morning time.
-    # Infer PM only if the morning clock is already past and no AM/PM qualifier exists.
-    if (status == "scheduled" and posted and key == posted.date().isoformat()
-            and clock and int(clock[:2]) in range(1, 12)
-            and 12 <= posted.hour < int(clock[:2]) + 12
-            and not re.search(r"오전|아침|새벽|AM|a\\.m\\.", source, re.I)
-            and re.search(r"(?<!\\d)" + re.escape(str(int(clock[:2]))) + r":" + re.escape(clock[3:]) + r"(?!\\d)", source)):
-        clock = f"{int(clock[:2]) + 12:02d}:{clock[3:]}"
+    # Colon clocks below 12 are ambiguous unless locally qualified.
+    # Unrelated references such as "어제 아침에 방종" are not qualifiers.
+    if status == "scheduled" and clock and int(clock[:2]) in range(1, 12):
+        hour, minute = map(int, clock.split(":"))
+        colon = re.search(r"(?<!\d)0?" + str(hour) + ":" + clock[3:] + r"(?!\d)", source)
+        if colon:
+            prefix = source[max(0, colon.start()-12):colon.start()]
+            qualifier = re.search(r"(오전|오후|아침|저녁|밤|새벽)\s*$", prefix)
+            if qualifier:
+                if qualifier.group(1) in ("오후", "저녁", "밤"):
+                    clock = f"{hour+12:02d}:{minute:02d}"
+            elif key == posted.date().isoformat() and re.search(r"오늘|금일|이따|곧|요일", source):
+                pm = posted.replace(hour=hour+12, minute=minute, second=0, microsecond=0)
+                if posted.hour >= 12 and pm > posted:
+                    clock = f"{hour+12:02d}:{minute:02d}"
+                else:
+                    clock, time_note = "", f"{hour}시 {minute:02d}분 (오전/오후 미확인)"
+            else:
+                clock, time_note = "", f"{hour}시 {minute:02d}분 (오전/오후 미확인)"
     if clock is None and status == "scheduled":
         # Only explicit dated broadcast notices with no clock at all may be time-TBD.
         if not (primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or ""))
@@ -216,6 +227,8 @@ def _analyze_primary(title, body, published, posted):
     topic = _event_topic(title, body)
     from notice_analyzer import content_details
     details = content_details(body) if status == "scheduled" else {}
+    if status == "scheduled" and re.search(r"짧방|짧은 방송", body):
+        details["play_type"] = "짧은 방송"
     return {"date": key, "kind": kind, "status": status, "time": clock or "",
             "time_note": time_note, "topic": topic, **details}
 
