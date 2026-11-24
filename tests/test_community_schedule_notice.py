@@ -96,6 +96,27 @@ class CafeScheduleTimeTests(unittest.TestCase):
         notice.record_schedule("hanayo", "오늘 방송", "오늘 오후 8시 방송", POST, URL)
         self.assertEqual(next(iter(notice._read(self.state).values()))["time"], "21:00")
 
+    def test_real_huya_nov24_notice_separates_tomorrow_break(self):
+        result = notice.record_schedule(
+            "sakihane", "11월 24일 방송 일정!",
+            "오늘 방송 6시 부터 시작합니다!\n어제 하려고했던 좀비게임 제드 존 해보려고해용\n솔플임!\n25일은 휴방입니다~\n우에엥 졸린다~ 다들 이따보아요!\n게임 재밌겠다!",
+            1795504478853, URL)
+        self.assertEqual(result["status"], "scheduled")
+        self.assertEqual(result["time"], "18:00")
+        state = notice._read(self.state)
+        self.assertEqual(state["sakihane:2026-11-25:unspecified"]["status"], "break")
+
+    def test_real_hiyori_space_repairs_wrong_next_day(self):
+        notice._save(self.state, {"hanayo:2026-11-24:unspecified": {
+            "status": "scheduled", "time": "23:00", "source": URL}})
+        result = notice.record_schedule(
+            "hanayo", "월요일은 . . !",
+            "내일 낮일정을 위해 방송을 쉬어갑니다아..!!\n오늘은 대신 밤 11시 스페로 만나요!!!",
+            1795438230447, URL)
+        self.assertEqual(result["status"], "break")
+        self.assertNotIn("hanayo:2026-11-24:unspecified", notice._read(self.state))
+        self.assertIn("hanayo:2026-11-23:unspecified", notice._read(self.state))
+
     def test_missing_publication_date_never_invents_today(self):
         self.assertIsNone(notice.record_schedule(
             "hanayo", "오늘 방송", "오후 9시 방송", "", URL))
