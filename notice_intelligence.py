@@ -183,7 +183,7 @@ def record_schedule(group, title, body, published, url):
             body = "\n".join(primary_lines)
             for other, line in secondary:
                 with _STATE_LOCK:
-                    _record_schedule_state(group, other, "🌙 휴방 안내", "break", "", "unspecified", url)
+                    _record_schedule_state(group, other, "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
     kind = _notice_type(title, body)
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
     # Classification can be conservative but must not suppress this pattern.
@@ -230,13 +230,18 @@ def record_schedule(group, title, body, published, url):
         clock, time_note = "", "시간 미정"
     topic = _event_topic(title, body)
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note)
+        return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note, published=posted.isoformat() if posted else "")
 
 
-def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=""):
+def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note="", published=""):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key + ":" + topic
     previous = state.get(identifier) or {}
+    from discord_v2 import _parse_korean_datetime
+    incoming = _parse_korean_datetime(published)
+    previous_post = _parse_korean_datetime(previous.get("published_at"))
+    if incoming and previous_post and incoming < previous_post:
+        return None
     # An unspecified event cannot safely be associated with an already named event.
     if topic == "unspecified" and any(
             k.startswith(str(group) + ":" + key + ":") and k != identifier
@@ -244,8 +249,8 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
         return None
     new = {"status": status, "time": clock or "", "time_note": time_note,
            "source": url, "kind": kind,
-           "topic": topic}
-    if previous and previous.get("time") != new["time"] and kind not in (
+           "topic": topic, "published_at": incoming.isoformat() if incoming else ""}
+    if previous and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
     if previous and (previous.get("status"), previous.get("time")) != (status, new["time"]):
@@ -279,7 +284,7 @@ def reconcile_recent_cafe_schedules(now=None):
                             board["menu_id"], type(exc).__name__)
             continue
         examined = 0
-        for article in articles[:12]:
+        for article in sorted(articles[:12], key=lambda a: str(a.get("date") or "")):
             published = _parse_korean_datetime(article.get("date"))
             if (published is None or published > now + timedelta(minutes=5)
                     or now - published > timedelta(days=7)):
