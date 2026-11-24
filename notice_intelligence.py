@@ -175,11 +175,9 @@ def record_schedule(group, title, body, published, url):
     posted = _parse_korean_datetime(published)
     if not posted:
         return None
-    # A Space is not a CHZZK broadcast. "내일 낮일정을 위해" describes
-    # the reason for today's break, not a date for the Space.
-    source = str(title or "") + "\n" + str(body or "")
-    if (re.search(r"방송을?\s*쉬어|방송을?\s*쉽니다", source)
-            and re.search(r"오늘.{0,30}(?:스페|스페이스)", source)):
+    from notice_analyzer import analyze_notice
+    analysis = analyze_notice(title, body, posted, _event_key)
+    if analysis.space_only:
         with _STATE_LOCK:
             state = _read(SCHEDULE_FILE)
             valid_key = str(group) + ":" + posted.date().isoformat() + ":unspecified"
@@ -191,35 +189,12 @@ def record_schedule(group, title, body, published, url):
                 _save(SCHEDULE_FILE, cleaned)
             return _record_schedule_state(group, posted.date().isoformat(),
                 "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
-    # Split day-of-month secondary break notices, e.g. "25일은 휴방".
-    kept = []
-    for line in str(body or "").splitlines():
-        match = re.match(r"\s*(\d{1,2})일\s*(?:은|는|에)?\s*휴방", line)
-        if match:
-            candidates = [posted.date() + timedelta(days=i) for i in range(31)]
-            day = next((d for d in candidates if d.day == int(match.group(1))), None)
-            if day and day != posted.date():
-                with _STATE_LOCK:
-                    _record_schedule_state(group, day.isoformat(), "🌙 휴방 안내",
-                        "break", "", "unspecified", url, published=published)
-                continue
-        kept.append(line)
-    body = "\n".join(kept)
-    # Separate explicitly dated secondary breaks from the primary notice.
+    for day in analysis.secondary_breaks:
+        with _STATE_LOCK:
+            _record_schedule_state(group, day, "🌙 휴방 안내", "break", "",
+                                   "unspecified", url, published=published)
+    body = analysis.primary_body
     primary_key = _event_key(title, "", published)
-    if primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or "")):
-        primary_lines, secondary = [], []
-        for line in str(body or "").splitlines():
-            other = _event_key("", line, published)
-            if other and other != primary_key and re.match(r"\s*(?:\d{1,2}월\s*\d{1,2}일|내일|모레)\s*(?:은|는|에)?\s*휴방", line):
-                secondary.append((other, line))
-            else:
-                primary_lines.append(line)
-        if secondary:
-            body = "\n".join(primary_lines)
-            for other, line in secondary:
-                with _STATE_LOCK:
-                    _record_schedule_state(group, other, "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
     kind = _notice_type(title, body)
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
     # Classification can be conservative but must not suppress this pattern.
