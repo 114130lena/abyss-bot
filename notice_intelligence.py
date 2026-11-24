@@ -181,6 +181,14 @@ def record_schedule(group, title, body, published, url):
     if (re.search(r"방송을?\s*쉬어|방송을?\s*쉽니다", source)
             and re.search(r"오늘.{0,30}(?:스페|스페이스)", source)):
         with _STATE_LOCK:
+            state = _read(SCHEDULE_FILE)
+            valid_key = str(group) + ":" + posted.date().isoformat() + ":unspecified"
+            # Remove only stale records derived from this exact Space notice.
+            cleaned = {k: v for k, v in state.items()
+                       if not (k.startswith(str(group) + ":") and k != valid_key
+                               and isinstance(v, dict) and v.get("source") == url)}
+            if cleaned != state:
+                _save(SCHEDULE_FILE, cleaned)
             return _record_schedule_state(group, posted.date().isoformat(),
                 "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
     # Split day-of-month secondary break notices, e.g. "25일은 휴방".
