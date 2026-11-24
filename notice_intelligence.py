@@ -232,6 +232,9 @@ def analyze_schedule(title, body, published):
     if analysis.space_only:
         events.append({"date": posted.date().isoformat(), "kind": "🌙 휴방 안내",
                        "status": "break", "time": "", "time_note": "", "topic": "unspecified"})
+        # A Space is a separate platform event, not the time of the CHZZK break.
+        from notice_analyzer import space_events
+        events.extend(space_events(title, body, posted, _event_key, _clock_result))
         return events
     primary = _analyze_primary(title, analysis.primary_body, published, posted)
     if primary:
@@ -243,6 +246,8 @@ def analyze_schedule(title, body, published):
         event = _analyze_primary(day + " 방송 일정", line, published, posted)
         if event:
             events.append(event)
+    from notice_analyzer import space_events
+    events.extend(space_events(title, body, posted, _event_key, _clock_result))
     return events
 
 
@@ -283,12 +288,12 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
         return None
     # An unspecified event cannot safely be associated with an already named event.
     if topic == "unspecified" and any(
-            k.startswith(str(group) + ":" + key + ":") and k != identifier
+            k.startswith(str(group) + ":" + key + ":") and k != identifier and not k.endswith(":x_space")
             for k in state):
         return None
     new = {"status": status, "time": clock or "", "time_note": time_note,
            "source": url, "kind": kind,
-           "topic": topic, "content": content, "play_type": play_type, "published_at": incoming.isoformat() if incoming else ""}
+           "topic": topic, "platform": "x" if topic == "x_space" else "chzzk", "content": content, "play_type": play_type, "published_at": incoming.isoformat() if incoming else ""}
     if previous and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
