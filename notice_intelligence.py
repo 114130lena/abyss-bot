@@ -83,6 +83,8 @@ def _event_key(title, body, published):
             dates.update(day for day in candidates if 0 <= (day - posted_day).days <= 30)
     except (ValueError, TypeError):
         return None
+    if not dates and (full or short):
+        return None
     if not dates:
         # Only infer relative dates when the reference is explicit and there
         # are no contradictory absolute calendar dates in the text.
@@ -284,13 +286,13 @@ def reconcile_recent_cafe_schedules(now=None):
                             board["menu_id"], type(exc).__name__)
             continue
         examined = 0
-        for article in sorted(articles[:12], key=lambda a: str(a.get("date") or "")):
+        for article in sorted(articles[:12], key=lambda a: _parse_korean_datetime(a.get("date")) or datetime.min.replace(tzinfo=KST)):
             published = _parse_korean_datetime(article.get("date"))
             if (published is None or published > now + timedelta(minutes=5)
                     or now - published > timedelta(days=7)):
                 continue
-            # Public details are fetched for no more than six recent posts.
-            if examined >= 6:
+            # Bound recovery to the latest twelve public posts.
+            if examined >= 12:
                 break
             examined += 1
             try:
