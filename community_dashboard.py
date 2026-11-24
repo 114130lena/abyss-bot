@@ -265,6 +265,7 @@ def _clean(value):
 def render(now=None):
     now = (now or datetime.now(KST)).astimezone(KST)
     calendar = _events(now)
+    schedule_details = _read(SCHEDULE)
     milestones = _milestones(now)
     stats = _stats(now)
     parts = [{"type": 10, "content": (
@@ -279,7 +280,11 @@ def render(now=None):
             day = dt.strftime("%m/%d")
             hour = dt.strftime("%H:%M") if precise else (note or "시간 미정")
             label = status_label + " · " + day + " " + hour + " KST"
-            if topic != "unspecified":
+            details = schedule_details.get(group + ":" + dt.date().isoformat() + ":" + topic, {})
+            description = " · ".join(_clean(details.get(key)) for key in ("content", "play_type") if details.get(key))
+            if description:
+                label += " · " + description
+            elif topic != "unspecified":
                 label += " · " + _clean(topic).replace("|", ", ")
             if url:
                 label += " · [공지](" + url + ")"
