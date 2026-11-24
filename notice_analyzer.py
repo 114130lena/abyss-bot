@@ -15,6 +15,7 @@ class NoticeAnalysis:
     secondary_breaks: tuple
     space_only: bool
     evidence: tuple
+    secondary_broadcasts: tuple = ()
 
 
 def analyze_notice(title, body, posted, resolve_date):
@@ -26,7 +27,7 @@ def analyze_notice(title, body, posted, resolve_date):
     if space_only:
         return NoticeAnalysis("", (), True, tuple(source.splitlines()))
     primary = resolve_date(title, "", posted.isoformat())
-    kept, breaks, evidence = [], [], []
+    kept, breaks, evidence, broadcasts = [], [], [], []
     for line in str(body or "").splitlines():
         day = None
         match = re.match(r"\s*(\d{1,2})일\s*(?:은|는|에)?\s*휴방", line)
@@ -42,6 +43,32 @@ def analyze_notice(title, body, posted, resolve_date):
             breaks.append(day)
             evidence.append(line)
         else:
+            dated = re.match(r"\s*(?:오늘|내일|모레|\d{1,2}월\s*\d{1,2}일|\d{1,2}일)\s*(?:은|는|에)?", line)
+            if dated and re.search(r"방송|라이브|합방", line) and not re.search(r"휴방|어제|지난", line):
+                day = resolve_date("", line, posted.isoformat())
+                if not day:
+                    m = re.match(r"\s*(\d{1,2})일", line)
+                    if m:
+                        day = next((d.isoformat() for d in
+                                    (posted.date() + timedelta(days=i) for i in range(31))
+                                    if d.day == int(m.group(1))), None)
+                if day and primary and day != primary:
+                    # Replace relative date with the resolved date to keep parsing scoped.
+                    broadcasts.append((day, line[dated.end():]))
+                    evidence.append(line)
+                    continue
             kept.append(line)
     return NoticeAnalysis("\n".join(kept), tuple(dict.fromkeys(breaks)),
-                          False, tuple(evidence))
+                          False, tuple(evidence), tuple(broadcasts))
+
+
+def content_details(body):
+    """Extract explicitly marked content only, not speculative game names."""
+    source = str(body or "")
+    result = {}
+    match = re.search(r"(?:좀비\s*게임|게임)\s+([가-힣A-Za-z0-9][가-힣A-Za-z0-9 \-]{0,35}?)\s+(?:해보려고|할\s*예정|합니다|할게)", source)
+    if match:
+        result["content"] = match.group(1).strip()
+    if re.search(r"솔플|솔로\s*플레이", source):
+        result["play_type"] = "솔로 플레이"
+    return result
