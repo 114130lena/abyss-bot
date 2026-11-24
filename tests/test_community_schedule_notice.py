@@ -130,6 +130,18 @@ class CafeScheduleTimeTests(unittest.TestCase):
         self.assertEqual(events[0]["status"], "space")
         self.assertEqual(events[0]["time"], "23:00")
 
+    def test_real_friday_late_notice_ignores_yesterday_morning(self):
+        events = notice.analyze_schedule(
+            "금요일 ! !", "11:30 방송 입니다!!\n어제 아침에 방종하구 자고\n평소보단 짧방이 될 것 같아요\n오늘 넘 늦게 안자도록 할께요! 이따 방송에서 만나요",
+            "2026-11-20T20:52:00+09:00")
+        self.assertEqual(events[0]["time"], "23:30")
+        self.assertEqual(events[0]["play_type"], "짧은 방송")
+
+    def test_tomorrow_colon_clock_is_ambiguous(self):
+        events = notice.analyze_schedule("내일 방송 공지", "내일 9:30 방송", POST)
+        self.assertEqual(events[0]["time"], "")
+        self.assertIn("오전/오후 미확인", events[0]["time_note"])
+
     def test_missing_publication_date_never_invents_today(self):
         self.assertIsNone(notice.record_schedule(
             "hanayo", "오늘 방송", "오후 9시 방송", "", URL))
