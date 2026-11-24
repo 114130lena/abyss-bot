@@ -164,36 +164,8 @@ def _event_topic(title, body):
         topics.extend("with:" + x for x in sorted(people))
     return "|".join(topics) or "unspecified"
 
-def record_schedule(group, title, body, published, url):
-    """Correlate only same creator + explicitly dated single-clock events.
-
-    Changes are logged for operators; do not mutate sent messages or send extra
-    alerts. Original posts always continue through their usual notifiers.
-    """
+def _analyze_primary(title, body, published, posted):
     from discord_v2 import _notice_type
-    from discord_v2 import _parse_korean_datetime
-    posted = _parse_korean_datetime(published)
-    if not posted:
-        return None
-    from notice_analyzer import analyze_notice
-    analysis = analyze_notice(title, body, posted, _event_key)
-    if analysis.space_only:
-        with _STATE_LOCK:
-            state = _read(SCHEDULE_FILE)
-            valid_key = str(group) + ":" + posted.date().isoformat() + ":unspecified"
-            # Remove only stale records derived from this exact Space notice.
-            cleaned = {k: v for k, v in state.items()
-                       if not (k.startswith(str(group) + ":") and k != valid_key
-                               and isinstance(v, dict) and v.get("source") == url)}
-            if cleaned != state:
-                _save(SCHEDULE_FILE, cleaned)
-            return _record_schedule_state(group, posted.date().isoformat(),
-                "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
-    for day in analysis.secondary_breaks:
-        with _STATE_LOCK:
-            _record_schedule_state(group, day, "🌙 휴방 안내", "break", "",
-                                   "unspecified", url, published=published)
-    body = analysis.primary_body
     primary_key = _event_key(title, "", published)
     kind = _notice_type(title, body)
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
@@ -242,11 +214,65 @@ def record_schedule(group, title, body, published, url):
     if status != "scheduled":
         clock, time_note = "", ""
     topic = _event_topic(title, body)
+    from notice_analyzer import content_details
+    details = content_details(body) if status == "scheduled" else {}
+    return {"date": key, "kind": kind, "status": status, "time": clock or "",
+            "time_note": time_note, "topic": topic, **details}
+
+
+def analyze_schedule(title, body, published):
+    """Read-only structured analysis shared by Cafe cards and hub storage."""
+    from discord_v2 import _parse_korean_datetime
+    from notice_analyzer import analyze_notice
+    posted = _parse_korean_datetime(published)
+    if not posted:
+        return []
+    analysis = analyze_notice(title, body, posted, _event_key)
+    events = []
+    if analysis.space_only:
+        events.append({"date": posted.date().isoformat(), "kind": "🌙 휴방 안내",
+                       "status": "break", "time": "", "time_note": "", "topic": "unspecified"})
+        return events
+    primary = _analyze_primary(title, analysis.primary_body, published, posted)
+    if primary:
+        events.append(primary)
+    for day in analysis.secondary_breaks:
+        events.append({"date": day, "kind": "🌙 휴방 안내", "status": "break",
+                       "time": "", "time_note": "", "topic": "unspecified"})
+    for day, line in analysis.secondary_broadcasts:
+        event = _analyze_primary(day + " 방송 일정", line, published, posted)
+        if event:
+            events.append(event)
+    return events
+
+
+def record_schedule(group, title, body, published, url, events=None):
+    """Persist the same analysis used by the Cafe notification."""
+    if events is None:
+        events = analyze_schedule(title, body, published)
+    if not events:
+        return None
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note, published=posted.isoformat() if posted else "")
+        state = _read(SCHEDULE_FILE)
+        valid_dates = {event["date"] for event in events}
+        cleaned = {k: v for k, v in state.items()
+                   if not (k.startswith(str(group) + ":") and
+                           k.split(":", 2)[1] not in valid_dates and
+                           isinstance(v, dict) and v.get("source") == url)}
+        if cleaned != state:
+            _save(SCHEDULE_FILE, cleaned)
+        results = []
+        for event in events:
+            result = _record_schedule_state(
+                group, event["date"], event["kind"], event["status"], event["time"],
+                event["topic"], url, time_note=event["time_note"], published=published,
+                content=event.get("content", ""), play_type=event.get("play_type", ""))
+            if result:
+                results.append(result)
+        return results[0] if results else None
 
 
-def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note="", published=""):
+def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note="", published="", content="", play_type=""):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key + ":" + topic
     previous = state.get(identifier) or {}
@@ -262,7 +288,7 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
         return None
     new = {"status": status, "time": clock or "", "time_note": time_note,
            "source": url, "kind": kind,
-           "topic": topic, "published_at": incoming.isoformat() if incoming else ""}
+           "topic": topic, "content": content, "play_type": play_type, "published_at": incoming.isoformat() if incoming else ""}
     if previous and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
