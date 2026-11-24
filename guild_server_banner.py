@@ -13,6 +13,8 @@ import os
 import random
 import shutil
 import time
+import tempfile
+import fcntl
 from functools import lru_cache
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -51,10 +53,17 @@ def read_state():
 
 
 def write_state(state):
-    """Atomic state replacement with two retained, private local backups."""
+    """Serialize cross-process writes and use a private unique temporary file."""
     destination = state_path()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temp = destination.with_suffix(".tmp")
+    lock_path = destination.with_suffix(".lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(fd, "a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        _write_state_locked(state, destination)
+
+
+def _write_state_locked(state, destination):
     backup = destination.with_suffix(".json.bak")
     older = destination.with_suffix(".json.bak2")
     # Preserve a permanent list of posts used for guild banners even when
@@ -85,8 +94,6 @@ def write_state(state):
              "all_used_post_ids": list(dict.fromkeys(ids)),
              "all_used_sha256": list(dict.fromkeys(sha_used))}
     serialized = json.dumps(state, ensure_ascii=False, indent=2)
-    temp.write_text(serialized, encoding="utf-8")
-    temp.chmod(0o600)
     if destination.exists():
         # A damaged state file must not overwrite our last valid backup.
         try:
@@ -100,7 +107,16 @@ def write_state(state):
             backup.chmod(0o600)
             if older.exists():
                 older.chmod(0o600)
-    temp.replace(destination)
+    fd, name = tempfile.mkstemp(prefix=destination.stem + ".", suffix=".tmp", dir=destination.parent)
+    temp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temp.replace(destination)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def kind(width, height):
