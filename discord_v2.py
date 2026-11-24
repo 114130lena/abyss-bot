@@ -252,7 +252,7 @@ def _link_button(url, platform, replay=False):
 def alert(platform, creator, banner="", role_id="", title="", body="",
           url="", media_url="", images=None, category="", date="",
           author="", board="", replay=False, ping=True, username="정덕삼",
-          handle="", avatar="", chzzk_channel_id=""):
+          handle="", avatar="", chzzk_channel_id="", schedule_events=None):
     """Unified V2 card: creator, platform, title/media, date, final banner."""
     creator = str(creator or "알 수 없음")
     tag = {
@@ -296,13 +296,25 @@ def alert(platform, creator, banner="", role_id="", title="", body="",
             pieces.append(text("## " + title_line))
     analysis_lines = []
     if platform in ("cafe", "x"):
-        notice_type = _notice_type(title, body)
+        if platform == "cafe":
+            from notice_intelligence import analyze_schedule
+            if schedule_events is None:
+                schedule_events = analyze_schedule(title, body, date)
+            notice_type = schedule_events[0]["kind"] if schedule_events else None
+        else:
+            notice_type = _notice_type(title, body)
         if notice_type:
             from notice_intelligence import participants
             companions = participants(title, body, "히요리" if "히요리" in creator else "후야" if "후야" in creator else "") if notice_type == "🎮 합방 예고" else []
             subtitle = notice_type + (" · " + ", ".join(companions) + "와 함께" if len(companions) == 1 else
                                       " · " + ", ".join(companions) + " 참여" if companions else "")
             analysis_lines.append("-# " + subtitle)
+        if platform == "cafe" and schedule_events:
+            for event in schedule_events[:6]:
+                when = event["date"][5:].replace("-", "/")
+                status = {"scheduled": "방송 예정", "break": "휴방", "cancelled": "취소"}[event["status"]]
+                detail = " · ".join(x for x in (event.get("time") or event.get("time_note"), status, event.get("content"), event.get("play_type")) if x)
+                analysis_lines.append("-# " + when + " · " + _safe_markdown(detail))
 
     if body:
         import re
