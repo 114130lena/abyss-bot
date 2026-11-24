@@ -181,7 +181,7 @@ def _events(now):
         if not (now.date() <= dt.date() <= (now + timedelta(days=30)).date()):
             continue
         status = data.get("status")
-        if status not in ("scheduled", "break", "cancelled"):
+        if status not in ("scheduled", "break", "cancelled", "space"):
             continue
         url = str(data.get("source") or "")
         if not url.startswith("https://"):
@@ -276,15 +276,15 @@ def render(now=None):
         events = [e for e in calendar if e[1] == group][:6]
         lines = []
         for dt, _, status, url, topic, precise, note in events:
-            status_label = {"scheduled": "📺 방송", "break": "🌙 휴방", "cancelled": "🚫 취소"}[status]
+            status_label = {"scheduled": "📺 방송", "break": "🌙 휴방", "cancelled": "🚫 취소", "space": "🎙️ X 스페이스"}[status]
             day = dt.strftime("%m/%d")
             hour = dt.strftime("%H:%M") if precise else (note or "시간 미정")
-            label = status_label + " · " + day + " " + hour + " KST"
+            label = status_label + " · " + day + (" " + hour + " KST" if status not in ("break", "cancelled") else "")
             details = schedule_details.get(group + ":" + dt.date().isoformat() + ":" + topic, {})
             description = " · ".join(_clean(details.get(key)) for key in ("content", "play_type") if details.get(key))
             if description:
                 label += " · " + description
-            elif topic != "unspecified":
+            elif topic not in ("unspecified", "x_space"):
                 label += " · " + _clean(topic).replace("|", ", ")
             if url:
                 label += " · [공지](" + url + ")"
