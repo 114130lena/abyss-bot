@@ -87,6 +87,15 @@ class CafeScheduleTimeTests(unittest.TestCase):
             POST, URL)
         self.assertEqual(result["time"], "21:00")
 
+    def test_newer_notice_updates_time_without_change_keyword(self):
+        notice.record_schedule("hanayo", "오늘 방송", "오늘 오후 8시 방송", POST, URL)
+        result = notice.record_schedule(
+            "hanayo", "오늘 방송", "오늘 오후 9시 방송",
+            "2026-11-16T17:30:00+09:00", URL + "&new=1")
+        self.assertEqual(result["time"], "21:00")
+        notice.record_schedule("hanayo", "오늘 방송", "오늘 오후 8시 방송", POST, URL)
+        self.assertEqual(next(iter(notice._read(self.state).values()))["time"], "21:00")
+
     def test_missing_publication_date_never_invents_today(self):
         self.assertIsNone(notice.record_schedule(
             "hanayo", "오늘 방송", "오후 9시 방송", "", URL))
