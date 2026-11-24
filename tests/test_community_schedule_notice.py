@@ -116,6 +116,19 @@ class CafeScheduleTimeTests(unittest.TestCase):
         self.assertEqual(result["status"], "break")
         self.assertNotIn("hanayo:2026-11-24:unspecified", notice._read(self.state))
         self.assertIn("hanayo:2026-11-23:unspecified", notice._read(self.state))
+        space = notice._read(self.state)["hanayo:2026-11-23:x_space"]
+        self.assertEqual(space["status"], "space")
+        self.assertEqual(space["platform"], "x")
+        self.assertEqual(space["time"], "23:00")
+        card = str(dashboard.render(datetime(2026, 11, 23, 22, tzinfo=KST)))
+        self.assertIn("X 스페이스", card)
+        self.assertNotIn("X 스페이스", str(dashboard.render(datetime(2026, 11, 24, 10, tzinfo=KST))))
+
+    def test_space_only_notice_is_not_chzzk_broadcast(self):
+        events = notice.analyze_schedule("오늘 공지", "오늘 밤 11시 스페이스 진행합니다", POST)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["status"], "space")
+        self.assertEqual(events[0]["time"], "23:00")
 
     def test_missing_publication_date_never_invents_today(self):
         self.assertIsNone(notice.record_schedule(
