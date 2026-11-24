@@ -201,13 +201,19 @@ def notify(article, role_id, menu_id, group):
     creator = "하나요 히요리" if group == "hanayo" else "사키하네 후야"
     title = " ".join(article["title"].split())[:300]
     summary, images = article_detail(article)
+    from notice_intelligence import analyze_schedule
+    try:
+        schedule_events = analyze_schedule(title, summary, article.get("date", ""))
+    except Exception:
+        logging.exception("카페 공지 분석 실패")
+        schedule_events = []
     payload = unified_alert(
         "cafe", creator, get_banner(group), role_id,
         title=title, body=summary,
         url=article["url"], author=article.get("author", ""),
         board="방송 공지" if str(menu_id) in ("431", "382") else "카페 게시글",
         date=article.get("date", ""), images=images,
-        handle=creator_handle(group), avatar=creator_avatar(group))
+        handle=creator_handle(group), avatar=creator_avatar(group), schedule_events=schedule_events)
     article_id = str(article.get("id") or "").strip()
     if article_id.isdigit():
         payload["_abyss_event_key"] = "cafe:" + str(menu_id) + ":" + article_id
@@ -219,7 +225,7 @@ def notify(article, role_id, menu_id, group):
     send_webhook(WEBHOOK_URL, payload)
     try:
         from notice_intelligence import record_schedule
-        record_schedule(group, title, summary, article.get("date", ""), article["url"])
+        record_schedule(group, title, summary, article.get("date", ""), article["url"], events=schedule_events)
     except Exception:
         logging.exception("카페 일정 추적 오류(알림은 정상 전송)")
     logging.info("카페 게시판 %s 새 글 알림 전송: %s", menu_id, article["title"])

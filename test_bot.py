@@ -409,6 +409,7 @@ class RoutingTests(unittest.TestCase):
             with self.subTest(platform=platform):
                 payload = unified_alert(platform, "하나요 히요리",
                                         title="휴방 공지", body="오늘은 휴방입니다",
+                                        date="2026-11-24T12:00:00+09:00",
                                         url="https://example.com/post", ping=False)
                 components = payload["components"][0]["components"]
                 self.assertTrue(any("🌙 휴방 안내" in item.get("content", "")

@@ -83,6 +83,8 @@ def _event_key(title, body, published):
             dates.update(day for day in candidates if 0 <= (day - posted_day).days <= 30)
     except (ValueError, TypeError):
         return None
+    if not dates and (full or short):
+        return None
     if not dates:
         # Only infer relative dates when the reference is explicit and there
         # are no contradictory absolute calendar dates in the text.
@@ -162,28 +164,9 @@ def _event_topic(title, body):
         topics.extend("with:" + x for x in sorted(people))
     return "|".join(topics) or "unspecified"
 
-def record_schedule(group, title, body, published, url):
-    """Correlate only same creator + explicitly dated single-clock events.
-
-    Changes are logged for operators; do not mutate sent messages or send extra
-    alerts. Original posts always continue through their usual notifiers.
-    """
+def _analyze_primary(title, body, published, posted):
     from discord_v2 import _notice_type
-    # Separate explicitly dated secondary breaks from the primary notice.
     primary_key = _event_key(title, "", published)
-    if primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or "")):
-        primary_lines, secondary = [], []
-        for line in str(body or "").splitlines():
-            other = _event_key("", line, published)
-            if other and other != primary_key and re.match(r"\s*(?:\d{1,2}월\s*\d{1,2}일|내일|모레)\s*(?:은|는|에)?\s*휴방", line):
-                secondary.append((other, line))
-            else:
-                primary_lines.append(line)
-        if secondary:
-            body = "\n".join(primary_lines)
-            for other, line in secondary:
-                with _STATE_LOCK:
-                    _record_schedule_state(group, other, "🌙 휴방 안내", "break", "", "unspecified", url)
     kind = _notice_type(title, body)
     # "휴방이 아닌 9시 방송" is a broadcast announcement, not a break.
     # Classification can be conservative but must not suppress this pattern.
@@ -214,38 +197,117 @@ def record_schedule(group, title, body, published, url):
             minute = int(minute_match.group(1)) if minute_match else 0
             clock = f"{int(h.group(1)) + 12:02d}:{minute:02d}"
             time_note = ""
-    # A bare 9:00 in a same-day evening notice is not a confirmed morning time.
-    # Infer PM only if the morning clock is already past and no AM/PM qualifier exists.
-    if (status == "scheduled" and posted and key == posted.date().isoformat()
-            and clock and int(clock[:2]) in range(1, 12)
-            and 12 <= posted.hour < int(clock[:2]) + 12
-            and not re.search(r"오전|아침|새벽|AM|a\\.m\\.", source, re.I)
-            and re.search(r"(?<!\\d)" + re.escape(str(int(clock[:2]))) + r":" + re.escape(clock[3:]) + r"(?!\\d)", source)):
-        clock = f"{int(clock[:2]) + 12:02d}:{clock[3:]}"
+    # Colon clocks below 12 are ambiguous unless locally qualified.
+    # Unrelated references such as "어제 아침에 방종" are not qualifiers.
+    if status == "scheduled" and clock and int(clock[:2]) in range(1, 12):
+        hour, minute = map(int, clock.split(":"))
+        colon = re.search(r"(?<!\d)0?" + str(hour) + ":" + clock[3:] + r"(?!\d)", source)
+        if colon:
+            prefix = source[max(0, colon.start()-12):colon.start()]
+            qualifier = re.search(r"(오전|오후|아침|저녁|밤|새벽)\s*$", prefix)
+            if qualifier:
+                if qualifier.group(1) in ("오후", "저녁", "밤"):
+                    clock = f"{hour+12:02d}:{minute:02d}"
+            elif key == posted.date().isoformat() and re.search(r"오늘|금일|이따|곧|요일", source):
+                pm = posted.replace(hour=hour+12, minute=minute, second=0, microsecond=0)
+                if posted.hour >= 12 and pm > posted:
+                    clock = f"{hour+12:02d}:{minute:02d}"
+                else:
+                    clock, time_note = "", f"{hour}시 {minute:02d}분 (오전/오후 미확인)"
+            else:
+                clock, time_note = "", f"{hour}시 {minute:02d}분 (오전/오후 미확인)"
     if clock is None and status == "scheduled":
         # Only explicit dated broadcast notices with no clock at all may be time-TBD.
         if not (primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or ""))
                 and not re.search(r"\d{1,2}\s*시|\d{1,2}:\d{2}", source)):
             return None
         clock, time_note = "", "시간 미정"
+    if status != "scheduled":
+        clock, time_note = "", ""
     topic = _event_topic(title, body)
+    from notice_analyzer import content_details
+    details = content_details(body) if status == "scheduled" else {}
+    if status == "scheduled" and re.search(r"짧방|짧은 방송", body):
+        details["play_type"] = "짧은 방송"
+    return {"date": key, "kind": kind, "status": status, "time": clock or "",
+            "time_note": time_note, "topic": topic, **details}
+
+
+def analyze_schedule(title, body, published):
+    """Read-only structured analysis shared by Cafe cards and hub storage."""
+    from discord_v2 import _parse_korean_datetime
+    from notice_analyzer import analyze_notice
+    posted = _parse_korean_datetime(published)
+    if not posted:
+        return []
+    analysis = analyze_notice(title, body, posted, _event_key)
+    events = []
+    if analysis.space_only:
+        events.append({"date": posted.date().isoformat(), "kind": "🌙 휴방 안내",
+                       "status": "break", "time": "", "time_note": "", "topic": "unspecified"})
+        # A Space is a separate platform event, not the time of the CHZZK break.
+        from notice_analyzer import space_events
+        events.extend(space_events(title, body, posted, _event_key, _clock_result))
+        return events
+    primary = _analyze_primary(title, analysis.primary_body, published, posted)
+    if primary:
+        events.append(primary)
+    for day in analysis.secondary_breaks:
+        events.append({"date": day, "kind": "🌙 휴방 안내", "status": "break",
+                       "time": "", "time_note": "", "topic": "unspecified"})
+    for day, line in analysis.secondary_broadcasts:
+        event = _analyze_primary(day + " 방송 일정", line, published, posted)
+        if event:
+            events.append(event)
+    from notice_analyzer import space_events
+    events.extend(space_events(title, body, posted, _event_key, _clock_result))
+    return events
+
+
+def record_schedule(group, title, body, published, url, events=None):
+    """Persist the same analysis used by the Cafe notification."""
+    if events is None:
+        events = analyze_schedule(title, body, published)
+    if not events:
+        return None
     with _STATE_LOCK:
-        return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note)
+        state = _read(SCHEDULE_FILE)
+        valid_dates = {event["date"] for event in events}
+        cleaned = {k: v for k, v in state.items()
+                   if not (k.startswith(str(group) + ":") and
+                           k.split(":", 2)[1] not in valid_dates and
+                           isinstance(v, dict) and v.get("source") == url)}
+        if cleaned != state:
+            _save(SCHEDULE_FILE, cleaned)
+        results = []
+        for event in events:
+            result = _record_schedule_state(
+                group, event["date"], event["kind"], event["status"], event["time"],
+                event["topic"], url, time_note=event["time_note"], published=published,
+                content=event.get("content", ""), play_type=event.get("play_type", ""))
+            if result:
+                results.append(result)
+        return results[0] if results else None
 
 
-def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=""):
+def _record_schedule_state(group, key, kind, status, clock, topic, url, time_note="", published="", content="", play_type=""):
     state = _read(SCHEDULE_FILE)
     identifier = str(group) + ":" + key + ":" + topic
     previous = state.get(identifier) or {}
+    from discord_v2 import _parse_korean_datetime
+    incoming = _parse_korean_datetime(published)
+    previous_post = _parse_korean_datetime(previous.get("published_at"))
+    if incoming and previous_post and incoming < previous_post:
+        return None
     # An unspecified event cannot safely be associated with an already named event.
     if topic == "unspecified" and any(
-            k.startswith(str(group) + ":" + key + ":") and k != identifier
+            k.startswith(str(group) + ":" + key + ":") and k != identifier and not k.endswith(":x_space")
             for k in state):
         return None
     new = {"status": status, "time": clock or "", "time_note": time_note,
            "source": url, "kind": kind,
-           "topic": topic}
-    if previous and previous.get("time") != new["time"] and kind not in (
+           "topic": topic, "platform": "x" if topic == "x_space" else "chzzk", "content": content, "play_type": play_type, "published_at": incoming.isoformat() if incoming else ""}
+    if previous and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
     if previous and (previous.get("status"), previous.get("time")) != (status, new["time"]):
@@ -279,13 +341,13 @@ def reconcile_recent_cafe_schedules(now=None):
                             board["menu_id"], type(exc).__name__)
             continue
         examined = 0
-        for article in articles[:12]:
+        for article in sorted(articles[:12], key=lambda a: _parse_korean_datetime(a.get("date")) or datetime.min.replace(tzinfo=KST)):
             published = _parse_korean_datetime(article.get("date"))
             if (published is None or published > now + timedelta(minutes=5)
                     or now - published > timedelta(days=7)):
                 continue
-            # Public details are fetched for no more than six recent posts.
-            if examined >= 6:
+            # Bound recovery to the latest twelve public posts.
+            if examined >= 12:
                 break
             examined += 1
             try:

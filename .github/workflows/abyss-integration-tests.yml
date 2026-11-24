@@ -133,3 +133,45 @@ jobs:
             grep -E 'X 새 게시글 알림 성공|후야 X 새 글 알림|X_REPOST_DISCOVERED|X_REPOST_DELIVERED|X_REPOST_TOTAL|X_REPOST_MEDIA_RESOLVED|X_SEND_MEDIA_GUARD|X_FX_FEED|X_FX_REPOST_SCAN|Discord response timed out' |
             tail -n 120 || true
           REMOTE
+
+  hub_schedule_audit:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/hub-schedule-freshness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test schedule parsing
+        run: |
+          python -m pip install -r requirements.txt
+          python -m unittest discover -s tests -p 'test_community*.py' -v
+      - name: Read production schedule and recent public notices without modifying state
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hub_key
+          chmod 600 ~/.ssh/hub_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/hub_key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/chzzk-bot
+          PY=.venv/bin/python
+          if [ ! -x "$PY" ]; then PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json
+          from datetime import datetime
+          from community_dashboard import _events, KST
+          from cafe_notifier import BOARDS, get_articles, article_detail
+          now = datetime.now(KST)
+          print("HUB_EVENTS", json.dumps(_events(now), default=str, ensure_ascii=False))
+          for board in BOARDS:
+              for article in get_articles(board["menu_id"])[:4]:
+                  body, _ = article_detail(article)
+                  print("PUBLIC_NOTICE", json.dumps({"group":board["group"], "title":article["title"], "date":article["date"], "url":article["url"], "body":body[:1500]}, ensure_ascii=False))
+          PY
+          REMOTE

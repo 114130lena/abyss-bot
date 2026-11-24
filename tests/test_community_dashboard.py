@@ -58,7 +58,8 @@ class CommunityDashboardTests(unittest.TestCase):
                 "time": "", "status": "break", "source": ""}})
         text = str(hub.render(NOW))
         self.assertIn("11/17 21:00", text)
-        self.assertIn("11/18 시간 미정", text)
+        self.assertIn("🌙 휴방 · 11/18", text)
+        self.assertNotIn("11/18 시간 미정", text)
 
     def test_past_calendar_dates_disappear_automatically(self):
         hub.save_json(hub.SCHEDULE, {
