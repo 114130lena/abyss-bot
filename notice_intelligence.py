@@ -171,6 +171,32 @@ def record_schedule(group, title, body, published, url):
     alerts. Original posts always continue through their usual notifiers.
     """
     from discord_v2 import _notice_type
+    from discord_v2 import _parse_korean_datetime
+    posted = _parse_korean_datetime(published)
+    if not posted:
+        return None
+    # A Space is not a CHZZK broadcast. "내일 낮일정을 위해" describes
+    # the reason for today's break, not a date for the Space.
+    source = str(title or "") + "\n" + str(body or "")
+    if (re.search(r"방송을?\s*쉬어|방송을?\s*쉽니다", source)
+            and re.search(r"오늘.{0,30}(?:스페|스페이스)", source)):
+        with _STATE_LOCK:
+            return _record_schedule_state(group, posted.date().isoformat(),
+                "🌙 휴방 안내", "break", "", "unspecified", url, published=published)
+    # Split day-of-month secondary break notices, e.g. "25일은 휴방".
+    kept = []
+    for line in str(body or "").splitlines():
+        match = re.match(r"\s*(\d{1,2})일\s*(?:은|는|에)?\s*휴방", line)
+        if match:
+            candidates = [posted.date() + timedelta(days=i) for i in range(31)]
+            day = next((d for d in candidates if d.day == int(match.group(1))), None)
+            if day and day != posted.date():
+                with _STATE_LOCK:
+                    _record_schedule_state(group, day.isoformat(), "🌙 휴방 안내",
+                        "break", "", "unspecified", url, published=published)
+                continue
+        kept.append(line)
+    body = "\n".join(kept)
     # Separate explicitly dated secondary breaks from the primary notice.
     primary_key = _event_key(title, "", published)
     if primary_key and re.search(r"방송\s*(?:일정|공지|예정)", str(title or "")):
@@ -230,6 +256,8 @@ def record_schedule(group, title, body, published, url):
                 and not re.search(r"\d{1,2}\s*시|\d{1,2}:\d{2}", source)):
             return None
         clock, time_note = "", "시간 미정"
+    if status != "scheduled":
+        clock, time_note = "", ""
     topic = _event_topic(title, body)
     with _STATE_LOCK:
         return _record_schedule_state(group, key, kind, status, clock, topic, url, time_note=time_note, published=posted.isoformat() if posted else "")
