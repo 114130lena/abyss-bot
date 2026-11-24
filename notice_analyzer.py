@@ -29,6 +29,8 @@ def analyze_notice(title, body, posted, resolve_date):
     primary = resolve_date(title, "", posted.isoformat())
     kept, breaks, evidence, broadcasts = [], [], [], []
     for line in str(body or "").splitlines():
+        if re.search(r"(?:스페이스|스페로|스페를|스페는|스페\s)", line) and re.search(r"만나|진행|예정|시작|켜|합니다|해요", line):
+            continue
         day = None
         match = re.match(r"\s*(\d{1,2})일\s*(?:은|는|에)?\s*휴방", line)
         if match:
@@ -72,3 +74,28 @@ def content_details(body):
     if re.search(r"솔플|솔로\s*플레이", source):
         result["play_type"] = "솔로 플레이"
     return result
+
+
+def space_events(title, body, posted, resolve_date, resolve_clock):
+    """Extract explicit X Space plans independently of CHZZK events."""
+    events = []
+    source = str(title or "") + "\n" + str(body or "")
+    for line in re.split(r"[\n!?。]+", source):
+        if not re.search(r"스페이스|스페로|스페를|스페는|스페\s", line):
+            continue
+        if not re.search(r"만나|진행|예정|시작|켜|합니다|해요", line):
+            continue
+        if re.search(r"어제|지난|종료|취소|안\s*해|하지\s*않", line):
+            continue
+        day = resolve_date("", line, posted.isoformat())
+        if not day:
+            continue
+        clock, note = resolve_clock(line)
+        if clock is None:
+            continue
+        event = {"date": day, "kind": "🎙️ X 스페이스 안내",
+                 "status": "space", "time": clock or "", "time_note": note,
+                 "topic": "x_space", "platform": "x"}
+        if event not in events:
+            events.append(event)
+    return events
