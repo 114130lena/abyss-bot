@@ -60,7 +60,7 @@ def analyze_notice(title, body, posted, resolve_date):
                         day = next((d.isoformat() for d in
                                     (posted.date() + timedelta(days=i) for i in range(31))
                                     if d.day == int(m.group(1))), None)
-                if day and day != (primary or posted.date().isoformat()):
+                if day and day != (primary or posted.date().isoformat()) and not (not primary and re.search(r"변경\s*전|변경\s*후|기존 시간|원래 시간|이전 시간", source)):
                     # Replace relative date with the resolved date to keep parsing scoped.
                     broadcasts.append((day, line[dated.end():]))
                     evidence.append(line)
