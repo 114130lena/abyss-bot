@@ -6,6 +6,10 @@ on:
   pull_request:
     paths:
       - 'main.py'
+      - 'notice_*.py'
+      - 'community_dashboard.py'
+      - 'cafe_notifier.py'
+      - 'discord_v2.py'
       - 'youtube_websub.py'
       - 'youtube_notifier.py'
       - 'test_bot.py'
@@ -135,7 +139,7 @@ jobs:
           REMOTE
 
   hub_schedule_audit:
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/hub-schedule-freshness'
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/hub-clause-scope'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
