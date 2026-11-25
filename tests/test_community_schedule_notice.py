@@ -142,6 +142,22 @@ class CafeScheduleTimeTests(unittest.TestCase):
         self.assertEqual(events[0]["time"], "")
         self.assertIn("오전/오후 미확인", events[0]["time_note"])
 
+    def test_real_tuesday_break_and_tomorrow_live_flattened(self):
+        published = "2026-11-24T19:02:00+09:00"
+        body = "회사 일정으루 휴방입니다..!! 무사히 미라클모닝(?)을 하고 지금은 밥도 먹구있어요 맛있다아🍚 모두 저녁 맛있게 먹구!! 내일은 생방으로 만나요 여러부운!!👻💗"
+        notice._save(self.state, {"hanayo:2026-11-25:unspecified": {
+            "status": "break", "time": "", "source": URL, "published_at": published}})
+        events = notice.analyze_schedule("화요일은 . . !", body, published)
+        self.assertEqual([(e["date"], e["status"]) for e in events],
+                         [("2026-11-24", "break"), ("2026-11-25", "scheduled")])
+        self.assertEqual(events[1]["time_note"], "시간 미정")
+        notice.record_schedule("hanayo", "화요일은 . . !", body, published, URL)
+        state = notice._read(self.state)
+        self.assertEqual(state["hanayo:2026-11-25:unspecified"]["status"], "scheduled")
+        card = str(dashboard.render(datetime(2026, 11, 25, 18, tzinfo=KST)))
+        self.assertIn("11/25 시간 미정", card)
+        self.assertNotIn("11/24", card)
+
     def test_missing_publication_date_never_invents_today(self):
         self.assertIsNone(notice.record_schedule(
             "hanayo", "오늘 방송", "오후 9시 방송", "", URL))
