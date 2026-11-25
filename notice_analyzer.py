@@ -28,7 +28,13 @@ def analyze_notice(title, body, posted, resolve_date):
         return NoticeAnalysis("", (), True, tuple(source.splitlines()))
     primary = resolve_date(title, "", posted.isoformat())
     kept, breaks, evidence, broadcasts = [], [], [], []
-    for line in str(body or "").splitlines():
+    # Cafe bodies may arrive flattened: split sentence boundaries without
+    # breaking dates or time expressions, and preserve original line context.
+    clauses = re.split(r"\n+|[!?。]+|\.\.(?:\.)*", str(body or ""))
+    for line in clauses:
+        line = line.strip()
+        if not line:
+            continue
         if re.search(r"(?:스페이스|스페로|스페를|스페는|스페\s)", line) and re.search(r"만나|진행|예정|시작|켜|합니다|해요", line):
             continue
         day = None
@@ -46,7 +52,7 @@ def analyze_notice(title, body, posted, resolve_date):
             evidence.append(line)
         else:
             dated = re.match(r"\s*(?:오늘|내일|모레|\d{1,2}월\s*\d{1,2}일|\d{1,2}일)\s*(?:은|는|에)?", line)
-            if dated and re.search(r"방송|라이브|합방", line) and not re.search(r"휴방|어제|지난", line):
+            if dated and re.search(r"방송|생방|라이브|합방", line) and not re.search(r"휴방|어제|지난", line):
                 day = resolve_date("", line, posted.isoformat())
                 if not day:
                     m = re.match(r"\s*(\d{1,2})일", line)
@@ -54,7 +60,7 @@ def analyze_notice(title, body, posted, resolve_date):
                         day = next((d.isoformat() for d in
                                     (posted.date() + timedelta(days=i) for i in range(31))
                                     if d.day == int(m.group(1))), None)
-                if day and primary and day != primary:
+                if day and day != (primary or posted.date().isoformat()) and not (not primary and re.search(r"변경\s*전|변경\s*후|기존 시간|원래 시간|이전 시간", source)):
                     # Replace relative date with the resolved date to keep parsing scoped.
                     broadcasts.append((day, line[dated.end():]))
                     evidence.append(line)
