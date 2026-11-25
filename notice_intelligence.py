@@ -179,6 +179,10 @@ def _analyze_primary(title, body, published, posted):
     if not kind:
         return None
     key = _event_key(title, body, published)
+    # A dated title plus a local, undated break is authoritative once other
+    # explicit schedule clauses have been separated. Personal dates are not events.
+    if primary_key and kind == "🌙 휴방 안내" and re.search(r"휴방|방송을?\s*쉬", body):
+        key = primary_key
     if key is None:
         return None
     status = "cancelled" if kind == "🚫 방송 취소 안내" else "break" if kind == "🌙 휴방 안내" else "scheduled"
@@ -249,7 +253,8 @@ def analyze_schedule(title, body, published):
         from notice_analyzer import space_events
         events.extend(space_events(title, body, posted, _event_key, _clock_result))
         return events
-    primary = _analyze_primary(title, analysis.primary_body, published, posted)
+    primary = (_analyze_primary(title, analysis.primary_body, published, posted)
+               if analysis.primary_body.strip() or not analysis.secondary_broadcasts else None)
     if primary:
         events.append(primary)
     for day in analysis.secondary_breaks:
@@ -307,7 +312,7 @@ def _record_schedule_state(group, key, kind, status, clock, topic, url, time_not
     new = {"status": status, "time": clock or "", "time_note": time_note,
            "source": url, "kind": kind,
            "topic": topic, "platform": "x" if topic == "x_space" else "chzzk", "content": content, "play_type": play_type, "published_at": incoming.isoformat() if incoming else ""}
-    if previous and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
+    if previous and previous.get("source") != url and not (incoming and (not previous_post or incoming > previous_post)) and previous.get("time") != new["time"] and kind not in (
             "🔄 일정 변경 안내", "🚫 방송 취소 안내", "🌙 휴방 안내"):
         return None
     if previous and (previous.get("status"), previous.get("time")) != (status, new["time"]):
