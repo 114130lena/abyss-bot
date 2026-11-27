@@ -18,6 +18,9 @@ bot=commands.Bot(command_prefix=commands.when_mentioned,intents=intents,help_com
 lock=asyncio.Lock()
 channel=None
 last={}
+voice_lock=asyncio.Lock()
+voice_bot_cache={}
+voice_last_count=None
 session=uuid.uuid4().hex
 
 def admin(i):
@@ -161,7 +164,7 @@ class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
             if raw=="all" and not intents.members: raise ValueError("전체 지급은 Server Members Intent 활성화 후 가능합니다.")
             if raw.startswith("role:") and not intents.members: raise ValueError("역할 지급은 Server Members Intent 활성화 후 가능합니다.")
             if raw=="all": members=[m async for m in i.guild.fetch_members(limit=None)]
-            elif raw=="voice": members=[m for c in i.guild.voice_channels for m in c.members]
+            elif raw=="voice": members=[await i.guild.fetch_member(uid) for uid in await eligible()]
             elif raw.startswith("role:"):
                 role=i.guild.get_role(int(raw[5:]))
                 if role is None: raise ValueError("역할 없음")
@@ -249,7 +252,7 @@ class Panel(discord.ui.View):
     async def balance(self,i,b):
         if await guard(i):
             n,s=db.balance(i.user.id)
-            await reply(i,f"보유 {n:,} TP · 누적 음성 {s//60:,}분 · 다음 지급까지 {(1800-s%1800+59)//60}분")
+            await reply(i,f"보유 {n:,} TP · 누적 음성 {s//60:,}분 {s%60}초 · 다음 지급까지 {(1800-s%1800+59)//60}분")
     @discord.ui.button(label="전체 랭킹",custom_id="lp:rank")
     async def rank(self,i,b):
         if await guard(i): await reply(i,"\n".join(f"{k}. <@{u}> · {n:,} TP" for k,(u,n) in enumerate(db.ranking(),1)) or "기록 없음")
@@ -280,28 +283,61 @@ class Panel(discord.ui.View):
             rows=list(c.execute("SELECT uid,delta,reason FROM ledger WHERE delta!=0 ORDER BY rowid DESC LIMIT 5"))
         await reply(i,f"등록 {n}명 · 잔액 {total:,} TP · 예측 보관 {held:,} TP\n"+"\n".join(f"<@{r[0]}> {r[1]:+,} TP · {r[2][:70]}" for r in rows))
 
-def eligible():
+async def eligible():
     if not channel: return set()
-    return {m.id for c in channel.guild.voice_channels if c.id!=channel.guild.afk_channel_id and len([m for m in c.members if not m.bot])>=2 for m in c.members if not m.bot}
+    guild=bot.get_guild(channel.guild.id)
+    if guild is None or guild.unavailable: return set()
+    # Voice states are available even without the privileged Members intent.
+    ids={uid for c in [*guild.voice_channels,*guild.stage_channels] for uid in c.voice_states}
+    for uid in list(voice_bot_cache):
+        if uid not in ids: voice_bot_cache.pop(uid,None)
+    current=set()
+    for uid in ids:
+        member=guild.get_member(uid) or bot.get_user(uid)
+        if member is not None:
+            voice_bot_cache[uid]=member.bot
+        if uid not in voice_bot_cache:
+            try:
+                member=await guild.fetch_member(uid)
+                voice_bot_cache[uid]=member.bot
+            except discord.HTTPException:
+                logging.warning("Voice member lookup unavailable")
+                continue
+        if not voice_bot_cache[uid]: current.add(uid)
+    return current
 
-def tick_voice():
-    now=time.monotonic()
-    current=eligible()
-    for uid,old in list(last.items()):
-        elapsed=min(35,int(now-old))
-        if elapsed>0:
-            db.voice(uid,elapsed,f"voice:{session}:{uid}:{old}")
-    last.clear()
-    last.update({uid:now for uid in current})
+async def tick_voice():
+    global voice_last_count
+    async with voice_lock:
+        if not bot.is_ready(): return
+        now=time.monotonic()
+        current=await eligible()
+        if not bot.is_ready(): return
+        if voice_last_count!=len(current):
+            logging.info("VOICE_ELIGIBLE_COUNT=%d",len(current))
+            voice_last_count=len(current)
+        for uid,old in list(last.items()):
+            elapsed=max(0,int(now-old))
+            credited=min(35,elapsed)
+            if credited:
+                db.voice(uid,credited,f"voice:{session}:{uid}:{old}")
+            if uid in current:
+                last[uid]=old+elapsed
+            else:
+                last.pop(uid,None)
+        for uid in current:
+            last.setdefault(uid,now)
 
 @bot.event
 async def on_voice_state_update(member,before,after):
     if channel and member.guild.id==channel.guild.id:
-        tick_voice()
+        voice_bot_cache[member.id]=member.bot
+        await tick_voice()
 
 @bot.event
 async def on_disconnect():
     last.clear()
+    voice_bot_cache.clear()
 
 @tasks.loop(seconds=15)
 async def maintenance():
@@ -312,7 +348,7 @@ async def maintenance():
 
 async def maintenance_once():
     if not bot.is_ready() or not channel: return
-    tick_voice()
+    await tick_voice()
     async with lock:
         p=db.active()
         now=int(time.time())
@@ -335,7 +371,7 @@ async def maintenance_error(e):
 @bot.event
 async def on_ready():
     global channel
-    channel=await bot.fetch_channel(CHANNEL_ID)
+    channel=bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
     if not isinstance(channel,discord.TextChannel): raise RuntimeError("전용 텍스트 채널 필요")
     if not getattr(bot,"lp_registered",False):
         bot.add_view(Panel())
