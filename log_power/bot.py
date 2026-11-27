@@ -28,18 +28,38 @@ def admin(i):
 
 async def guard(i, privileged=False):
     if i.channel_id!=CHANNEL_ID or not channel or i.guild_id!=channel.guild.id:
-        await i.response.send_message("전용 채널에서만 이용 가능합니다.",ephemeral=True)
+        await reply(i,"전용 채널에서만 이용 가능합니다.")
         return False
     if privileged and not admin(i):
-        await i.response.send_message("관리자 전용입니다.",ephemeral=True)
+        await reply(i,"관리자 전용입니다.")
         return False
     return True
 
-async def reply(i,text):
+cleanup_tasks=set()
+
+def delete_later(delete,delay):
+    async def run():
+        await asyncio.sleep(delay)
+        try:
+            await delete()
+        except discord.NotFound:
+            pass
+        except discord.HTTPException:
+            logging.warning("Ephemeral response cleanup failed")
+    task=asyncio.create_task(run())
+    cleanup_tasks.add(task)
+    task.add_done_callback(cleanup_tasks.discard)
+
+async def reply(i,text,view=None,delay=None):
+    delay=delay if delay is not None else (int(view.timeout)+5 if view else 30)
+    kwargs=dict(ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+    if view is not None: kwargs["view"]=view
     if i.response.is_done():
-        await i.followup.send(text,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+        msg=await i.followup.send(text,wait=True,**kwargs)
+        delete_later(msg.delete,delay)
     else:
-        await i.response.send_message(text,ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+        await i.response.send_message(text,**kwargs)
+        delete_later(i.delete_original_response,delay)
 
 def get_setting(key):
     with db.tx() as c:
@@ -175,7 +195,7 @@ class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
             if not ids or not 0<abs(n)<=100000000: raise ValueError("대상 또는 금액 오류")
         except (ValueError,discord.HTTPException) as e:
             await reply(i,str(e)); return
-        await i.followup.send(f"{len(ids)}명 × {n:,} TP = {len(ids)*n:,} TP\n사유: {self.reason.value}",view=GrantConfirm(i.user.id,ids,n,self.reason.value,str(i.id)),ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+        await reply(i,f"{len(ids)}명 × {n:,} TP = {len(ids)*n:,} TP\n사유: {self.reason.value}",view=GrantConfirm(i.user.id,ids,n,self.reason.value,str(i.id)))
 
 class GrantConfirm(discord.ui.View):
     def __init__(self,actor,ids,n,reason,key):
@@ -189,6 +209,7 @@ class GrantConfirm(discord.ui.View):
         try:
             count=db.grant(self.ids,self.n,"grant:"+self.key,self.reason,self.actor)
             await i.response.edit_message(content=f"{count}명 처리 완료",view=None)
+            delete_later(i.delete_original_response,30)
         except ValueError as e: await reply(i,str(e))
 
 class ResultConfirm(discord.ui.View):
@@ -218,7 +239,7 @@ class Manage(discord.ui.View):
             b=discord.ui.Button(label=label,style=discord.ButtonStyle.danger,custom_id=f"lp:manage:result:{uuid.uuid4().hex}")
             async def cb(i,s=side):
                 if await guard(i,True):
-                    await i.response.send_message("정산 또는 환불을 확정하시겠습니까?",view=ResultConfirm(pid,s,i.user.id),ephemeral=True)
+                    await reply(i,"정산 또는 환불을 확정하시겠습니까?",view=ResultConfirm(pid,s,i.user.id))
             b.callback=cb
             self.add_item(b)
     @discord.ui.button(label="예측 마감")
@@ -243,6 +264,44 @@ class UserLookup(discord.ui.Modal,title="사용자 통나무 조회"):
             rows=list(c.execute("SELECT delta,reason,created FROM ledger WHERE uid=? AND delta!=0 ORDER BY rowid DESC LIMIT 10",(uid,)))
         await reply(i,f"<@{uid}> · {balance:,} TP · 음성 {seconds//60}분\n"+"\n".join(f"{r[2]} · {r[0]:+,} TP · {r[1][:70]}" for r in rows))
 
+class UserList(discord.ui.View):
+    def __init__(self,actor,rows):
+        super().__init__(timeout=120)
+        self.actor,self.rows,self.page=actor,rows,0
+        self.pages=max(1,(len(rows)+14)//15)
+        self.prev.custom_id=f"lp:users:prev:{uuid.uuid4().hex}"
+        self.next.custom_id=f"lp:users:next:{uuid.uuid4().hex}"
+        self.detail.custom_id=f"lp:users:detail:{uuid.uuid4().hex}"
+        self.sync()
+    def sync(self):
+        self.prev.disabled=self.page==0
+        self.next.disabled=self.page+1>=self.pages
+    def content(self):
+        start=self.page*15
+        lines=[f"**사용자 통나무 조회 · {len(self.rows)}명 · {self.page+1}/{self.pages} 페이지**"]
+        for k,(uid,n,s) in enumerate(self.rows[start:start+15],start+1):
+            lines.append(f"**{k}.** <@{uid}> · **{n:,} TP** · 음성 {s//3600}시간 {s%3600//60}분 {s%60}초")
+        return "\n".join(lines) if self.rows else "등록 사용자 없음"
+    async def interaction_check(self,i):
+        if not await guard(i,True): return False
+        if i.user.id!=self.actor:
+            await reply(i,"조회 요청자만 조작 가능합니다.")
+            return False
+        return True
+    @discord.ui.button(label="이전")
+    async def prev(self,i,b):
+        self.page=max(0,self.page-1)
+        self.sync()
+        await i.response.edit_message(content=self.content(),view=self,allowed_mentions=discord.AllowedMentions.none())
+    @discord.ui.button(label="다음")
+    async def next(self,i,b):
+        self.page=min(self.pages-1,self.page+1)
+        self.sync()
+        await i.response.edit_message(content=self.content(),view=self,allowed_mentions=discord.AllowedMentions.none())
+    @discord.ui.button(label="상세 거래 조회")
+    async def detail(self,i,b):
+        await i.response.send_modal(UserLookup())
+
 class Panel(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="출석 체크",custom_id="lp:attendance")
@@ -266,14 +325,18 @@ class Panel(discord.ui.View):
     async def manage(self,i,b):
         if not await guard(i,True): return
         p=db.active()
-        if p: await i.response.send_message(p["question"],view=Manage(p["id"]),ephemeral=True)
+        if p: await reply(i,p["question"],view=Manage(p["id"]))
         else: await i.response.send_modal(CreateModal())
     @discord.ui.button(label="통나무 지급 / 회수",custom_id="lp:grant")
     async def grant(self,i,b):
         if await guard(i,True): await i.response.send_modal(GrantModal())
     @discord.ui.button(label="사용자 조회",custom_id="lp:lookup")
     async def lookup(self,i,b):
-        if await guard(i,True): await i.response.send_modal(UserLookup())
+        if await guard(i,True):
+            with db.tx() as c:
+                rows=[tuple(r) for r in c.execute("SELECT uid,balance,seconds FROM users ORDER BY balance DESC,seconds DESC,uid")]
+            view=UserList(i.user.id,rows)
+            await reply(i,view.content(),view=view if rows else None,delay=125 if rows else 30)
     @discord.ui.button(label="통나무 관리",custom_id="lp:stats")
     async def stats(self,i,b):
         if not await guard(i,True): return
@@ -383,7 +446,7 @@ async def on_ready():
         p=db.active()
         if p: await render(p["id"])
     last.clear()
-    tick_voice()
+    await tick_voice()
     if not maintenance.is_running(): maintenance.start()
     if os.getenv("LOG_POWER_HTTP_BRIDGE")=="1" and not getattr(bot,"lp_bridge",None):
         bot.lp_bridge=await start_bridge(bot)
