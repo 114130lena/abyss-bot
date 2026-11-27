@@ -3,6 +3,7 @@ import os, time, uuid, asyncio, logging, sqlite3
 from pathlib import Path
 import discord
 from discord.ext import commands, tasks
+from .interaction_bridge import start_bridge
 from .store import Store, CHANNEL_ID
 
 logging.basicConfig(level=logging.INFO)
@@ -20,10 +21,10 @@ last={}
 session=uuid.uuid4().hex
 
 def admin(i):
-    return isinstance(i.user,discord.Member) and i.user.guild_permissions.administrator
+    return isinstance(i.user,discord.Member) and i.permissions.administrator
 
 async def guard(i, privileged=False):
-    if i.channel_id!=CHANNEL_ID:
+    if i.channel_id!=CHANNEL_ID or not channel or i.guild_id!=channel.guild.id:
         await i.response.send_message("전용 채널에서만 이용 가능합니다.",ephemeral=True)
         return False
     if privileged and not admin(i):
@@ -103,7 +104,7 @@ async def render(pid):
 class BetModal(discord.ui.Modal,title="통나무 파워 참여"):
     amount=discord.ui.TextInput(label="참여량 (최소 100 TP)",max_length=10)
     def __init__(self,pid,side):
-        super().__init__()
+        super().__init__(custom_id=f"lp:modal:bet:{uuid.uuid4().hex}",timeout=300)
         self.pid,self.side=pid,side
     async def on_submit(self,i):
         if not await guard(i): return
@@ -127,6 +128,8 @@ class BetView(discord.ui.View):
             self.add_item(b)
 
 class CreateModal(discord.ui.Modal,title="승부 예측 시작"):
+    def __init__(self):
+        super().__init__(custom_id=f"lp:modal:create:{uuid.uuid4().hex}",timeout=300)
     question=discord.ui.TextInput(label="예측 주제",max_length=200)
     a=discord.ui.TextInput(label="A 선택지",max_length=80)
     b=discord.ui.TextInput(label="B 선택지",max_length=80)
@@ -145,6 +148,8 @@ class CreateModal(discord.ui.Modal,title="승부 예측 시작"):
         except ValueError as e: await reply(i,str(e))
 
 class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
+    def __init__(self):
+        super().__init__(custom_id=f"lp:modal:grant:{uuid.uuid4().hex}",timeout=300)
     targets=discord.ui.TextInput(label="사용자 ID / all / voice / role:ID",max_length=1000)
     amount=discord.ui.TextInput(label="1인당 지급량 (회수는 음수)",max_length=10)
     reason=discord.ui.TextInput(label="사유",max_length=150)
@@ -171,6 +176,7 @@ class GrantConfirm(discord.ui.View):
     def __init__(self,actor,ids,n,reason,key):
         super().__init__(timeout=60)
         self.actor,self.ids,self.n,self.reason,self.key=actor,ids,n,reason,key
+        self.confirm.custom_id=f"lp:confirm:grant:{uuid.uuid4().hex}"
     @discord.ui.button(label="지급/회수 확정",style=discord.ButtonStyle.danger)
     async def confirm(self,i,b):
         if not await guard(i,True): return
@@ -184,6 +190,7 @@ class ResultConfirm(discord.ui.View):
     def __init__(self,pid,winner,actor):
         super().__init__(timeout=60)
         self.pid,self.winner,self.actor=pid,winner,actor
+        self.confirm.custom_id=f"lp:confirm:result:{uuid.uuid4().hex}"
     @discord.ui.button(label="최종 확정",style=discord.ButtonStyle.danger)
     async def confirm(self,i,b):
         if not await guard(i,True): return
@@ -201,8 +208,9 @@ class Manage(discord.ui.View):
     def __init__(self,pid):
         super().__init__(timeout=120)
         self.pid=pid
+        self.close.custom_id=f"lp:manage:close:{uuid.uuid4().hex}"
         for label,side in [("A 결과 확정",0),("B 결과 확정",1),("취소 및 환불",None)]:
-            b=discord.ui.Button(label=label,style=discord.ButtonStyle.danger)
+            b=discord.ui.Button(label=label,style=discord.ButtonStyle.danger,custom_id=f"lp:manage:result:{uuid.uuid4().hex}")
             async def cb(i,s=side):
                 if await guard(i,True):
                     await i.response.send_message("정산 또는 환불을 확정하시겠습니까?",view=ResultConfirm(pid,s,i.user.id),ephemeral=True)
@@ -218,6 +226,8 @@ class Manage(discord.ui.View):
         await reply(i,"마감 완료")
 
 class UserLookup(discord.ui.Modal,title="사용자 통나무 조회"):
+    def __init__(self):
+        super().__init__(custom_id=f"lp:modal:lookup:{uuid.uuid4().hex}",timeout=300)
     uid=discord.ui.TextInput(label="사용자 ID",max_length=20)
     async def on_submit(self,i):
         if not await guard(i,True): return
@@ -337,6 +347,8 @@ async def on_ready():
     last.clear()
     tick_voice()
     if not maintenance.is_running(): maintenance.start()
+    if not getattr(bot,"lp_bridge",None):
+        bot.lp_bridge=await start_bridge(bot)
 
 if __name__=="__main__":
-    bot.run(os.environ["LOG_POWER_BOT_TOKEN"])
+    bot.run(os.environ["DISCORD_BOT_TOKEN"])
