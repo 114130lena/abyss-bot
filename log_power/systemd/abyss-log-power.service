@@ -1,0 +1,18 @@
+[Unit]
+Description=Abyss Log Power
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/abyss-log-power
+EnvironmentFile=/home/ubuntu/abyss-log-power/private.env
+Environment=LOG_POWER_DB=/home/ubuntu/abyss-log-power/data/points.sqlite3
+ExecStart=/home/ubuntu/abyss-log-power/.venv/bin/python -m log_power.bot
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

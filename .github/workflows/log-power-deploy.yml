@@ -1,0 +1,98 @@
+name: 통나무 파워 독립 배포
+on:
+  push:
+    branches: ['feature/log-power']
+    paths: ['.github/workflows/log-power-deploy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: abyss-log-power-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          pip install -r log_power/requirements.txt
+          python -m compileall -q log_power
+          python -m unittest -v log_power.test_store log_power.test_router
+      - name: Install independent service only
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          remote="$SSH_USER@$SSH_HOST"
+          stage=$(ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$remote" 'mktemp -d /tmp/abyss-lp.XXXXXX')
+          scp -r -i ~/.ssh/key -o IdentitiesOnly=yes log_power "$remote:$stage/"
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$remote" "STAGE='$stage' bash -se" <<'REMOTE'
+          set -euo pipefail
+          base=/home/ubuntu/abyss-log-power
+          prod=/home/ubuntu/chzzk-bot
+          if [ -x "$prod/.venv/bin/python" ]; then PY="$prod/.venv/bin/python"; else PY="$prod/.venv-test/bin/python"; fi
+          sudo systemctl is-active --quiet chzzk-bot
+          mkdir -p "$base/data"
+          chmod 700 "$base" "$base/data"
+          "$PY" - "$base" <<'PY'
+          import sys, pathlib, os, requests
+          from dotenv import dotenv_values
+          cfg=dotenv_values("/home/ubuntu/chzzk-bot/.env")
+          token=cfg["DISCORD_BOT_TOKEN"]
+          assert token and "\n" not in token and "\r" not in token
+          headers={"Authorization":"Bot "+token}
+          app=requests.get("https://discord.com/api/v10/oauth2/applications/@me",headers=headers,timeout=10)
+          app.raise_for_status()
+          assert not app.json().get("interactions_endpoint_url"), "HTTP endpoint configured: stop Gateway-only deployment"
+          ch=requests.get("https://discord.com/api/v10/channels/1575809466576932904",headers=headers,timeout=10)
+          ch.raise_for_status()
+          assert ch.json()["guild_id"]==cfg["DISCORD_GUILD_ID"]
+          assert ch.json()["type"]==0
+          assert cfg.get("BANNER_BOOKMARK_INTERACTIONS_ENABLED")!="1"
+          p=pathlib.Path(sys.argv[1])/"private.env"
+          fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+          with os.fdopen(fd,"w") as f:
+              f.write("DISCORD_BOT_TOKEN="+token+"\nLOG_POWER_MEMBERS_INTENT=0\nLOG_POWER_HTTP_BRIDGE=0\n")
+          p.chmod(0o600)
+          print("Gateway-only preflight: OK")
+          PY
+          python3 -m venv "$base/.venv"
+          "$base/.venv/bin/pip" install -r "$STAGE/log_power/requirements.txt"
+          "$base/.venv/bin/python" -m compileall -q "$STAGE/log_power"
+          if sudo systemctl is-active --quiet abyss-log-power; then sudo systemctl stop abyss-log-power; fi
+          cp -a "$STAGE/log_power" "$base/"
+          sudo install -m 644 "$base"/log_power/systemd/abyss-log-power* /etc/systemd/system/
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now abyss-log-power.service
+          sudo systemctl enable --now abyss-log-power-backup.timer
+          sudo systemctl start abyss-log-power-backup.service
+          sleep 20
+          sudo systemctl is-active --quiet chzzk-bot
+          sudo systemctl is-active --quiet abyss-log-power
+          sudo systemctl is-active --quiet abyss-log-power-backup.timer
+          "$PY" - <<'PY'
+          import sqlite3,requests
+          from dotenv import dotenv_values
+          cfg=dotenv_values("/home/ubuntu/chzzk-bot/.env")
+          with sqlite3.connect("file:/home/ubuntu/abyss-log-power/data/points.sqlite3?mode=ro",uri=True) as c:
+              row=c.execute("SELECT value FROM settings WHERE key='panel'").fetchone()
+              assert row, "panel not created"
+          r=requests.get("https://discord.com/api/v10/channels/1575809466576932904/messages/"+row[0],headers={"Authorization":"Bot "+cfg["DISCORD_BOT_TOKEN"]},timeout=10)
+          r.raise_for_status()
+          m=r.json()
+          assert m.get("pinned") and m.get("components"), "panel not pinned or buttons missing"
+          print("PANEL_VERIFIED",row[0])
+          PY
+          rm -rf "$STAGE"
+          REMOTE

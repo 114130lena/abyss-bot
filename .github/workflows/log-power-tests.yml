@@ -1,0 +1,19 @@
+name: 통나무 파워 독립 테스트
+on:
+  push:
+    paths: ['log_power/**', '.github/workflows/log-power-tests.yml', 'banner_bookmark_interactions.py']
+  pull_request:
+    paths: ['log_power/**', '.github/workflows/log-power-tests.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r log_power/requirements.txt
+      - run: python -m compileall -q log_power
+      - run: python -m unittest -v log_power.test_store log_power.test_router

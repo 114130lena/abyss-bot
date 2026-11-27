@@ -1,0 +1,10 @@
+[Unit]
+Description=Abyss Log Power SQLite backup
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/abyss-log-power
+Environment=LOG_POWER_DB=/home/ubuntu/abyss-log-power/data/points.sqlite3
+ExecStart=/home/ubuntu/abyss-log-power/.venv/bin/python -m log_power.backup
+UMask=0077
+NoNewPrivileges=true

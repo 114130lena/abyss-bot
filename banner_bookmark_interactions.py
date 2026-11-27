@@ -7,6 +7,9 @@ import json
 import logging
 import os
 import re
+import time
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -33,6 +36,21 @@ def process(body, signature, timestamp):
         return 400, {"error": "invalid_payload"}
     if data.get("type") == 1:
         return 200, {"type": 1}
+    if data.get("type") in (3, 5) and str((data.get("data") or {}).get("custom_id") or "").startswith("lp:"):
+        if str(data.get("guild_id")) != os.getenv("DISCORD_GUILD_ID") or str(data.get("channel_id")) != "1575809466576932904":
+            return 200, {"type": 4, "data": {"content": "전용 채널에서만 이용 가능합니다.", "flags": 64}}
+        if abs(time.time() - int(timestamp)) > 60:
+            return 401, {"error": "stale_signature"}
+        req = urllib.request.Request("http://127.0.0.1:8768/interactions", data=body, headers={
+            "Content-Type": "application/json", "X-Signature-Ed25519": signature,
+            "X-Signature-Timestamp": timestamp}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=1) as response:
+                if response.status == 202:
+                    return 202, None
+        except (OSError, urllib.error.URLError):
+            pass
+        return 200, {"type": 4, "data": {"content": "통나무 파워 서비스가 현재 연결되지 않았습니다.", "flags": 64}}
     if data.get("type") != 3:
         return 200, {"type": 4, "data": {"content": "지원하지 않는 요청입니다.", "flags": 64}}
     component = data.get("data") or {}
@@ -84,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             logging.exception("BANNER_BOOKMARK_INTERACTION_FAILED")
             status, payload = 500, {"error": "internal_error"}
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        encoded = b"" if status == 202 else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))

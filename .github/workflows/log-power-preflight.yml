@@ -1,0 +1,58 @@
+name: 통나무 파워 서버 사전 점검
+on:
+  push:
+    branches: ['feature/log-power']
+    paths: ['.github/workflows/log-power-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read-only production preflight
+        env:
+          SSH_HOST: ${{ secrets.ORACLE_HOST }}
+          SSH_USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/key -o IdentitiesOnly=yes "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          cd /home/ubuntu/chzzk-bot
+          if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv-test/bin/python; fi
+          "$PY" - <<'PY'
+          import json,re,subprocess,shutil
+          from dotenv import dotenv_values
+          import requests
+          cfg=dotenv_values(".env")
+          token=cfg.get("DISCORD_BOT_TOKEN") or ""
+          headers={"Authorization":"Bot "+token}
+          result={"existing_service":subprocess.run(["systemctl","is-active","--quiet","chzzk-bot"]).returncode==0,
+          "receiver_enabled":cfg.get("BANNER_BOOKMARK_INTERACTIONS_ENABLED")=="1",
+          "public_key_configured":bool(re.fullmatch(r"[0-9a-fA-F]{64}",cfg.get("DISCORD_APPLICATION_PUBLIC_KEY") or "")),
+          "disk_free_mib":shutil.disk_usage(".").free//1048576,
+          "sudo_available":subprocess.run(["sudo","-n","true"],capture_output=True).returncode==0}
+          try:
+              app=requests.get("https://discord.com/api/v10/oauth2/applications/@me",headers=headers,timeout=8)
+              result["app_http_status"]=app.status_code
+              if app.ok:
+                  a=app.json()
+                  result["http_endpoint_configured"]=bool(a.get("interactions_endpoint_url"))
+                  result["members_intent_available"]=bool((a.get("flags") or 0)&((1<<14)|(1<<15)))
+                  result["public_key_matches"]=a.get("verify_key")==cfg.get("DISCORD_APPLICATION_PUBLIC_KEY")
+              ch=requests.get("https://discord.com/api/v10/channels/1575809466576932904",headers=headers,timeout=8)
+              result["channel_http_status"]=ch.status_code
+              if ch.ok:
+                  result["channel_guild_matches"]=ch.json().get("guild_id")==cfg.get("DISCORD_GUILD_ID")
+                  result["channel_text"]=ch.json().get("type")==0
+          except requests.RequestException:
+              result["discord_check"]="failed"
+          print(json.dumps(result))
+          PY
+          REMOTE
