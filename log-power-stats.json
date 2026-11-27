@@ -1,1 +1,1 @@
-{"checked_at": 1795773861, "users": 1, "balance": 1000, "held": 0, "circulation": 1000, "ledger_total": 1000, "attendance_today": 1, "active_predictions": 0, "finished_predictions": 0, "ledger_consistent": true, "db_integrity": true, "backup_age_seconds": 357, "service_active": true}
+{"checked_at": 1795807954, "users": 6, "balance": 40000, "held": 0, "circulation": 40000, "ledger_total": 40000, "attendance_today": 0, "active_predictions": 0, "finished_predictions": 1, "ledger_consistent": true, "db_integrity": true, "backup_age_seconds": 1930, "service_active": true}
