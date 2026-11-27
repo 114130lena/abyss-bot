@@ -101,12 +101,12 @@ class Store:
     def close(self,pid):
         with self.tx() as c:
             c.execute("UPDATE prediction SET status='closed' WHERE id=? AND status='open'",(pid,))
-    def settle(self,pid,winner,now,actor):
+    def settle(self,pid,winner,now,actor,auto_close=False):
         if winner not in (None,0,1):
             raise ValueError("결과 오류")
         with self.tx() as c:
             p=c.execute("SELECT * FROM prediction WHERE id=?",(pid,)).fetchone()
-            if not p or p["status"] not in ("open","closed") or (winner is not None and p["status"]!="closed"):
+            if not p or p["status"] not in ("open","closed") or (winner is not None and p["status"]!="closed" and not auto_close):
                 raise ValueError("정산할 수 없는 상태입니다.")
             rows=list(c.execute("SELECT * FROM stakes WHERE pid=? ORDER BY uid",(pid,)))
             total=sum(r["amount"] for r in rows)

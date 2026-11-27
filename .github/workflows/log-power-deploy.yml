@@ -1,8 +1,8 @@
 name: 통나무 파워 독립 배포
 on:
   push:
-    branches: ['feature/log-power']
-    paths: ['.github/workflows/log-power-deploy.yml']
+    branches: ['fix/log-power-voice', 'main']
+    paths: ['.github/workflows/log-power-deploy.yml', 'log_power/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -94,5 +94,6 @@ jobs:
           assert m.get("pinned") and m.get("components"), "panel not pinned or buttons missing"
           print("PANEL_VERIFIED",row[0])
           PY
+          sudo journalctl -u abyss-log-power --since "2 minutes ago" --no-pager | grep -E "VOICE_ELIGIBLE_COUNT=" | tail -5 || true
           rm -rf "$STAGE"
           REMOTE
