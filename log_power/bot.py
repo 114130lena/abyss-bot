@@ -102,6 +102,10 @@ def prediction_embed(p):
         e.add_field(name=label,value=f"{n:,} TP · {odds} · {rank}")
     if p["status"]=="settled":
         e.add_field(name="결과",value=p["a"] if p["winner"]==0 else p["b"])
+    if p["status"] in ("open","closed"):
+        e.set_footer(text="마감·우승·취소 버튼은 관리자 전용")
+    if p["delete_at"] and p["status"] in ("settled","cancelled"):
+        e.add_field(name="자동 삭제",value=f"<t:{p['delete_at']}:R>",inline=False)
     if p["deadline"] and p["status"]=="open":
         e.add_field(name="마감",value=f"<t:{p['deadline']}:R>",inline=False)
     return e
@@ -116,7 +120,7 @@ async def render(pid):
     if not p:
         return
     m=await fetch_message(p["message"])
-    view=BetView(pid) if p["status"]=="open" else None
+    view=BetView(pid) if p["status"] in ("open","closed") else None
     if m is None and p["status"] in ("open","closed"):
         m=await channel.send(embed=prediction_embed(p),view=view,allowed_mentions=discord.AllowedMentions.none())
         with db.tx() as c:
@@ -144,10 +148,32 @@ class BetView(discord.ui.View):
         super().__init__(timeout=None)
         p=prediction(pid)
         for side,label in [(0,p["a"][:70]+" 참여"),(1,p["b"][:70]+" 참여")]:
-            b=discord.ui.Button(label=label,custom_id=f"lp:bet:{pid}:{side}",style=discord.ButtonStyle.primary if side==0 else discord.ButtonStyle.danger)
+            b=discord.ui.Button(label=label,custom_id=f"lp:bet:{pid}:{side}",style=discord.ButtonStyle.primary if side==0 else discord.ButtonStyle.danger,row=0,disabled=p["status"]!="open")
             async def callback(i,s=side):
                 if await guard(i): await i.response.send_modal(BetModal(pid,s))
             b.callback=callback
+            self.add_item(b)
+        close=discord.ui.Button(label="참여 마감",emoji="🔒",custom_id=f"lp:pred:{pid}:close",row=1,disabled=p["status"]!="open")
+        async def close_cb(i):
+            if not await guard(i,True): return
+            await i.response.defer(ephemeral=True)
+            async with lock:
+                db.close(pid)
+                await render(pid)
+            await reply(i,"참여 마감 완료")
+        close.callback=close_cb
+        self.add_item(close)
+        for side,label in [(0,p["a"][:65]+" 우승"),(1,p["b"][:65]+" 우승"),(None,"취소 및 환불")]:
+            b=discord.ui.Button(label=label,emoji="🏆" if side is not None else None,custom_id=f"lp:pred:{pid}:result:{side}",row=2,style=discord.ButtonStyle.success if side is not None else discord.ButtonStyle.danger)
+            async def result_cb(i,s=side):
+                if not await guard(i,True): return
+                current=prediction(pid)
+                if not current or current["status"] not in ("open","closed"):
+                    await reply(i,"이미 종료된 예측입니다.")
+                    return
+                label="취소 및 전액 환불" if s is None else current["a" if s==0 else "b"]+" 우승"
+                await reply(i,f"**{label}** 확정하시겠습니까? 확정 시 참여가 마감되고 정산됩니다.",view=ResultConfirm(pid,s,i.user.id))
+            b.callback=result_cb
             self.add_item(b)
 
 class CreateModal(discord.ui.Modal,title="승부 예측 시작"):
@@ -224,7 +250,7 @@ class ResultConfirm(discord.ui.View):
         await i.response.defer(ephemeral=True)
         try:
             async with lock:
-                refund=db.settle(self.pid,self.winner,int(time.time()),i.user.id)
+                refund=db.settle(self.pid,self.winner,int(time.time()),i.user.id,auto_close=True)
                 await render(self.pid)
                 await panel()
             await reply(i,"환불 완료" if refund else "정산 완료")
@@ -440,7 +466,7 @@ async def on_ready():
         bot.add_view(Panel())
         bot.lp_registered=True
         p=db.active()
-        if p and p["status"]=="open" and p["message"]: bot.add_view(BetView(p["id"]),message_id=int(p["message"]))
+        if p and p["status"] in ("open","closed") and p["message"]: bot.add_view(BetView(p["id"]),message_id=int(p["message"]))
     async with lock:
         await panel()
         p=db.active()
