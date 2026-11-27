@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily Log Power backup
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Seoul
+Persistent=true
+Unit=abyss-log-power-backup.service
+[Install]
+WantedBy=timers.target
