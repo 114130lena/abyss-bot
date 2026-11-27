@@ -13,7 +13,7 @@ db=Store(path)
 intents=discord.Intents.none()
 intents.guilds=True
 intents.voice_states=True
-intents.members=True
+intents.members=os.getenv("LOG_POWER_MEMBERS_INTENT")=="1"
 bot=commands.Bot(command_prefix=commands.when_mentioned,intents=intents,help_command=None)
 lock=asyncio.Lock()
 channel=None
@@ -158,6 +158,8 @@ class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
         await i.response.defer(ephemeral=True)
         raw=self.targets.value.strip()
         try:
+            if raw=="all" and not intents.members: raise ValueError("전체 지급은 Server Members Intent 활성화 후 가능합니다.")
+            if raw.startswith("role:") and not intents.members: raise ValueError("역할 지급은 Server Members Intent 활성화 후 가능합니다.")
             if raw=="all": members=[m async for m in i.guild.fetch_members(limit=None)]
             elif raw=="voice": members=[m for c in i.guild.voice_channels for m in c.members]
             elif raw.startswith("role:"):
@@ -347,7 +349,7 @@ async def on_ready():
     last.clear()
     tick_voice()
     if not maintenance.is_running(): maintenance.start()
-    if not getattr(bot,"lp_bridge",None):
+    if os.getenv("LOG_POWER_HTTP_BRIDGE")=="1" and not getattr(bot,"lp_bridge",None):
         bot.lp_bridge=await start_bridge(bot)
 
 if __name__=="__main__":
