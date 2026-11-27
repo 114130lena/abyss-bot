@@ -217,6 +217,17 @@ class Manage(discord.ui.View):
             await render(self.pid)
         await reply(i,"마감 완료")
 
+class UserLookup(discord.ui.Modal,title="사용자 통나무 조회"):
+    uid=discord.ui.TextInput(label="사용자 ID",max_length=20)
+    async def on_submit(self,i):
+        if not await guard(i,True): return
+        uid=self.uid.value.strip()
+        if not uid.isdigit(): await reply(i,"사용자 ID를 확인하세요."); return
+        balance,seconds=db.balance(uid)
+        with db.tx() as c:
+            rows=list(c.execute("SELECT delta,reason,created FROM ledger WHERE uid=? AND delta!=0 ORDER BY rowid DESC LIMIT 10",(uid,)))
+        await reply(i,f"<@{uid}> · {balance:,} TP · 음성 {seconds//60}분\n"+"\n".join(f"{r[2]} · {r[0]:+,} TP · {r[1][:70]}" for r in rows))
+
 class Panel(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="출석 체크",custom_id="lp:attendance")
@@ -245,6 +256,9 @@ class Panel(discord.ui.View):
     @discord.ui.button(label="통나무 지급 / 회수",custom_id="lp:grant")
     async def grant(self,i,b):
         if await guard(i,True): await i.response.send_modal(GrantModal())
+    @discord.ui.button(label="사용자 조회",custom_id="lp:lookup")
+    async def lookup(self,i,b):
+        if await guard(i,True): await i.response.send_modal(UserLookup())
     @discord.ui.button(label="통나무 관리",custom_id="lp:stats")
     async def stats(self,i,b):
         if not await guard(i,True): return
