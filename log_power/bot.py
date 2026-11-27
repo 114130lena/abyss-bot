@@ -118,7 +118,8 @@ class BetModal(discord.ui.Modal,title="통나무 파워 참여"):
 class BetView(discord.ui.View):
     def __init__(self,pid):
         super().__init__(timeout=None)
-        for side,label in [(0,"A 선택지 참여"),(1,"B 선택지 참여")]:
+        p=prediction(pid)
+        for side,label in [(0,p["a"][:70]+" 참여"),(1,p["b"][:70]+" 참여")]:
             b=discord.ui.Button(label=label,custom_id=f"lp:bet:{pid}:{side}",style=discord.ButtonStyle.primary if side==0 else discord.ButtonStyle.danger)
             async def callback(i,s=side):
                 if await guard(i): await i.response.send_modal(BetModal(pid,s))
@@ -144,11 +145,12 @@ class CreateModal(discord.ui.Modal,title="승부 예측 시작"):
         except ValueError as e: await reply(i,str(e))
 
 class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
-    targets=discord.ui.TextInput(label="사용자 ID 여러 개(쉼표) / all / voice / role:ID",max_length=1000)
+    targets=discord.ui.TextInput(label="사용자 ID / all / voice / role:ID",max_length=1000)
     amount=discord.ui.TextInput(label="1인당 지급량 (회수는 음수)",max_length=10)
     reason=discord.ui.TextInput(label="사유",max_length=150)
     async def on_submit(self,i):
         if not await guard(i,True): return
+        await i.response.defer(ephemeral=True)
         raw=self.targets.value.strip()
         try:
             if raw=="all": members=[m async for m in i.guild.fetch_members(limit=None)]
@@ -163,7 +165,7 @@ class GrantModal(discord.ui.Modal,title="통나무 지급 / 회수"):
             if not ids or not 0<abs(n)<=100000000: raise ValueError("대상 또는 금액 오류")
         except (ValueError,discord.HTTPException) as e:
             await reply(i,str(e)); return
-        await i.response.send_message(f"{len(ids)}명 × {n:,} TP = {len(ids)*n:,} TP\n사유: {self.reason.value}",view=GrantConfirm(i.user.id,ids,n,self.reason.value,str(i.id)),ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
+        await i.followup.send(f"{len(ids)}명 × {n:,} TP = {len(ids)*n:,} TP\n사유: {self.reason.value}",view=GrantConfirm(i.user.id,ids,n,self.reason.value,str(i.id)),ephemeral=True,allowed_mentions=discord.AllowedMentions.none())
 
 class GrantConfirm(discord.ui.View):
     def __init__(self,actor,ids,n,reason,key):
@@ -277,6 +279,12 @@ async def on_disconnect():
 
 @tasks.loop(seconds=15)
 async def maintenance():
+    try:
+        await maintenance_once()
+    except Exception:
+        logging.exception("maintenance retry on next tick")
+
+async def maintenance_once():
     if not bot.is_ready() or not channel: return
     tick_voice()
     async with lock:
@@ -317,4 +325,4 @@ async def on_ready():
     if not maintenance.is_running(): maintenance.start()
 
 if __name__=="__main__":
-    bot.run(os.environ["DISCORD_BOT_TOKEN"])
+    bot.run(os.environ["LOG_POWER_BOT_TOKEN"])
